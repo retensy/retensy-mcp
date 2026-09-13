@@ -1,0 +1,13 @@
+{
+  "_comment": "Пример для любого MCP-клиента (Claude Code / Cursor / Windsurf). Запуск через npx без установки. Замени токен или используй ${RETENSY_MCP_TOKEN} из окружения.",
+  "mcpServers": {
+    "retensy-mcp": {
+      "command": "npx",
+      "args": ["-y", "@retensy/mcp"],
+      "env": {
+        "RETENSY_BASE_URL": "https://bots.retensy.com",
+        "RETENSY_MCP_TOKEN": "${RETENSY_MCP_TOKEN:-}"
+      }
+    }
+  }
+}

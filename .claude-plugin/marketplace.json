@@ -1,0 +1,12 @@
+{
+  "name": "retensy",
+  "owner": { "name": "retensy", "url": "https://bots.retensy.com" },
+  "description": "Плагины Retensy для Claude Code.",
+  "plugins": [
+    {
+      "name": "retensy-mcp",
+      "source": "./",
+      "description": "Сборка и публикация воронок ботов (Telegram/MAX/Instagram, Retensy Bots) из описания + публикация статей блога в Markdown — через MCP + скилл."
+    }
+  ]
+}

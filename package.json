@@ -1,0 +1,21 @@
+{
+  "name": "@retensy/mcp",
+  "version": "0.11.0",
+  "description": "MCP server to build and publish Telegram, MAX and Instagram bot funnels/automations — and publish Markdown blog articles — in the Retensy Bots service. Zero dependencies.",
+  "type": "module",
+  "bin": { "retensy-mcp": "src/index.mjs" },
+  "main": "src/index.mjs",
+  "publishConfig": { "access": "public" },
+  "files": ["src", "skills", ".mcp.json", ".claude-plugin", "README.md", "LICENSE"],
+  "scripts": {
+    "start": "node src/index.mjs",
+    "check": "node --check src/index.mjs",
+    "test": "node scripts/smoke.mjs",
+    "validate": "node skills/build-bot-funnel/validate.mjs"
+  },
+  "engines": { "node": ">=18" },
+  "keywords": ["mcp", "telegram", "max", "instagram", "bot", "funnel", "automation", "articles", "blog", "markdown", "retensy", "claude-code", "model-context-protocol"],
+  "repository": { "type": "git", "url": "git+https://github.com/retensy/retensy-mcp.git" },
+  "homepage": "https://bots.retensy.com/bots",
+  "license": "MIT"
+}

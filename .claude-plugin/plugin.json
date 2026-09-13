@@ -1,0 +1,12 @@
+{
+  "name": "retensy-mcp",
+  "displayName": "Retensy MCP",
+  "version": "0.11.0",
+  "description": "MCP-сервер + скилл для Retensy Bots: сборка и публикация воронок ботов (Telegram/MAX/Instagram) и публикация статей блога в Markdown — всё одним токеном zmcp_.",
+  "author": { "name": "retensy", "url": "https://bots.retensy.com" },
+  "homepage": "https://bots.retensy.com/bots",
+  "repository": "https://github.com/retensy/retensy-mcp",
+  "license": "MIT",
+  "keywords": ["mcp", "telegram", "bot", "funnel", "retensy", "no-code", "claude-code"],
+  "mcpServers": "./.mcp.json"
+}

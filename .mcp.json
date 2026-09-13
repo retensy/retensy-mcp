@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "retensy-mcp": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/src/index.mjs"],
+      "env": {
+        "RETENSY_BASE_URL": "https://bots.retensy.com",
+        "RETENSY_MCP_TOKEN": "${RETENSY_MCP_TOKEN:-}"
+      }
+    }
+  }
+}
