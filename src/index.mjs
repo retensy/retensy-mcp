@@ -22,7 +22,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.11.0";
+const VERSION = "0.11.1";
 const BASE = (process.env.RETENSY_BASE_URL || "https://bots.retensy.com").replace(/\/+$/, "");
 const CONFIG_DIR = path.join(os.homedir(), ".retensy-bot-graph");
 const TOKEN_FILE = path.join(CONFIG_DIR, "token");
@@ -315,8 +315,15 @@ async function handleCall(params) {
       const saved = await api(`/api/bots/graphs/${a.graphId}`, { method: "PUT", body: payload });
       return okResult({ graphId: a.graphId, changed: true, totalMatches: total, replacements: report, backupGraphId, inPlace: true, status: saved?.status ?? null, nodes: Array.isArray(saved?.nodes) ? saved.nodes.length : null });
     }
-    case "dry_run":
-      return okResult(await api(`/api/bots/graphs/${a.graphId}/dry-run`, { method: "POST", body: { kind: a.kind, value: a.value, fromUsername: a.fromUsername, presetVariables: a.presetVariables, presetTags: a.presetTags } }));
+    case "dry_run": {
+      // В конфиге узла команда хранится БЕЗ слэша ({command:"start"}), а рантайм матчит
+      // текст сообщения — со слэшем. Без нормализации dry_run("start") молча даёт NO_MATCH,
+      // хотя сценарий рабочий.
+      const value = a.kind === "command" && typeof a.value === "string" && !a.value.startsWith("/")
+        ? `/${a.value}`
+        : a.value;
+      return okResult(await api(`/api/bots/graphs/${a.graphId}/dry-run`, { method: "POST", body: { kind: a.kind, value, fromUsername: a.fromUsername, presetVariables: a.presetVariables, presetTags: a.presetTags } }));
+    }
     case "publish_graph":
       return okResult(await api(`/api/bots/graphs/${a.graphId}/publish`, { method: "POST" }));
     case "import_funnel": {

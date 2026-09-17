@@ -175,6 +175,31 @@ for (const n of nodes) {
     case "TRIGGER_TEXT":
       if (c.matchMode && c.matchMode !== "ANY" && blank(c.value)) errors.push(`${who}: для matchMode≠ANY нужен value.`);
       break;
+    case "TRIGGER_TG_EVENT": {
+      // Рантайм размечает только эти апдейты (FlowExecutor.buildContext) — на остальных
+      // триггер молчит, а выглядит настроенным.
+      const LIVE = new Set(["message", "edited_message", "callback_query", "channel_post",
+        "edited_channel_post", "chat_member", "chat_join_request", "my_chat_member",
+        "message_reaction", "message_reaction_count", "chat_boost", "removed_chat_boost",
+        "poll", "poll_answer", "inline_query", "chosen_inline_result", "shipping_query",
+        "pre_checkout_query"]);
+      const DEAD = new Set(["business_connection", "business_message", "edited_business_message",
+        "deleted_business_messages", "chat_shared", "users_shared", "write_access_allowed",
+        "purchased_paid_media"]);
+      const ev = String(c.event || "");
+      if (blank(ev)) errors.push(`TG_EVENT_NO_EVENT: ${who} — нужен event (напр. chat_member, message_reaction).`);
+      else if (DEAD.has(ev)) errors.push(`TG_EVENT_UNSUPPORTED: ${who} — событие «${ev}» рантайм не разбирает, триггер не сработает.`);
+      else if (!LIVE.has(ev)) warns.push(`${who}: событие «${ev}» не из списка поддержанных — проверь, что рантайм его размечает.`);
+      // Фильтр по тексту есть только у событий с текстом сообщения.
+      const TEXTY = new Set(["message", "edited_message", "channel_post", "edited_channel_post"]);
+      const f = c.filter && typeof c.filter === "object" ? c.filter : {};
+      if (!blank(f.text) && !TEXTY.has(ev)) warns.push(`${who}: фильтр по тексту у события «${ev}» игнорируется — текста в апдейте нет.`);
+      if (!blank(f.status) && ev !== "chat_member" && ev !== "my_chat_member") warns.push(`${who}: фильтр по статусу работает только у chat_member/my_chat_member.`);
+      break;
+    }
+    case "TRIGGER_COMMENT":
+      errors.push(`TRIGGER_COMMENT_DEAD: ${who} — этот тип триггера не сработает никогда (рантайм не выставляет event=comment). Для Instagram используй TRIGGER_IG_COMMENT.`);
+      break;
     case "ASK_QUESTION":
       if (blank(c.promptText)) errors.push(`${who}: нужен promptText.`);
       if (c.saveTo && !VAR_RE.test(c.saveTo)) errors.push(`${who}: saveTo «${c.saveTo}» не матчит [a-z_][a-z0-9_]{0,63}.`);

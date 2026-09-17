@@ -36,6 +36,30 @@
 - `TRIGGER_CALLBACK` — `{ "matchMode": "EQUALS"|"STARTS_WITH", "value": "<callback_data>" }`
 - `TRIGGER_TEXT` — `{ "matchMode": "ANY"|"EQUALS"|"CONTAINS"|"REGEX", "value": "..." }`
 - `BROADCAST_FILTER` — режим рассылки (если есть — единственный триггер).
+- `TRIGGER_TG_EVENT` — любое событие Telegram, кроме обычного сообщения: вступил/вышел из канала,
+  реакция, буст, заявка в закрытую группу, ответ в опросе и т.п.
+  `{ "event": "<имя поля Update>", "filter": { ... }, "priority": 0 }`.
+  Рабочие `event` (бэкенд их размечает, остальные молчат): `message`, `edited_message`,
+  `callback_query`, `channel_post`, `edited_channel_post`, `chat_member`, `chat_join_request`,
+  `my_chat_member`, `message_reaction`, `message_reaction_count`, `chat_boost`,
+  `removed_chat_boost`, `poll`, `poll_answer`, `inline_query`, `chosen_inline_result`,
+  `shipping_query`, `pre_checkout_query`.
+  **НЕ работают** (Telegram их шлёт, но рантайм не разбирает): `business_*`, `chat_shared`,
+  `users_shared`, `write_access_allowed`, `purchased_paid_media` — такой триггер не сработает.
+  `filter` (все условия по И, пустое = не задано):
+  `{"status":"member"|"left"|"kicked"|…}` — только там, где есть `member.status`
+  (`chat_member`, `my_chat_member`); `{"chatId":"-1001234567890"}` — конкретный чат/канал
+  (сравнение строкой, id каналов не влезают в int), доступен у 12 событий с `chat`;
+  `{"text":"купить","textMode":"contains"|"equals"}` — только `message`/`edited_message`/
+  `channel_post`/`edited_channel_post`. У `poll`/`poll_answer`/`inline_query`/
+  `chosen_inline_result`/`shipping_query`/`pre_checkout_query` чата нет → фильтров тоже.
+  Бот должен быть админом канала/группы, иначе события оттуда не придут.
+- `TRIGGER_ANY_UPDATE` — `{}`, ловит ЛЮБОЙ апдейт. Приоритет самый низкий: срабатывает, только
+  если не подошёл ни один конкретный триггер. Удобен как «ничего не понял» / отладка.
+- `TRIGGER_WEBHOOK` — `{}`, точка входа сценария с источником WEBHOOK (не бот). Такие сценарии
+  создаются в вебе; у графа бота этот триггер не сработает.
+- ~~`TRIGGER_COMMENT`~~ — **мёртвый тип**: рантайм нигде не выставляет `event="comment"`, сработать
+  он не может. Убран из палитры редактора. Комментарии Instagram — `TRIGGER_IG_COMMENT`.
 
 #### Instagram (только для IG-ботов)
 IG-боты не поддерживают команды (`/start`). Вход — через взаимодействие с контентом или директ:
@@ -93,7 +117,18 @@ IG-боты не поддерживают команды (`/start`). Вход �
 
 ### Внешнее / прочее
 - `CALL_WEBHOOK` — `{ "url":"https://...", "method":"POST", "bodyTemplate":"{...}", "timeoutMs":5000 }`. Выходы `ok` / `error`.
-- `AI_REPLY`, `PAYMENT_LINK`.
+- `AI_REPLY` — ответ модели.
+  `{ "systemPrompt":"Ты консультант магазина.", "userPromptTemplate":"Вопрос: {{last_text}}",
+  "sendToUser": true, "saveTo":"ai_answer", "quotaFallbackText":"Спросите менеджера" }`.
+  `userPromptTemplate` обязателен (пустой → выход `error`). `sendToUser:true` — отправить ответ
+  подписчику; `saveTo` — положить в переменную. **Узел платный** (`PREMIUM_NODES`): на бесплатном
+  тарифе публикация падает с `PREMIUM_NODE_FORBIDDEN`. Если месячный AI-бюджет тарифа исчерпан,
+  узел НЕ ошибка: отправляется `quotaFallbackText` (если задан) и сценарий идёт дальше по `next`.
+  Температура задаётся глобально на сервере — поле `temperature` в конфиге рантайм не читает.
+- `PAYMENT_LINK` — сообщение с кнопкой-ссылкой на оплату (сам платёж не проводит).
+  `{ "paymentUrl":"https://example.com/pay?user={{from.id}}", "description":"Оплатите подписку:",
+  "buttonText":"Оплатить" }`.
+- `CALL_WEBHOOK` — тоже платный узел (`PREMIUM_NODES`), см. раздел «Внешнее / прочее».
 
 ## Условия CONDITION
 
