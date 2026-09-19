@@ -112,7 +112,36 @@ IG-боты не поддерживают команды (`/start`). Вход �
   - **уведомления**: `notify` (`text`), `subscriber_email` (`email`,`text`), `agent_chat`
   - **бот/шаг**: `stop_bot`, `delete_step_message`, `cancel_payment_subscription`
   - **Google Таблицы (работает)**: `gsheets_send` — дописать строку-заявку в таблицу: `{ "kind":"gsheets_send", "googleEmail":"me@gmail.com", "spreadsheetId":"<id таблицы>", "sheetName":"Лист1", "cells":["{{from.first_name}}","{{var.phone}}","{{var.email}}"] }`. `cells` — значения по порядку (шаблоны), бот дописывает их строкой в конец листа. Google-аккаунт подключается В ВЕБЕ (`/bots` → у действия кнопка «Подключить Google»), НЕ через MCP — у пользователя уже должен быть подключён `googleEmail`. Нужны `googleEmail` + `spreadsheetId` + непустой `cells[]` (иначе `ACTION_GSHEETS_INCOMPLETE`).
-  - **интеграции (пока заглушки, no-op `integration_not_connected`)**: `getcourse_send`, `getcourse_order`, `amocrm_send`, `amocrm_update`, `yametrika_event`, `gsheets_get`, `gsheets_update`, `gsheets_write_cell`, `gsheets_read_cell`
+    Остальные четыре действия с таблицами тоже РАБОТАЮТ и тоже требуют `googleEmail` + `spreadsheetId`:
+    `gsheets_get` (`range` → `saveTo`), `gsheets_update` (`range`, `values[]`), `gsheets_write_cell`
+    (`cell`, `value`), `gsheets_read_cell` (`cell` → `saveTo`; пустая ячейка не ошибка — переменная станет `""`).
+  - **CRM и внешние системы — РАБОТАЮТ** (реальные HTTP-клиенты на бэкенде, не заглушки).
+    Всем им нужен **`connectionId`** — id подключения пользователя; без него действие падает
+    «не выбрано подключение». **Узнать id: инструмент MCP `list_integrations`** (отдаёт
+    `{id, provider, title, hint}`; сами креды не отдаются). Значения полей — шаблоны
+    (`{{var.x}}`, `{{from.first_name}}`).
+    - `amocrm_send` — создать сделку (+контакт): `connectionId`, `leadName`, опц. `price`,
+      `pipelineId`, `statusId` (числа), `contactName`, `phone`, `email`. Если все три контактных
+      поля после рендера пусты — сделка уходит без контакта. В переменные кладёт `amo_lead_id`
+      и `amo_contact_id` (если amo его вернул).
+    - `amocrm_update` — частичное обновление сделки: `connectionId`, `leadId` (обычно
+      `{{var.amo_lead_id}}`), плюс те же `leadName`/`price`/`pipelineId`/`statusId`. Пустой
+      `leadId` или отсутствие полей для обновления — отказ.
+    - `bitrix24_call` — любой REST-метод Битрикс24: `connectionId`, **`b24method`** (именно так,
+      не `method` — это имя занято HTTP-методом «Внешнего запроса»), `fields` — список пар
+      `{key, value}` (ключ вида `fields[TITLE]` разворачивается во вложенную карту),
+      `extract` — список `{path, saveTo}` для JsonPath-извлечения ответа в переменные.
+    - `getcourse_send` — добавить/обновить пользователя: `connectionId`, `email`, опц. `userName`,
+      `phone`, `groups` (CSV групп), `addfields` (карта доп.полей). Повторная заявка обновляет,
+      а не дублирует.
+    - `getcourse_order` — создать заказ: те же поля пользователя + `offerCode`, опц. `dealStatus`,
+      `dealComment`. В переменные кладёт `gc_deal_id`, если GetCourse его вернул.
+    - `yametrika_event` — офлайн-конверсия в Я.Метрику: `connectionId`, `idType`
+      (`ClientId`|`Yclid`, по умолчанию `ClientId`), **`idValue`** (обязателен после рендера —
+      пустой обрывает действие), опц. `target`, `price`, `currency` (по умолчанию `RUB`),
+      `dateTime` (unix-секунды, по умолчанию «сейчас»).
+  - **Единственные НЕ интегрированные действия**: `agent_chat` и `cancel_payment_subscription` —
+    принимается как no-op с пометкой `integration_not_connected`.
   - **модерация группы**: `group_unban`, `group_kick`, `group_approve`, `group_decline`
 
 ### Внешнее / прочее
@@ -129,6 +158,17 @@ IG-боты не поддерживают команды (`/start`). Вход �
   `{ "paymentUrl":"https://example.com/pay?user={{from.id}}", "description":"Оплатите подписку:",
   "buttonText":"Оплатить" }`.
 - `CALL_WEBHOOK` — тоже платный узел (`PREMIUM_NODES`), см. раздел «Внешнее / прочее».
+
+## Лимиты тарифа, которые видит сборщик графов
+
+- **Блоков в сценарии.** Публикация падает с `NODE_LIMIT_EXCEEDED` (в тексте — сколько блоков в
+  графе и сколько даёт тариф). Ошибка на весь граф, `nodeId` пустой. Проверять нечем заранее:
+  число блоков берётся из `nodes[]`, лимит — из тарифа владельца.
+- **Число сценариев.** `create_graph`, `create_graph_from_template`, `clone_graph`, `copy_graph` и
+  создание сценария в вебе отдают **HTTP 402** `{error, upgradeUrl}`, когда лимит исчерпан.
+  Считаются сценарии, которые завёл человек; снимок публикации место не занимает.
+- **Переменные** (глобальные и на сценарий) тоже лимитированы тарифом — сама подсистема переменных
+  ещё не построена, поле лимита в тарифе уже есть.
 
 ## Условия CONDITION
 
@@ -159,7 +199,8 @@ IG-боты не поддерживают команды (`/start`). Вход �
 
 ## Платформа Instagram
 
-IG-боты подключаются через OAuth в разделе **«Инструменты роста»** (`/growth`) — **без вставки токена вручную**; у IG нет персонального бот-токена. После OAuth бот получает доступ к Messaging API через привязанный Instagram Business/Creator-аккаунт.
+IG-боты подключаются через OAuth на странице **`/bots/instagram`** (раздел «Подключения» → карточка
+Instagram; прежний раздел «Инструменты роста» / `/growth` расформирован и редиректит) — **без вставки токена вручную**; у IG нет персонального бот-токена. После OAuth бот получает доступ к Messaging API через привязанный Instagram Business/Creator-аккаунт.
 
 ### Разрешённые типы узлов для IG-ботов
 

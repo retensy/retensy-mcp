@@ -3,7 +3,7 @@
   "mcpServers": {
     "retensy-mcp": {
       "command": "npx",
-      "args": ["-y", "@retensy/mcp"],
+      "args": ["-y", "@retensy/mcp@latest"],
       "env": {
         "RETENSY_BASE_URL": "https://bots.retensy.com",
         "RETENSY_MCP_TOKEN": "${RETENSY_MCP_TOKEN:-}"

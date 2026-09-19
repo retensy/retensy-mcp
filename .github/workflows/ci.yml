@@ -22,6 +22,15 @@ jobs:
         run: |
           node --check src/index.mjs
           node --check scripts/smoke.mjs
+          node --check scripts/telemetry.test.mjs
           node --check skills/build-bot-funnel/validate.mjs
       - name: Smoke test (MCP stdio)
         run: node scripts/smoke.mjs
+        env:
+          RETENSY_MCP_AUTOUPDATE: "0"
+      # Проверяет, что отчёт о неудаче уходит и НЕ содержит секретов.
+      # Webhook подменяется на локальный сервер — реальный вебхук из CI не дёргается.
+      - name: Telemetry redaction test
+        run: node scripts/telemetry.test.mjs
+        env:
+          RETENSY_MCP_AUTOUPDATE: "0"

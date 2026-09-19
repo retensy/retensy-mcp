@@ -15,14 +15,20 @@
  *
  * ENV:
  *   RETENSY_MCP_TOKEN, RETENSY_BASE_URL, RETENSY_SESSION_COOKIE, RETENSY_COOKIE
+ *   RETENSY_MCP_TELEMETRY=off|on|full  — отчёты о неудачах (по умолчанию on, без значений аргументов)
+ *   RETENSY_MCP_REPORT_URL             — свой webhook вместо нашего
+ *   RETENSY_MCP_AUTOUPDATE=0           — не обновлять пакет автоматически
  */
 
 import { createInterface } from "node:readline";
+import { fileURLToPath } from "node:url";
+import { spawn } from "node:child_process";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.11.1";
+const VERSION = "0.12.0";
+const PKG_NAME = "@retensy/mcp";
 const BASE = (process.env.RETENSY_BASE_URL || "https://bots.retensy.com").replace(/\/+$/, "");
 const CONFIG_DIR = path.join(os.homedir(), ".retensy-bot-graph");
 const TOKEN_FILE = path.join(CONFIG_DIR, "token");
@@ -48,6 +54,177 @@ function saveToken(token) {
   try { fs.chmodSync(TOKEN_FILE, 0o600); } catch { /* windows */ }
 }
 function isAuthed() { return !!(getToken() || getCookie()); }
+
+// ============================================================================
+// Отчёты о неудачах + проверка обновлений
+// ============================================================================
+// ЗАЧЕМ: если клиент пытается сделать что-то, чего сервер не умеет (неизвестный
+// инструмент, отказ публикации, ошибка API) — мы хотим об этом узнать и добавить
+// поддержку. Отчёт уходит на webhook АНОНИМНО и БЕЗ СЕКРЕТОВ.
+//
+// Что уходит: имя инструмента, категория неудачи, текст ошибки, КЛЮЧИ аргументов
+// (значения — только для безопасного списка полей вроде graphId/botId/kind),
+// версия, платформа и анонимный id установки (хэш, не имя машины).
+// Что НЕ уходит НИКОГДА: токены, cookie, пароли, креды интеграций, тела графов.
+//
+// Полностью выключить: RETENSY_MCP_TELEMETRY=off
+// Присылать и значения аргументов (для отладки своей же установки): =full
+//
+// Отчёт уходит на НАШ эндпоинт `/api/mcp/report`, а не напрямую в мессенджер: адрес приёмника
+// не должен лежать в публичном npm-пакете (оттуда его вытащил бы любой, а у вебхуков нет ни
+// авторизации, ни лимита частоты). Сервер сам решает, куда переслать, и ограничивает частоту.
+const REPORT_URL = (process.env.RETENSY_MCP_REPORT_URL || `${BASE}/api/mcp/report`).trim();
+const REPORT_MODE = (process.env.RETENSY_MCP_TELEMETRY || "on").trim().toLowerCase();
+/** Ключи, значения которых не отправляем ни в каком режиме. */
+const SECRET_KEY_RX = /token|secret|cookie|passw|apikey|api_key|auth|cred/i;
+/** Ключи, значения которых безопасны и реально нужны для разбора. */
+const SAFE_ARG_KEYS = new Set(["graphId", "botId", "targetBotId", "templateId", "kind", "value",
+  "name", "slug", "id", "page", "size", "preview", "backup", "summary", "publish", "dryRun", "query"]);
+const REPORT_MAX = 20;        // на процесс: цикл ретраев не должен залить вебхук
+let reportCount = 0;
+const reportSeen = new Set(); // дедуп одинаковых неудач в рамках процесса
+
+/** Стабильный анонимный id установки (FNV-1a) — группировать отчёты одного пользователя без PII. */
+function installId() {
+  let h = 0x811c9dc5;
+  for (const ch of `${os.hostname()}|${os.homedir()}`) { h ^= ch.charCodeAt(0); h = (h * 0x01000193) >>> 0; }
+  return h.toString(16).padStart(8, "0");
+}
+
+function safeArgs(toolName, a) {
+  // set_token несёт секрет целиком — не сериализуем его вообще.
+  if (toolName === "set_token") return '{"token":"<скрыт>"}';
+  const out = {};
+  for (const [k, v] of Object.entries(a || {})) {
+    if (SECRET_KEY_RX.test(k)) { out[k] = "<скрыт>"; continue; }
+    const show = REPORT_MODE === "full" || SAFE_ARG_KEYS.has(k);
+    if (Array.isArray(v)) out[k] = `<array:${v.length}>`;
+    else if (v && typeof v === "object") out[k] = `<object:${Object.keys(v).length}>`;
+    else if (show) out[k] = typeof v === "string" ? v.slice(0, 120) : v;
+    else out[k] = `<${typeof v}>`;
+  }
+  return JSON.stringify(out).slice(0, 900); // сервер обрежет ещё раз, но зря тащить не будем
+}
+
+function failureCategory(msg) {
+  const m = String(msg || "");
+  if (/^Неизвестный инструмент/.test(m)) return "unknown_tool";
+  // Токен вообще не настроен — это обычное состояние нового пользователя, а не пробел
+  // в возможностях: такие отчёты не отправляем (иначе каждый новичок зашумит канал).
+  if (/Нет доступа к retensy/.test(m)) return "not_configured";
+  if (/Доступ отклонён/.test(m)) return "auth_rejected";   // токен есть, но отвергнут — это стоит знать
+  const http = m.match(/HTTP (\d{3})/);
+  if (http) return `http_${http[1]}`;
+  return "error";
+}
+
+/** Fire-and-forget: никогда не задерживает и не ломает ответ инструмента. */
+function reportFailure({ tool, args, message, category }) {
+  if (REPORT_MODE === "off" || !REPORT_URL || reportCount >= REPORT_MAX) return;
+  const cat = category || failureCategory(message);
+  if (cat === "not_configured") return;
+  const key = `${tool}|${cat}|${String(message || "").slice(0, 120)}`;
+  if (reportSeen.has(key)) return;
+  reportSeen.add(key);
+  reportCount += 1;
+  const body = {
+    tool: String(tool || "?").slice(0, 200),
+    category: cat,
+    message: String(message || "").slice(0, 1500),
+    args: safeArgs(tool, args),
+    mcpVersion: VERSION,
+    node: process.version,
+    platform: process.platform,
+    baseUrl: BASE,
+    installId: installId(),
+  };
+  const headers = { "Content-Type": "application/json" };
+  // Токен прикладываем ТОЛЬКО когда отчёт идёт на наш же адрес — тогда сервер покажет,
+  // кому именно не хватило возможности. На сторонний RETENSY_MCP_REPORT_URL токен не уходит.
+  if (REPORT_URL.startsWith(`${BASE}/`)) {
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+  }
+  try {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 4000);
+    fetch(REPORT_URL, { method: "POST", headers, body: JSON.stringify(body), signal: ac.signal })
+      .catch(() => {}).finally(() => clearTimeout(timer));
+  } catch { /* телеметрия не имеет права влиять на работу */ }
+}
+
+// ---- Проверка обновлений ----
+const UPDATE_FILE = path.join(CONFIG_DIR, "update-check.json");
+const UPDATE_TTL_MS = 6 * 60 * 60 * 1000;
+const AUTOUPDATE = (process.env.RETENSY_MCP_AUTOUPDATE || "1").trim() !== "0";
+// Запущены из node_modules/_npx → пакет обновляется npm. Запущены из git-чекаута
+// (плагин Claude Code) → npm бесполезен: исполняется файл репозитория, а не пакет.
+const SELF_DIR = (() => { try { return path.dirname(fileURLToPath(import.meta.url)); } catch { return ""; } })();
+const IS_NPM_INSTALL = /[\\/](node_modules|_npx)[\\/]/.test(SELF_DIR);
+let updateNotice = "";
+let noticeDelivered = false;
+
+function cmpVersions(a, b) {
+  const pa = String(a).split("."), pb = String(b).split(".");
+  for (let i = 0; i < 3; i += 1) {
+    const x = parseInt(pa[i], 10) || 0, y = parseInt(pb[i], 10) || 0;
+    if (x !== y) return x > y ? 1 : -1;
+  }
+  return 0;
+}
+
+function spawnSelfUpdate() {
+  try {
+    const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+    // stdio:"ignore" обязателен: любой вывод в stdout сломал бы JSON-RPC.
+    const child = spawn(npm, ["i", "-g", `${PKG_NAME}@latest`],
+      { detached: true, stdio: "ignore", shell: process.platform === "win32" });
+    child.unref();
+    return true;
+  } catch { return false; }
+}
+
+function applyUpdateNotice(latest) {
+  updateNotice = `⬆️ Доступна новая версия retensy-mcp: ${VERSION} → ${latest}. `;
+  if (IS_NPM_INSTALL) {
+    // Процесс НЕ МОЖЕТ подменить свой уже загруженный код — обновление вступит в силу
+    // только после перезапуска MCP-сервера. Честно об этом пишем.
+    updateNotice += AUTOUPDATE && spawnSelfUpdate()
+      ? "Обновление запущено в фоне (npm i -g), применится ПОСЛЕ перезапуска MCP-сервера."
+      : `Обнови вручную: npm i -g ${PKG_NAME}@latest, затем перезапусти MCP-сервер.`;
+  } else {
+    updateNotice += "Сервер запущен из репозитория/плагина — обнови плагин (git pull) и перезапусти MCP-сервер.";
+  }
+  process.stderr.write(`[retensy-mcp] ${updateNotice}\n`);
+}
+
+/** Тихо: нет сети или реестр недоступен — работа не должна ломаться. */
+async function checkForUpdate() {
+  try {
+    const cached = JSON.parse(fs.readFileSync(UPDATE_FILE, "utf8"));
+    if (cached && Date.now() - cached.at < UPDATE_TTL_MS) {
+      if (cached.latest && cmpVersions(cached.latest, VERSION) > 0) applyUpdateNotice(cached.latest);
+      return;
+    }
+  } catch { /* кэша нет или он битый — проверяем в реестре */ }
+  let latest = "";
+  try {
+    const ac = new AbortController();
+    const timer = setTimeout(() => ac.abort(), 4000);
+    // Сокращённый packument (~700 байт) + dist-tags.latest. ВАЖНО: на эндпоинте
+    // /<pkg>/latest этот accept даёт HTTP 406 — заголовок работает только на packument.
+    const res = await fetch(`https://registry.npmjs.org/${PKG_NAME.replace("/", "%2f")}`,
+      { headers: { accept: "application/vnd.npm.install-v1+json" }, signal: ac.signal });
+    clearTimeout(timer);
+    if (res.ok) latest = (await res.json())?.["dist-tags"]?.latest || "";
+  } catch { return; }
+  if (!latest) return;
+  try {
+    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    fs.writeFileSync(UPDATE_FILE, JSON.stringify({ at: Date.now(), latest }));
+  } catch { /* не смогли записать кэш — не страшно */ }
+  if (cmpVersions(latest, VERSION) > 0) applyUpdateNotice(latest);
+}
 
 const NO_AUTH_HELP =
   "Нет доступа к retensy /bots — не настроена авторизация.\n\n" +
@@ -179,6 +356,7 @@ const TOOLS = [
   { name: "list_bots", description: "Список ботов пользователя (id, имя, статус).", inputSchema: { type: "object", properties: {} } },
   { name: "list_graphs", description: "Список графов (сценариев) бота.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   { name: "list_channels", description: "Список каналов/групп, подключённых к боту (chatId, title, type, статус бота, дата). chatId — числовой id для условия SUBSCRIBED («Подписан на канал»).", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
+  { name: "list_integrations", description: "Список подключённых сервисов пользователя (GET /api/bots/integrations): {id, provider, title, hint, createdAt}. **id отсюда — это `connectionId`**, обязательное поле действий amocrm_send/amocrm_update/bitrix24_call/getcourse_send/getcourse_order/yametrika_event. Без него действие упадёт «не выбрано подключение». Креды не отдаются — только маскированный hint. Read-only.", inputSchema: { type: "object", properties: {} } },
   { name: "get_graph", description: "Получить граф по graphId. Для БОЛЬШИХ графов (десятки узлов JSON может превысить лимит токенов) используй summary:true (компактная сводка: id/type/title/позиции + рёбра) или saveToFile (записать полный граф на диск и вернуть сводку+путь — потом правь файл и заливай через update_graph/edit_graph_live с graphFile).", inputSchema: { type: "object", properties: { graphId: { type: "string" }, summary: { type: "boolean", description: "true = вернуть компактную сводку без объёмных text/cards/buttons" }, saveToFile: { type: "string", description: "Путь: записать полный граф (JSON) на диск, вернуть сводку + путь" } }, required: ["graphId"] } },
   { name: "create_graph", description: "Создать пустой граф (DRAFT) в боте. Возвращает граф с id.", inputSchema: { type: "object", properties: { botId: { type: "string" }, name: { type: "string" } }, required: ["botId", "name"] } },
   { name: "update_graph", description: "Залить узлы/рёбра в граф (PUT, сырой replace без бэкапа). Для правок СУЩЕСТВУЮЩЕГО/живого сценария используй edit_graph_live. Принимает graphFile (путь к локальному файлу — НЕ нужно слать граф инлайном, удобно для больших графов), graph-контейнер или nodes/edges.", inputSchema: { type: "object", properties: { graphId: { type: "string" }, graphFile: { type: "string", description: "Путь к локальному JSON графа (контейнер retensy-bot-graph или {nodes,edges}); поддерживается ~" }, graph: { type: "object" }, nodes: { type: "array" }, edges: { type: "array" }, canvasMeta: { type: "object" }, name: { type: "string" } }, required: ["graphId"] } },
@@ -210,12 +388,13 @@ async function handleCall(params) {
   const a = (params && params.arguments) || {};
   switch (params && params.name) {
     case "setup": {
+      const upd = updateNotice ? `\n\n${updateNotice}` : "";
       if (isAuthed()) {
         const via = getToken() ? "персональный токен" : "session-cookie";
-        return okResult(`✅ Авторизация настроена (${via}). База API: ${BASE}.\n` +
-          `Можно собирать и публиковать ботов: list_bots, create_graph, import_funnel и др.`);
+        return okResult(`✅ Авторизация настроена (${via}). База API: ${BASE}. Версия MCP: ${VERSION}.\n` +
+          `Можно собирать и публиковать ботов: list_bots, create_graph, import_funnel и др.${upd}`);
       }
-      return okResult(NO_AUTH_HELP);
+      return okResult(NO_AUTH_HELP + upd);
     }
     case "set_token": {
       const t = (a.token || "").trim();
@@ -235,6 +414,7 @@ async function handleCall(params) {
     case "list_bots": return okResult(await api("/api/bots"));
     case "list_graphs": return okResult(await api(`/api/bots/${a.botId}/graphs`));
     case "list_channels": return okResult(await api(`/api/bots/${a.botId}/linked-chats`));
+    case "list_integrations": return okResult(await api("/api/bots/integrations"));
     case "get_graph": {
       const g = await api(`/api/bots/graphs/${a.graphId}`);
       if (a.saveToFile) {
@@ -324,8 +504,18 @@ async function handleCall(params) {
         : a.value;
       return okResult(await api(`/api/bots/graphs/${a.graphId}/dry-run`, { method: "POST", body: { kind: a.kind, value, fromUsername: a.fromUsername, presetVariables: a.presetVariables, presetTags: a.presetTags } }));
     }
-    case "publish_graph":
-      return okResult(await api(`/api/bots/graphs/${a.graphId}/publish`, { method: "POST" }));
+    case "publish_graph": {
+      const pub = await api(`/api/bots/graphs/${a.graphId}/publish`, { method: "POST" });
+      // errors[] приходит с HTTP 200, но для пользователя это «не получилось» — и самый
+      // ценный сигнал: видно, какого узла/возможности ему не хватило.
+      if (Array.isArray(pub?.errors) && pub.errors.length) {
+        reportFailure({
+          tool: "publish_graph", args: a, category: "publish_rejected",
+          message: pub.errors.map((e) => `${e.code || "?"}${e.nodeId ? `@${e.nodeId}` : ""}: ${e.message || ""}`).join("\n"),
+        });
+      }
+      return okResult(pub);
+    }
     case "import_funnel": {
       const src = a.graphFile ? extractGraph(readGraphFile(a.graphFile)) : extractGraph(a.graph);
       const steps = [];
@@ -342,6 +532,10 @@ async function handleCall(params) {
         const pub = await api(`/api/bots/graphs/${graphId}/publish`, { method: "POST" });
         if (pub.errors && pub.errors.length) {
           steps.push(`❌ публикация не прошла, ошибок: ${pub.errors.length}`);
+          reportFailure({
+            tool: "import_funnel", args: a, category: "publish_rejected",
+            message: pub.errors.map((e) => `${e.code || "?"}${e.nodeId ? `@${e.nodeId}` : ""}: ${e.message || ""}`).join("\n"),
+          });
           return okResult({ graphId, steps, publishErrors: pub.errors });
         }
         steps.push(`✅ опубликовано: publishedGraphId=${pub.publishedGraphId}`);
@@ -416,7 +610,20 @@ rl.on("line", async (line) => {
       send({ jsonrpc: "2.0", id, result: { tools: TOOLS } });
     } else if (method === "tools/call") {
       let result;
-      try { result = await handleCall(params); } catch (e) { result = errResult(e); }
+      try {
+        result = await handleCall(params);
+      } catch (e) {
+        result = errResult(e);
+        // Единая точка: сюда приходит ЛЮБАЯ неудача инструмента — в т.ч. «Неизвестный
+        // инструмент» (значит клиент хотел возможность, которой у нас нет).
+        reportFailure({ tool: params?.name || "?", args: params?.arguments, message: e?.message || String(e) });
+      }
+      // Уведомление о новой версии отдаём один раз за сессию, чтобы не шуметь в каждом ответе.
+      // setup печатает его сам — там не дублируем.
+      if (updateNotice && !noticeDelivered && params?.name !== "setup") {
+        noticeDelivered = true;
+        result = { ...result, content: [...(result.content || []), { type: "text", text: updateNotice }] };
+      }
       send({ jsonrpc: "2.0", id, result });
     } else if (method === "ping") {
       send({ jsonrpc: "2.0", id, result: {} });
@@ -428,4 +635,7 @@ rl.on("line", async (line) => {
   }
 });
 
-process.stderr.write(`[retensy-mcp] MCP ${VERSION}. BASE=${BASE}. Авторизация: ${getToken() ? "токен" : getCookie() ? "cookie" : "не задана (вызови setup)"}.\n`);
+process.stderr.write(`[retensy-mcp] MCP ${VERSION}. BASE=${BASE}. Авторизация: ${getToken() ? "токен" : getCookie() ? "cookie" : "не задана (вызови setup)"}. Отчёты о неудачах: ${REPORT_MODE}.\n`);
+
+// Проверка обновлений — не блокирует старт и не ломает работу без сети.
+checkForUpdate();

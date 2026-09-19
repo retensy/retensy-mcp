@@ -1,7 +1,7 @@
 {
   "name": "retensy-mcp",
   "displayName": "Retensy MCP",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "MCP-сервер + скилл для Retensy Bots: сборка и публикация воронок ботов (Telegram/MAX/Instagram) и публикация статей блога в Markdown — всё одним токеном zmcp_.",
   "author": { "name": "retensy", "url": "https://bots.retensy.com" },
   "homepage": "https://bots.retensy.com/bots",
