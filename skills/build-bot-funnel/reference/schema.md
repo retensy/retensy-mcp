@@ -93,6 +93,19 @@ IG-боты не поддерживают команды (`/start`). Вход �
 ### Логика / ветвление
 - `CONDITION` — проверка условий, выходы `yes` / `no`. `{ "match":"ALL"|"ANY", "conditions":[ { "kind":"...", "op":"...", "key":"...", "value":"..." } ] }`. `match:"ALL"` — все условия истинны; `"ANY"` — хотя бы одно. Полный список `kind`/`op`/полей — в разделе [«Условия CONDITION»](#условия-condition).
 - `BRANCH` — `{ "cases":[ {"id":"c1","label":"...","expression":"var.x=='a'"} ], "hasDefault": false, "abTest": false }`. Выходы: `case_<id>` (+ `default`).
+- `SWITCH` — развилка по ЗНАЧЕНИЮ, когда веток больше двух.
+  `{ "expression":"{{var.http_status}}", "cases":[ {"id":"v1","value":"200","label":"Успех"},
+  {"id":"v2","value":"404","label":"Не найдено"} ] }`. Выходы: `case_<id>` + `default` (есть всегда).
+  Выражение рендерится как шаблон (обычно просто `{{var.x}}`) и сравнивается со `value` каждого
+  случая **без учёта регистра и пробелов по краям**; первое совпадение выигрывает, иначе `default`.
+  Отличия: `CONDITION` — бинарное да/нет, `BRANCH` — случайный выбор (A/B), `SWITCH` —
+  детерминированный выбор по значению. Валидатор режет: пустое `expression`
+  (`SWITCH_NO_EXPRESSION`), нет случаев (`SWITCH_NO_CASES`), пустое `value` (`SWITCH_EMPTY_VALUE`),
+  повтор значения (`SWITCH_DUPLICATE_VALUE`), случай без ребра (`SWITCH_CASE_UNCONNECTED`).
+  Ребро на `default` необязательно.
+- `STOP_AND_ERROR` — `{ "message":"CRM не ответила: {{var.http_status}}" }`. Обрывает прогон и
+  помечает его в журнале как ошибочный (`FAILED`), шаг — `ok:false` с этим текстом. Выходов нет,
+  ничего подписчику не отправляет. Пустой `message` → «Сценарий остановлен с ошибкой».
 - `ASK_QUESTION` — вопрос со сбором ответа. `{ "promptText":"...","saveTo":"name","inputKind":"TEXT"|"PHOTO"|"DOCUMENT"|"CONTACT"|"LOCATION","validator":"ANY"|"PHONE"|"EMAIL"|"REGEX","regex":"...","retryText":"...","maxAttempts":3 }`. `inputKind` (по умолчанию `TEXT`) — что ждём в ответ (`CONTACT` → телефон: в Telegram показывается кнопка «Поделиться номером», в MAX/Instagram кнопки нет — номер вводится вручную и принимается как телефон на всех платформах; `LOCATION` → `lat,lon`, `PHOTO`/`DOCUMENT` → file_id). Выходы `valid` / `invalid`.
 - `END` — `{}` (конец ветки). **Не добавляй `END`**: ветка и так завершается на узле без исходящих рёбер; явный «конец сценария» бесполезен и убран из палитры редактора. Тип оставлен лишь для совместимости со старыми графами.
 
@@ -145,7 +158,17 @@ IG-боты не поддерживают команды (`/start`). Вход �
   - **модерация группы**: `group_unban`, `group_kick`, `group_approve`, `group_decline`
 
 ### Внешнее / прочее
-- `CALL_WEBHOOK` — `{ "url":"https://...", "method":"POST", "bodyTemplate":"{...}", "timeoutMs":5000 }`. Выходы `ok` / `error`.
+- `CALL_WEBHOOK` — `{ "url":"https://...", "method":"POST", "headersJson":"{\"X-Key\":\"…\"}",
+  "bodyTemplate":"{...}", "timeoutMs":5000, "saveStatusTo":"http_status", "saveBodyTo":"http_body",
+  "extract":[{"path":"$.id","saveTo":"crm_id"}] }`. Выходы `ok` (код 2xx) / `error` (код ≥ 400,
+  сетевая ошибка, таймаут, отказ SSRF-гарда). Если ребра `error` нет — прогон идёт по `next`.
+  - `timeoutMs` — на этот узел; 0/не задан = общий клиент (connect 5 с / read 7 с), иначе значение
+    прижимается к диапазону **500…30000 мс**.
+  - `saveStatusTo` / `saveBodyTo` — имена переменных для HTTP-кода и тела ответа целиком.
+    Пишутся ВСЕГДА, в том числе на `error`: при сетевой ошибке код `0` и пустое тело (чтобы в
+    переменной не осталось значение прошлого прогона). Тело длиннее 64 КБ обрезается.
+    Это штатный способ разветвиться по коду ответа: `saveStatusTo` → `SWITCH`.
+  - `extract` — разбор JSON-тела по JsonPath в переменные (работает только на валидном JSON).
 - `AI_REPLY` — ответ модели.
   `{ "systemPrompt":"Ты консультант магазина.", "userPromptTemplate":"Вопрос: {{last_text}}",
   "sendToUser": true, "saveTo":"ai_answer", "quotaFallbackText":"Спросите менеджера" }`.
@@ -210,7 +233,7 @@ Instagram; прежний раздел «Инструменты роста» / `
 |---|---|
 | `TRIGGER_IG_COMMENT`, `TRIGGER_IG_DM`, `TRIGGER_IG_STORY_REPLY`, `TRIGGER_IG_STORY_MENTION` | ✅ (триггеры входа) |
 | `SEND_MESSAGE`, `SEND_PHOTO` | ✅ |
-| `BRANCH`, `CONDITION` | ✅ |
+| `BRANCH`, `CONDITION`, `SWITCH`, `STOP_AND_ERROR` | ✅ |
 | `SET_VARIABLE`, `ADD_TAG`, `REMOVE_TAG`, `FORMULA` | ✅ |
 | `ASK_QUESTION` | ✅ (с ограничениями — см. ниже) |
 | `DELAY` | ✅ (не более 24ч — см. ниже) |
@@ -262,6 +285,8 @@ node validate.mjs graph.json --platform=INSTAGRAM
 | `ASK_QUESTION` | `valid`, `invalid` |
 | `SEND_MESSAGE` с `awaitReply:true` | `valid`, `invalid` (+ `btn_N` для кнопок) |
 | `CALL_WEBHOOK` | `ok`, `error` |
+| `SWITCH` | `case_<id>`, `default` |
+| `STOP_AND_ERROR` | выходов нет (терминатор) |
 | `SCHEDULE` | `scheduled`, `past` |
 | `DELAY` | `next` |
 

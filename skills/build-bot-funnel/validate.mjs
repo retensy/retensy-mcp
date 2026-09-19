@@ -216,6 +216,27 @@ for (const n of nodes) {
     case "BRANCH":
       if (!Array.isArray(c.cases) || c.cases.length === 0) errors.push(`${who}: нужен хотя бы один case.`);
       break;
+    case "SWITCH": {
+      // Зеркало GraphValidator.validateSwitch(): развилка по значению (спека §5.3).
+      if (blank(c.expression)) errors.push(`SWITCH_NO_EXPRESSION: ${who} — нужно expression (обычно {{var.x}}).`);
+      if (!Array.isArray(c.cases) || c.cases.length === 0) {
+        errors.push(`SWITCH_NO_CASES: ${who} — нужен хотя бы один case {id, value}.`);
+        break;
+      }
+      const seenValues = new Set();
+      for (const cs of c.cases) {
+        const value = String((cs && cs.value) ?? "").trim();
+        if (!value) errors.push(`SWITCH_EMPTY_VALUE: ${who} — у случая «${cs && cs.id}» пустое value.`);
+        // Рантайм сравнивает без учёта регистра → второй такой случай недостижим.
+        else if (seenValues.has(value.toLowerCase())) errors.push(`SWITCH_DUPLICATE_VALUE: ${who} — значение «${value}» повторяется.`);
+        else seenValues.add(value.toLowerCase());
+      }
+      break;
+    }
+    case "STOP_AND_ERROR":
+      // message необязателен (рантайм подставит свой текст), но безымянная ошибка в журнале бесполезна.
+      if (blank(c.message)) warns.push(`${who}: STOP_AND_ERROR без message — в журнале будет обезличенное «Сценарий остановлен с ошибкой».`);
+      break;
     case "CONDITION": {
       if (c.match !== "ALL" && c.match !== "ANY") errors.push(`CONDITION_BAD_MATCH: ${who} — match ∈ {ALL,ANY}.`);
       if (!Array.isArray(c.conditions) || c.conditions.length === 0) {
@@ -325,7 +346,8 @@ for (const n of nodes) if (!color[n.id]) dfs(n.id);
 // Зеркало GraphValidator.platformErrors() (Java).
 // IG_ALLOWED_NODES: TRIGGER_IG_COMMENT, TRIGGER_IG_DM, TRIGGER_IG_STORY_REPLY,
 //   TRIGGER_IG_STORY_MENTION, SEND_MESSAGE, SEND_PHOTO, BRANCH, CONDITION,
-//   SET_VARIABLE, ADD_TAG, REMOVE_TAG, FORMULA, ASK_QUESTION, DELAY, END.
+//   SET_VARIABLE, ADD_TAG, REMOVE_TAG, FORMULA, ASK_QUESTION, DELAY, END,
+//   SWITCH, STOP_AND_ERROR.
 // IG_ALLOWED_INPUT_KINDS: TEXT, EMAIL, PHONE, NUMBER, CONTACT (CONTACT деградирует в ручной ввод номера — кнопки в IG нет).
 // IG_MAX_DELAY_SECONDS: 86400 (24 часа).
 // ============================================================
@@ -338,6 +360,7 @@ if (platform === "INSTAGRAM") {
     "BRANCH", "CONDITION", "SET_VARIABLE",
     "ADD_TAG", "REMOVE_TAG", "FORMULA",
     "ASK_QUESTION", "DELAY", "END",
+    "SWITCH", "STOP_AND_ERROR",
   ]);
   const IG_ALLOWED_INPUT_KINDS = new Set(["TEXT", "EMAIL", "PHONE", "NUMBER", "CONTACT"]);
   const IG_MAX_DELAY_SEC = 86400; // 24h messaging window
