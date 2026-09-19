@@ -121,7 +121,13 @@ IG-боты не поддерживают команды (`/start`). Вход �
 - `ACTIONS` — непустой пакет действий `{ "actions":[ { "kind":"...", ...поля } ] }`. Допустимые `kind` (иначе ошибка `ACTION_UNKNOWN_KIND`):
   - **метки/автоворонки**: `add_tag`, `remove_tag`, `autoflow_add`, `autoflow_remove` — поле `tag` (`[a-z0-9_-]{1,64}`)
   - **профиль**: `set_field` — `key` (`[a-z_][a-z0-9_]{0,63}`) + `value`; `subscribe`, `unsubscribe`
-  - **HTTP**: `external_request`, `subscriber_webhook` — `url` (http/https) + `method`/`headersJson`/`bodyTemplate`
+  - **HTTP**: `external_request` — **основной способ сходить в чужой API**, те же поля и возможности,
+    что у узла `CALL_WEBHOOK`: `url` + `method`/`headersJson`/`bodyTemplate`/`timeoutMs` +
+    `saveStatusTo`/`saveBodyTo`/`extract`. Отличие одно: своих выходов у действия нет — сбой уводит
+    ВЕСЬ блок `ACTIONS` в его выход `error` (если ребро нарисовано; нет — идём по `next`), а
+    ветвиться по коду ответа надо следующим блоком `SWITCH`. **Платное действие** (как `CALL_WEBHOOK`):
+    на бесплатном тарифе публикация падает с `PREMIUM_NODE_FORBIDDEN`.
+    Ещё есть `subscriber_webhook` — `url` + `method`/`headersJson`/`bodyTemplate`
   - **уведомления**: `notify` (`text`), `subscriber_email` (`email`,`text`), `agent_chat`
   - **бот/шаг**: `stop_bot`, `delete_step_message`, `cancel_payment_subscription`
   - **Google Таблицы (работает)**: `gsheets_send` — дописать строку-заявку в таблицу: `{ "kind":"gsheets_send", "googleEmail":"me@gmail.com", "spreadsheetId":"<id таблицы>", "sheetName":"Лист1", "cells":["{{from.first_name}}","{{var.phone}}","{{var.email}}"] }`. `cells` — значения по порядку (шаблоны), бот дописывает их строкой в конец листа. Google-аккаунт подключается В ВЕБЕ (`/bots` → у действия кнопка «Подключить Google»), НЕ через MCP — у пользователя уже должен быть подключён `googleEmail`. Нужны `googleEmail` + `spreadsheetId` + непустой `cells[]` (иначе `ACTION_GSHEETS_INCOMPLETE`).
@@ -180,7 +186,10 @@ IG-боты не поддерживают команды (`/start`). Вход �
 - `PAYMENT_LINK` — сообщение с кнопкой-ссылкой на оплату (сам платёж не проводит).
   `{ "paymentUrl":"https://example.com/pay?user={{from.id}}", "description":"Оплатите подписку:",
   "buttonText":"Оплатить" }`.
-- `CALL_WEBHOOK` — тоже платный узел (`PREMIUM_NODES`), см. раздел «Внешнее / прочее».
+- `CALL_WEBHOOK` — тоже платный узел, см. раздел «Внешнее / прочее». **В новых сценариях его не
+  ставь**: узла больше нет ни в палитре, ни в меню — внешний запрос собирается действием
+  `external_request` внутри `ACTIONS`. Тип живёт в рантайме только ради графов, где он уже стоит.
+- Действие `external_request` внутри `ACTIONS` — **тоже платное**, гейт тот же.
 
 ## Лимиты тарифа, которые видит сборщик графов
 
@@ -285,6 +294,7 @@ node validate.mjs graph.json --platform=INSTAGRAM
 | `ASK_QUESTION` | `valid`, `invalid` |
 | `SEND_MESSAGE` с `awaitReply:true` | `valid`, `invalid` (+ `btn_N` для кнопок) |
 | `CALL_WEBHOOK` | `ok`, `error` |
+| `ACTIONS` | `next`, плюс `error` — если внутри есть действие, которое может упасть (внешний запрос, CRM, Таблицы) |
 | `SWITCH` | `case_<id>`, `default` |
 | `STOP_AND_ERROR` | выходов нет (терминатор) |
 | `SCHEDULE` | `scheduled`, `past` |

@@ -290,6 +290,21 @@ for (const n of nodes) {
           errors.push(`ACTION_BAD_KEY: ${who} — set_field.key ∈ [a-z_][a-z0-9_]{0,63}.`);
         if (["subscriber_webhook", "external_request"].includes(a.kind) && !isHttp(a.url))
           errors.push(`ACTION_BAD_URL: ${who} — ${a.kind}.url должен быть http(s)://.`);
+        if (a.kind === "external_request") {
+          // Имя переменной бэкенд не чистит: кривое имя запишется, а {{var.<имя>}} его не найдёт.
+          for (const field of ["saveStatusTo", "saveBodyTo"]) {
+            if (!blank(a[field]) && !VAR_RE.test(String(a[field])))
+              errors.push(`ACTION_BAD_SAVE_TO: ${who} — ${field} «${a[field]}» ∈ [a-z_][a-z0-9_]{0,63}.`);
+          }
+          (Array.isArray(a.extract) ? a.extract : []).forEach((ex, j) => {
+            if (blank(ex?.path) || blank(ex?.saveTo))
+              errors.push(`ACTION_BAD_EXTRACT: ${who} — извлечение #${j + 1} требует path и saveTo.`);
+            else if (!VAR_RE.test(String(ex.saveTo)))
+              errors.push(`ACTION_BAD_SAVE_TO: ${who} — extract[${j}].saveTo ∈ [a-z_][a-z0-9_]{0,63}.`);
+          });
+          if (a.timeoutMs != null && (Number(a.timeoutMs) < 500 || Number(a.timeoutMs) > 30000))
+            warns.push(`${who}: timeoutMs ${a.timeoutMs} будет прижат к диапазону 500…30000 мс.`);
+        }
         if (a.kind === "gsheets_send" && (!a.googleEmail || !a.spreadsheetId || !Array.isArray(a.cells) || a.cells.length === 0))
           errors.push(`ACTION_GSHEETS_INCOMPLETE: ${who} — gsheets_send требует googleEmail + spreadsheetId + непустой cells[] (Google-аккаунт подключается в вебе /bots, не через MCP).`);
       });
