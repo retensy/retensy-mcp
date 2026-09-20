@@ -53,7 +53,7 @@ const ACTION_KINDS = new Set([
   "add_tag", "remove_tag", "set_field", "stop_bot", "delete_step_message",
   "subscribe", "unsubscribe", "autoflow_add", "autoflow_remove",
   "subscriber_webhook", "external_request", "notify",
-  "subscriber_email", "agent_chat", "cancel_payment_subscription",
+  "subscriber_email", "agent_chat", "cancel_payment_subscription", "issue_invoice",
   "getcourse_send", "getcourse_order", "amocrm_send", "amocrm_update",
   "yametrika_event", "gsheets_send", "gsheets_get", "gsheets_update",
   "gsheets_write_cell", "gsheets_read_cell",
@@ -281,6 +281,17 @@ for (const n of nodes) {
     }
     case "ACTIONS": {
       if (!Array.isArray(c.actions) || c.actions.length === 0) { errors.push(`ACTIONS_EMPTY: ${who} — нужен непустой actions[].`); break; }
+      // Счёт ставит блок на паузу до вебхука кассы, а возобновиться с середины списка движок
+      // не умеет — значит действия после счёта молча не выполнятся. Зеркало GraphValidator.
+      {
+        const invIdx = c.actions.map((a, i) => (a && a.kind === "issue_invoice" ? i : -1)).filter((i) => i >= 0);
+        if (invIdx.length > 1) {
+          errors.push(`INVOICE_DUPLICATE: ${who} — в блоке больше одного счёта, непонятно какой ждать.`);
+        }
+        if (invIdx.length === 1 && invIdx[0] !== c.actions.length - 1) {
+          errors.push(`INVOICE_NOT_LAST: ${who} — счёт должен быть последним действием в блоке: после него блок ждёт оплату.`);
+        }
+      }
       c.actions.forEach((a, i) => {
         if (!a || typeof a !== "object") { errors.push(`${who}: действие #${i + 1} — не объект.`); return; }
         if (!ACTION_KINDS.has(a.kind)) { errors.push(`ACTION_UNKNOWN_KIND: ${who} — неизвестный kind «${a.kind}» (#${i + 1}).`); return; }
@@ -290,6 +301,21 @@ for (const n of nodes) {
           errors.push(`ACTION_BAD_KEY: ${who} — set_field.key ∈ [a-z_][a-z0-9_]{0,63}.`);
         if (["subscriber_webhook", "external_request"].includes(a.kind) && !isHttp(a.url))
           errors.push(`ACTION_BAD_URL: ${who} — ${a.kind}.url должен быть http(s)://.`);
+        if (a.kind === "issue_invoice") {
+          if (blank(a.connectionId)) errors.push(`YK_NO_CONNECTION: ${who} — нужен connectionId подключения ЮKassa (list_integrations).`);
+          const amount = String(a.amount == null ? "" : a.amount);
+          if (blank(amount)) errors.push(`YK_NO_AMOUNT: ${who} — нужна amount.`);
+          else if (!amount.includes("{{")) {
+            const n = Number(amount.trim().replace(",", "."));
+            if (!Number.isFinite(n)) errors.push(`YK_BAD_AMOUNT: ${who} — amount должна быть числом.`);
+            else if (n <= 0) errors.push(`YK_BAD_AMOUNT: ${who} — amount должна быть > 0.`);
+          }
+          if (blank(a.description)) errors.push(`YK_NO_DESC: ${who} — нужно description (за что платят).`);
+          if (a.timeoutMinutes != null) {
+            const t = Number(a.timeoutMinutes);
+            if (!Number.isFinite(t) || t < 1 || t > 1440) errors.push(`YK_BAD_TIMEOUT: ${who} — timeoutMinutes ∈ [1, 1440].`);
+          }
+        }
         if (a.kind === "external_request") {
           // Имя переменной бэкенд не чистит: кривое имя запишется, а {{var.<имя>}} его не найдёт.
           for (const field of ["saveStatusTo", "saveBodyTo"]) {
