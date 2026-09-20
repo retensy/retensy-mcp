@@ -322,6 +322,33 @@ for (const n of nodes) {
       else if (!isHttp(u) && !u.startsWith("{{")) errors.push(`PAY_BAD_SCHEME: ${who} — paymentUrl = http(s):// или {{var.x}}.`);
       break;
     }
+    case "YOOKASSA_PAYMENT": {
+      // Зеркало GraphValidator.validateYooKassaPayment(): без кассы платёж создать нечем,
+      // и раньше это вылезало только в рантайме — перед клиентом, на шаге оплаты.
+      if (blank(c.connectionId)) {
+        errors.push(`YK_NO_CONNECTION: ${who} — нужен connectionId подключения ЮKassa (list_integrations).`);
+      }
+      const amount = String(c.amount == null ? "" : c.amount);
+      if (blank(amount)) {
+        errors.push(`YK_NO_AMOUNT: ${who} — нужна amount.`);
+      } else if (!amount.includes("{{")) {
+        const n = Number(amount.trim().replace(",", "."));
+        if (!Number.isFinite(n)) errors.push(`YK_BAD_AMOUNT: ${who} — amount должна быть числом.`);
+        else if (n <= 0) errors.push(`YK_BAD_AMOUNT: ${who} — amount должна быть > 0.`);
+      }
+      if (blank(c.description)) errors.push(`YK_NO_DESC: ${who} — нужно description (за что платят).`);
+      if (c.timeoutMinutes != null) {
+        const t = Number(c.timeoutMinutes);
+        if (!Number.isFinite(t) || t < 1 || t > 1440) {
+          errors.push(`YK_BAD_TIMEOUT: ${who} — timeoutMinutes ∈ [1, 1440].`);
+        }
+      }
+      break;
+    }
+    // TRIGGER_PAYMENT намеренно без проверок: отсутствие фильтров (minAmount /
+    // descriptionContains) — рискованно, но для бэкенда это валидный граф. Ругаться здесь
+    // строже, чем GraphValidator, значит расходиться с сервером: сценарий падал бы у
+    // сборщика и публиковался бы вручную. Риск описан в schema.md.
   }
 }
 
