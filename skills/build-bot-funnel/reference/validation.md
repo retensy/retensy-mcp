@@ -41,8 +41,22 @@
 - `FORMULA`: `expression` непустой (`FORMULA_NO_EXPRESSION`); `saveTo` ∈ var-формат (`FORMULA_BAD_SAVE_TO`).
 - `SCHEDULE`: `isoDate` = валидная `YYYY-MM-DD` (`SCHEDULE_BAD_DATE`); `time` = `HH:mm` (`SCHEDULE_BAD_TIME`).
 - `ACTIONS`: непустой `actions[]` (`ACTIONS_EMPTY`); каждый `kind` — из допустимого списка (`ACTION_UNKNOWN_KIND`, список — в schema.md); per-kind: `tag` (`ACTION_BAD_TAG`), `set_field.key` (`ACTION_BAD_KEY`), `url` у `external_request`/`subscriber_webhook` (`ACTION_BAD_URL`).
+- `ACTIONS` с действием `issue_invoice` (счёт на кассу владельца):
+  - `connectionId` обязателен (`YK_NO_CONNECTION`) — подключение с `provider=YOOKASSA` из `list_integrations`;
+  - `amount` обязателен (`YK_NO_AMOUNT`), число > 0 или шаблон `{{var.x}}` (`YK_BAD_AMOUNT`);
+  - `description` обязателен (`YK_NO_DESC`);
+  - `timeoutMinutes` ∈ [1, 1440] (`YK_BAD_TIMEOUT`);
+  - **счёт должен быть ПОСЛЕДНИМ действием в блоке** (`INVOICE_NOT_LAST`) и только один (`INVOICE_DUPLICATE`).
+    Причина: при наличии ветки `paid` блок встаёт на паузу до вебхука кассы, а возобновиться
+    с середины списка движок не умеет — действия после счёта молча не выполнились бы.
 - `AI_REPLY`: `userPromptTemplate` непустой (`AI_NO_PROMPT`); `temperature` ∈ [0.0, 2.0] (`AI_BAD_TEMPERATURE`); нужен `sendToUser:true` ИЛИ `saveTo` (`AI_NO_OUTPUT`).
 - `PAYMENT_LINK`: `paymentUrl` обязателен (`PAY_NO_URL`), http(s):// или `{{var.x}}` (`PAY_BAD_SCHEME`).
+- `YOOKASSA_PAYMENT`: **устаревший узел, в новых сценариях не ставить** — счёт собирается действием
+  `issue_invoice` внутри `ACTIONS`. Если узел всё же есть: `connectionId` (`YK_NO_CONNECTION`),
+  `amount` (`YK_NO_AMOUNT`/`YK_BAD_AMOUNT`), `description` (`YK_NO_DESC`).
+- `TRIGGER_PAYMENT`: обязательных полей нет. Фильтры `minAmount`/`descriptionContains`
+  необязательны, но **без них сценарий стартует на КАЖДУЮ оплату в кассе**, включая продажи
+  мимо бота. Валидатор это не блокирует (бэкенд тоже) — следи сам.
 - Метки: `[a-z0-9_-]{1,64}`. Переменные: `[a-z_][a-z0-9_]{0,63}`.
 
 ## Рёбра
