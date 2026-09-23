@@ -32,6 +32,15 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const VAR_RE = /^[a-z_][a-z0-9_]{0,63}$/;
 const TAG_RE = /^[a-z0-9_-]{1,64}$/;
 
+// Зеркало boolConfig/Boolean.parseBoolean бэкенда: булево — как есть; иначе строка "true"
+// (без учёта регистра) → true, ЛЮБАЯ другая строка (включая "false") → false, null/undefined → def.
+// Задача 12, фикс-раунд 1, MINOR: `v !== false` расходился с бэком на строке "false".
+function boolConfig(v, def) {
+  if (typeof v === "boolean") return v;
+  if (v == null) return def;
+  return String(v).toLowerCase() === "true";
+}
+
 // kind -> допустимые op (для подсказок; бэкенд блокирует только TAG/VARIABLE)
 const COND_OPS = {
   TAG: ["HAS", "NOT_HAS"],
@@ -337,9 +346,70 @@ for (const n of nodes) {
       break;
     }
     case "AI_REPLY": {
-      if (blank(c.userPromptTemplate)) errors.push(`AI_NO_PROMPT: ${who} — нужен userPromptTemplate.`);
-      if (typeof c.temperature === "number" && (c.temperature < 0 || c.temperature > 2)) errors.push(`AI_BAD_TEMPERATURE: ${who} — temperature ∈ [0.0, 2.0].`);
-      if (c.sendToUser !== true && blank(c.saveTo)) errors.push(`AI_NO_OUTPUT: ${who} — нужен sendToUser:true или saveTo.`);
+      if (String(c.mode) === "agent") {
+        // Режим агента — отдельный набор ключей конфига, старые проверки (userPromptTemplate
+        // и т.п.) к нему не относятся. Зеркало GraphValidator.validateAiAgent (Задача 12,
+        // CARRY): обязано ловить то же самое, что и бэкенд, и не быть строже него.
+        const outgoing = edges.filter((e) => e.sourceNodeId === n.id);
+        const strict = boolConfig(c.strict, true);
+        if (strict && blank(c.knowledgeBaseId)) {
+          errors.push(`AGENT_NO_KNOWLEDGE_BASE: ${who} — в строгом режиме без базы знаний агент ответит «не знаю» на всё.`);
+        }
+        if (Array.isArray(c.actions)) {
+          const seenIds = new Set();
+          for (const a of c.actions) {
+            if (!a) continue;
+            const id = a.id == null ? null : String(a.id);
+            const title = a.title == null ? null : String(a.title);
+            // Битую запись (пустой id ИЛИ title) рантайм пропускает целиком — ругаться на
+            // её ребро/дубль было бы ложной ошибкой (зеркало FlowExecutor.agentActions).
+            if (blank(id) || blank(title)) continue;
+            if (seenIds.has(id)) {
+              errors.push(`AGENT_DUPLICATE_ACTION_ID: ${who} — действие с id '${id}' повторяется — выбор модели станет недетерминированным.`);
+              continue;
+            }
+            seenIds.add(id);
+            if (!outgoing.some((e) => e.sourceHandle === `action_${id}`)) {
+              errors.push(`AGENT_ACTION_NOT_CONNECTED: ${who} — действие '${id}' не подключено к ветке — модель может его выбрать, а идти будет некуда.`);
+            }
+          }
+        }
+        const prompt = String(c.systemPrompt || "");
+        if (prompt.length > 30000) {
+          errors.push(`AGENT_PROMPT_TOO_LONG: ${who} — инструкция агента длиннее 30 000 символов.`);
+        } else if (prompt.length > 10000) {
+          // Мягкий порог — только warn: у MCP-сборщика нет инспектора, где владелец увидел бы
+          // это предупреждение живьём (веб-редактор красит счётчик символов сам).
+          warns.push(`${who}: инструкция агента длиннее 10 000 символов — модель хуже держит середину, и каждый ответ дороже.`);
+        }
+        if (Array.isArray(c.extract)) {
+          const seenVars = new Set();
+          for (const f of c.extract) {
+            // Зеркало GraphValidator:1070 (!(o instanceof Map) → continue): элемент не объектом
+            // (строка, число, массив) рантайм молча пропускает — публикация проходит; ругаться
+            // на него было бы строже бэка (M4, фикс-раунд 1).
+            if (!f || typeof f !== "object" || Array.isArray(f)) continue;
+            const variable = f.variable == null ? null : String(f.variable);
+            const description = f.description == null ? null : String(f.description);
+            const problems = [];
+            if (!variable || !VAR_RE.test(variable)) problems.push("имя переменной должно соответствовать [a-z_][a-z0-9_]{0,63}");
+            if (blank(description)) problems.push("описание не должно быть пустым");
+            if (variable === "ai_summary") problems.push("имя 'ai_summary' занято сводкой агента");
+            if (variable && seenVars.has(variable)) problems.push("имя переменной повторяется");
+            if (variable) seenVars.add(variable);
+            if (problems.length) {
+              errors.push(`AGENT_BAD_EXTRACT: ${who} — поле извлечения${variable ? ` '${variable}'` : ""}: ${problems.join("; ")}.`);
+            }
+          }
+        }
+        // Ветка "не знаю" не подключена — предупреждение, но только для узла, достижимого от
+        // триггера (зеркало GraphValidator.draftWarnings:394-402): `reach` считается позже общего
+        // per-node прохода, поэтому сама проверка — в отдельном проходе ниже.
+      } else {
+        if (blank(c.userPromptTemplate)) errors.push(`AI_NO_PROMPT: ${who} — нужен userPromptTemplate.`);
+        if (typeof c.temperature === "number" && (c.temperature < 0 || c.temperature > 2)) errors.push(`AI_BAD_TEMPERATURE: ${who} — temperature ∈ [0.0, 2.0].`);
+        if (c.sendToUser !== true && blank(c.saveTo)) errors.push(`AI_NO_OUTPUT: ${who} — нужен sendToUser:true или saveTo.`);
+      }
       break;
     }
     case "PAYMENT_LINK": {
@@ -387,6 +457,18 @@ while (stack.length) { const x = stack.pop(); if (reach.has(x)) continue; reach.
 for (const n of nodes) {
   if (String(n.type).startsWith("TRIGGER") || n.type === "BROADCAST_FILTER") continue;
   if (!reach.has(n.id)) errors.push(`Недостижимый узел от триггера: «${n.config?._title || n.id}» (${n.type}).`);
+}
+
+// AI-агент: ветка "не знаю" не подключена — предупреждение, зеркало GraphValidator.draftWarnings
+// (394-402): только для узла, реально достижимого от триггера (`reach` посчитан только что выше).
+for (const n of nodes) {
+  const c = n.config || {};
+  if (n.type !== "AI_REPLY" || String(c.mode) !== "agent" || !reach.has(n.id)) continue;
+  const hasUnknownEdge = edges.some((e) => e.sourceNodeId === n.id && e.sourceHandle === "unknown");
+  if (!hasUnknownEdge) {
+    const who = `«${c._title || n.id}» (${n.type})`;
+    warns.push(`AGENT_UNKNOWN_NOT_CONNECTED: ${who} — ветка «не знаю» не подключена — диалог упрётся в тупик там, где нужен человек.`);
+  }
 }
 
 // --- синхронные циклы (цикл без DELAY/ASK_QUESTION/SCHEDULE = ошибка) ---
