@@ -49,7 +49,13 @@
   - **счёт должен быть ПОСЛЕДНИМ действием в блоке** (`INVOICE_NOT_LAST`) и только один (`INVOICE_DUPLICATE`).
     Причина: при наличии ветки `paid` блок встаёт на паузу до вебхука кассы, а возобновиться
     с середины списка движок не умеет — действия после счёта молча не выполнились бы.
-- `AI_REPLY`: `userPromptTemplate` непустой (`AI_NO_PROMPT`); `temperature` ∈ [0.0, 2.0] (`AI_BAD_TEMPERATURE`); нужен `sendToUser:true` ИЛИ `saveTo` (`AI_NO_OUTPUT`).
+- `AI_REPLY` (`mode` не задан или `"simple"`): `userPromptTemplate` непустой (`AI_NO_PROMPT`); `temperature` ∈ [0.0, 2.0] (`AI_BAD_TEMPERATURE`); нужен `sendToUser:true` ИЛИ `saveTo` (`AI_NO_OUTPUT`).
+- `AI_REPLY` (`mode: "agent"`) — отдельный набор проверок, старые (`AI_NO_PROMPT` и т.п.) не применяются:
+  - `strict` (по умолчанию `true`) без `knowledgeBaseId` → `AGENT_NO_KNOWLEDGE_BASE` (в строгом режиме без базы агент ответит «не знаю» на всё).
+  - `actions[]`: битая запись (пустой `id` ИЛИ `title`) пропускается целиком, как и в рантайме — на неё не ругаемся. Повтор `id` → `AGENT_DUPLICATE_ACTION_ID`. Нет ребра `action_<id>` → `AGENT_ACTION_NOT_CONNECTED`.
+  - `systemPrompt` длиннее **30 000** символов → ошибка `AGENT_PROMPT_TOO_LONG` (публикация не пройдёт). Длиннее **10 000** — только предупреждение (мягкая норма: длинная инструкция дороже и хуже держится моделью в середине; жёсткого кода для неё у бэкенда нет — в вебе это красит счётчик символов в инспекторе).
+  - `extract[]`: `variable` обязателен и матчит `[a-z_][a-z0-9_]{0,63}` (тот же `VAR_RE`), `description` непустой, имя `ai_summary` зарезервировано под сводку агента, повтор имени внутри `extract[]` — тоже ошибка. Любая из этих проблем → `AGENT_BAD_EXTRACT`.
+  - Ветка `unknown` не подключена → предупреждение (не блокирует публикацию — специально мягкий уровень, спека §10): диалог агента упрётся в тупик там, где нужен человек.
 - `PAYMENT_LINK`: `paymentUrl` обязателен (`PAY_NO_URL`), http(s):// или `{{var.x}}` (`PAY_BAD_SCHEME`).
 - `YOOKASSA_PAYMENT`: **устаревший узел, в новых сценариях не ставить** — счёт собирается действием
   `issue_invoice` внутри `ACTIONS`. Если узел всё же есть: `connectionId` (`YK_NO_CONNECTION`),
@@ -112,7 +118,7 @@ Instagram доставляет сообщения только в течение
 ---
 
 ## Локальная проверка
-`node validate.mjs <import.json>` повторяет ключевые проверки: пустые сообщения с учётом `cardsToLegacy`, висячие рёбра, дубли id, достижимость от триггеров, длину текста, HTML-безопасность (эвристика по тегам), режим «Вопрос» (`awaitReply`→`saveTo`/`regex`), конфиг `DELAY`/`SCHEDULE`/`FORMULA`/`ACTIONS`/`AI_REPLY`/`PAYMENT_LINK`/триггеров, условия `CONDITION` (вкл. `LINK_CLICKED` со ссылкой на отслеживаемый шаг). Гонять перед каждой заливкой.
+`node validate.mjs <import.json>` повторяет ключевые проверки: пустые сообщения с учётом `cardsToLegacy`, висячие рёбра, дубли id, достижимость от триггеров, длину текста, HTML-безопасность (эвристика по тегам), режим «Вопрос» (`awaitReply`→`saveTo`/`regex`), конфиг `DELAY`/`SCHEDULE`/`FORMULA`/`ACTIONS`/`AI_REPLY`(оба режима, включая `AGENT_*`)/`PAYMENT_LINK`/триггеров, условия `CONDITION` (вкл. `LINK_CLICKED` со ссылкой на отслеживаемый шаг). Гонять перед каждой заливкой.
 
 Для IG-ботов передавать `--platform=INSTAGRAM`:
 ```bash

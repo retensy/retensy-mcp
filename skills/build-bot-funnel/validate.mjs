@@ -337,9 +337,67 @@ for (const n of nodes) {
       break;
     }
     case "AI_REPLY": {
-      if (blank(c.userPromptTemplate)) errors.push(`AI_NO_PROMPT: ${who} — нужен userPromptTemplate.`);
-      if (typeof c.temperature === "number" && (c.temperature < 0 || c.temperature > 2)) errors.push(`AI_BAD_TEMPERATURE: ${who} — temperature ∈ [0.0, 2.0].`);
-      if (c.sendToUser !== true && blank(c.saveTo)) errors.push(`AI_NO_OUTPUT: ${who} — нужен sendToUser:true или saveTo.`);
+      if (String(c.mode) === "agent") {
+        // Режим агента — отдельный набор ключей конфига, старые проверки (userPromptTemplate
+        // и т.п.) к нему не относятся. Зеркало GraphValidator.validateAiAgent (Задача 12,
+        // CARRY): обязано ловить то же самое, что и бэкенд, и не быть строже него.
+        const outgoing = edges.filter((e) => e.sourceNodeId === n.id);
+        const strict = c.strict !== false;
+        if (strict && blank(c.knowledgeBaseId)) {
+          errors.push(`AGENT_NO_KNOWLEDGE_BASE: ${who} — в строгом режиме без базы знаний агент ответит «не знаю» на всё.`);
+        }
+        if (Array.isArray(c.actions)) {
+          const seenIds = new Set();
+          for (const a of c.actions) {
+            if (!a) continue;
+            const id = a.id == null ? null : String(a.id);
+            const title = a.title == null ? null : String(a.title);
+            // Битую запись (пустой id ИЛИ title) рантайм пропускает целиком — ругаться на
+            // её ребро/дубль было бы ложной ошибкой (зеркало FlowExecutor.agentActions).
+            if (blank(id) || blank(title)) continue;
+            if (seenIds.has(id)) {
+              errors.push(`AGENT_DUPLICATE_ACTION_ID: ${who} — действие с id '${id}' повторяется — выбор модели станет недетерминированным.`);
+              continue;
+            }
+            seenIds.add(id);
+            if (!outgoing.some((e) => e.sourceHandle === `action_${id}`)) {
+              errors.push(`AGENT_ACTION_NOT_CONNECTED: ${who} — действие '${id}' не подключено к ветке — модель может его выбрать, а идти будет некуда.`);
+            }
+          }
+        }
+        const prompt = String(c.systemPrompt || "");
+        if (prompt.length > 30000) {
+          errors.push(`AGENT_PROMPT_TOO_LONG: ${who} — инструкция агента длиннее 30 000 символов.`);
+        } else if (prompt.length > 10000) {
+          // Мягкий порог — только warn: у MCP-сборщика нет инспектора, где владелец увидел бы
+          // это предупреждение живьём (веб-редактор красит счётчик символов сам).
+          warns.push(`${who}: инструкция агента длиннее 10 000 символов — модель хуже держит середину, и каждый ответ дороже.`);
+        }
+        if (Array.isArray(c.extract)) {
+          const seenVars = new Set();
+          for (const f of c.extract) {
+            if (!f) continue;
+            const variable = f.variable == null ? null : String(f.variable);
+            const description = f.description == null ? null : String(f.description);
+            const problems = [];
+            if (!variable || !VAR_RE.test(variable)) problems.push("имя переменной должно соответствовать [a-z_][a-z0-9_]{0,63}");
+            if (blank(description)) problems.push("описание не должно быть пустым");
+            if (variable === "ai_summary") problems.push("имя 'ai_summary' занято сводкой агента");
+            if (variable && seenVars.has(variable)) problems.push("имя переменной повторяется");
+            if (variable) seenVars.add(variable);
+            if (problems.length) {
+              errors.push(`AGENT_BAD_EXTRACT: ${who} — поле извлечения${variable ? ` '${variable}'` : ""}: ${problems.join("; ")}.`);
+            }
+          }
+        }
+        if (!outgoing.some((e) => e.sourceHandle === "unknown")) {
+          warns.push(`${who}: ветка «не знаю» (unknown) не подключена — диалог упрётся в тупик там, где нужен человек.`);
+        }
+      } else {
+        if (blank(c.userPromptTemplate)) errors.push(`AI_NO_PROMPT: ${who} — нужен userPromptTemplate.`);
+        if (typeof c.temperature === "number" && (c.temperature < 0 || c.temperature > 2)) errors.push(`AI_BAD_TEMPERATURE: ${who} — temperature ∈ [0.0, 2.0].`);
+        if (c.sendToUser !== true && blank(c.saveTo)) errors.push(`AI_NO_OUTPUT: ${who} — нужен sendToUser:true или saveTo.`);
+      }
       break;
     }
     case "PAYMENT_LINK": {
