@@ -470,7 +470,11 @@ async function handleCall(params) {
       const payload = { nodes: src.nodes, edges: src.edges, canvasMeta: src.canvasMeta ?? {} };
       if (a.name ?? src.name) payload.name = a.name ?? src.name;
       const saved = await api(`/api/bots/graphs/${a.graphId}`, { method: "PUT", body: payload });
-      steps.push(`правка применена НА МЕСТЕ к ${a.graphId} (id не изменился; редакторы и бот подхватят live)`);
+      // До бота доходит только правка опубликованного графа: черновик после publish_graph остаётся DRAFT, живой —
+      // его копия (publishedGraphId). Иначе агент решит, что поправил бота, а правка легла в черновик.
+      steps.push(saved?.status === "PUBLISHED"
+        ? `правка применена НА МЕСТЕ к ${a.graphId} (id не изменился; редакторы и бот подхватят live)`
+        : `сохранено в черновик ${a.graphId}: до бота НЕ доходит — живые правки делай по id опубликованного графа (isActive:true в list_graphs; после publish_graph черновика — publishedGraphId)`);
       return okResult({ graphId: a.graphId, backupGraphId, inPlace: true, status: saved?.status ?? null, nodes: Array.isArray(saved?.nodes) ? saved.nodes.length : null, edges: Array.isArray(saved?.edges) ? saved.edges.length : null, steps });
     }
     case "patch_graph": {
