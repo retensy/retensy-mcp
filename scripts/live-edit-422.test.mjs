@@ -32,6 +32,12 @@ const srv = http.createServer((req, res) => {
       res.end(JSON.stringify({ publishedGraphId: null, errors, warnings: [] }));
       return;
     }
+    if (req.method === "PUT" && req.url === "/api/bots/graphs/g-null") {
+      // битый элемент в errors[] не должен прятать сам отказ (TypeError вместо 422)
+      res.writeHead(422, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ publishedGraphId: null, errors: [null, { nodeId: "n-ok", code: "GRAPH_EMPTY", message: "сценарий пуст" }], warnings: [] }));
+      return;
+    }
     if (req.method === "POST" && req.url === "/api/bots/graphs/g-hook/publish") {
       res.writeHead(409); res.end(); // как бэкенд: ResponseEntity.status(CONFLICT).build()
       return;
@@ -68,6 +74,7 @@ const call = (id, name, args) => {
 
 const m = await call(1, "edit_graph_live", { graphId: "g-live", nodes: [], edges: [], backup: false });
 const m409 = await call(2, "publish_graph", { graphId: "g-hook" });
+const mNull = await call(3, "edit_graph_live", { graphId: "g-null", nodes: [], edges: [], backup: false });
 child.kill();
 srv.close();
 try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* windows lock */ }
@@ -75,14 +82,19 @@ try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* windows lo
 const textOf = (r) => (r?.result?.content ?? []).map((c) => c.text).join("\n");
 const text = textOf(m);
 const text409 = textOf(m409);
+const textNull = textOf(mNull);
 const checks = [
   ["ответ получен", m !== null],
   ["это ошибка инструмента", m?.result?.isError === true],
   ["виден HTTP 422", text.includes("HTTP 422")],
-  ...CODES.map((code, i) => [`виден ${code}@node-${i + 1}`, text.includes(`${code}@node-${i + 1}`)]),
+  ["виден заголовок «(ошибок: 8)»", text.includes("отклонено проверками (ошибок: 8):")],
+  ...errors.map((e) => [`видна строка ${e.code}@${e.nodeId}: <message>`, text.includes(`${e.code}@${e.nodeId}: ${e.message}`)]),
   ["409 без тела: ошибка инструмента", m409?.result?.isError === true],
   ["409 без тела: виден HTTP 409", text409.includes("HTTP 409")],
   ["409 без тела: нет «null» вместо причины", !text409.includes("null")],
+  ["null в errors[]: ошибка инструмента", mNull?.result?.isError === true],
+  ["null в errors[]: виден HTTP 422 (ошибок: 2)", textNull.includes("HTTP 422. отклонено проверками (ошибок: 2):")],
+  ["null в errors[]: соседняя причина видна", textNull.includes("GRAPH_EMPTY@n-ok: сценарий пуст")],
 ];
 
 let failed = 0;
@@ -90,6 +102,6 @@ for (const [name, ok] of checks) {
   console.log(ok ? `  ok  ${name}` : `  FAIL  ${name}`);
   if (!ok) failed += 1;
 }
-if (failed) { console.error(`live-edit-422 FAIL: провалено проверок — ${failed}\n${text}\n${text409}`); process.exit(1); }
+if (failed) { console.error(`live-edit-422 FAIL: провалено проверок — ${failed}\n${text}\n${text409}\n${textNull}`); process.exit(1); }
 console.log("live-edit-422 OK");
 process.exit(0);
