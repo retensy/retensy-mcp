@@ -27,7 +27,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.12.0";
+const VERSION = "0.12.1";
 const PKG_NAME = "@retensy/mcp";
 const BASE = (process.env.RETENSY_BASE_URL || "https://bots.retensy.com").replace(/\/+$/, "");
 const CONFIG_DIR = path.join(os.homedir(), ".retensy-bot-graph");
