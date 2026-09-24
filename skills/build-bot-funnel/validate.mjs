@@ -27,6 +27,13 @@ const nodes = Array.isArray(g.nodes) ? g.nodes : [];
 const edges = Array.isArray(g.edges) ? g.edges : [];
 const errors = [];
 const warns = [];
+// Потолок размера графа — зеркало TgGraphController.MAX_GRAPH_BYTES (аудит data#24): PUT больше 4 МБ → HTTP 422
+// GRAPH_TOO_LARGE, и у черновика тоже. Байты UTF-8 того же JSON {nodes, edges, canvasMeta}.
+const MAX_GRAPH_BYTES = 4 * 1024 * 1024;
+const graphBytes = Buffer.byteLength(JSON.stringify({ nodes, edges, canvasMeta: g.canvasMeta ?? {} }), "utf8");
+if (graphBytes > MAX_GRAPH_BYTES) {
+  errors.push(`GRAPH_TOO_LARGE: граф ${graphBytes} байт > ${MAX_GRAPH_BYTES} (4 МБ) — сократи тексты или раздели на несколько сценариев.`);
+}
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VAR_RE = /^[a-z_][a-z0-9_]{0,63}$/;
