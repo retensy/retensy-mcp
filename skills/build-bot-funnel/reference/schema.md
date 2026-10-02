@@ -129,6 +129,7 @@ IG-боты не поддерживают команды (`/start`). Вход �
   - **`TOMORROW`** («Отправить завтра»): `{ "kind":"TOMORROW", "time":"18:00" }` — завтра в указанное время `HH:mm` (МСК), относительно момента, когда пользователь дошёл до узла.
   - **`UNTIL`** («Отправить в»): `{ "kind":"UNTIL", "isoTimestamp":"2026-06-25T15:00:00Z" }` — конкретный момент в ISO-8601 (UTC). ⚠️ Рантайм читает только `isoTimestamp`; пары `isoDate`+`time` НЕ работают.
 - `SCHEDULE` — `{ "isoDate":"2026-06-25", "time":"18:00", "timezone":"Europe/Moscow" }`. Выходы `scheduled` / `past`.
+- Прогон без пауз (между `DELAY`, `ASK_QUESTION`/`awaitReply`, ожиданием оплаты) ограничен **5 минутами**: дольше — рантайм обрывает его с ошибкой шага `run deadline exceeded` (прогон `FAILED`, пауза подписчика снята). Длинные цепочки `external_request` / `CALL_WEBHOOK` / `AI_REPLY` разноси `DELAY` — после паузы начинается новый прогон.
 
 ### Состояние / действия
 - `SET_VARIABLE` (`{ "key":"name", "value":"..." }`), `ADD_TAG`/`REMOVE_TAG` (`{ "tag":"lead" }`), `FORMULA` (`{ "expression":"...", "saveTo":"name" }`)
