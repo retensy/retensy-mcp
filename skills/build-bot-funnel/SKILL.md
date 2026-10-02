@@ -54,7 +54,7 @@ description: Собрать воронку (сценарий) бота для с
    - `list_bots` → выбрать `botId` (или `create_graph` в существующем боте).
    - `create_graph(botId, name)` → получить `graphId`. Либо стартуй с готовой основы: `list_templates` → `create_graph_from_template(botId, templateId, name)`.
    - `update_graph(graphId, nodes, edges, canvasMeta)` → залить узлы/рёбра.
-   - `dry_run(graphId, kind:"command", value:"start")` → прогнать стартовую ветку, проверить `runStatus`.
+   - `dry_run(graphId, kind:"command", value:"start")` → прогнать стартовую ветку, проверить `runStatus`. `dry_run` ничего не делает снаружи: внешние запросы, CRM, таблицы, письма, уведомления, счета и ответы ИИ пропускаются (у шага `skipped: "dry-run"`), переменные из их ответов остаются пустыми — это проверяется только живым прогоном.
    - `publish_graph(graphId)` → при отказе инструмент вернёт ошибку `HTTP 422` со ВСЕМИ причинами построчно (`code@nodeId: message`) — разобрать, починить узлы, обновить, опубликовать снова.
    - Управление сценариями: `clone_graph`, `rename_graph`, `set_active_graph` (переключить живой граф), `delete_graph` (активный нельзя — сначала переключи).
    Если MCP не подключён — отдай готовый `import.json` и подскажи: /bots → граф → **Импорт**.
