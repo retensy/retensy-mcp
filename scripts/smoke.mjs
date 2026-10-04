@@ -33,7 +33,7 @@ function finish() {
   const ok =
     init?.result?.serverInfo?.name === "retensy-mcp" &&
     Array.isArray(tools) &&
-    tools.length === 31 &&
+    tools.length === 39 &&
     toolNames.includes("list_channels") &&
     toolNames.includes("list_integrations") &&
     toolNames.includes("edit_graph_live") &&
@@ -43,7 +43,9 @@ function finish() {
     toolNames.includes("article_publish") &&
     toolNames.includes("article_update") &&
     toolNames.includes("article_list") &&
-    toolNames.includes("article_get");
+    toolNames.includes("article_get") &&
+    ["site_list", "site_create", "site_get", "site_schema", "site_edit", "site_publish", "site_upload_asset", "site_leads"]
+      .every((n) => toolNames.includes(n));
   child.kill();
   if (!ok) {
     console.error("SMOKE FAIL:", JSON.stringify({ init, tl }, null, 2));

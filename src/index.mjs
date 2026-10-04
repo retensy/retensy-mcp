@@ -330,6 +330,47 @@ async function uploadMedia({ filePath, url, filename }) {
   return data;
 }
 
+// Ассет сайта из блоков: POST /api/bots/pages/{id}/upload (multipart, dir=assets). Бэкенд принимает имена только из
+// [A-Za-z0-9._@()+- ], поэтому имя приводим к латинице с коротким суффиксом.
+async function uploadSiteAsset(siteId, { filePath, url }) {
+  if (!isAuthed()) throw new Error(NO_AUTH_HELP);
+  if (!siteId) throw new Error("Передай siteId.");
+  let bytes, name, mime;
+  if (filePath) {
+    const abs = path.resolve(String(filePath).replace(/^~(?=$|[/\\])/, os.homedir()));
+    try { bytes = fs.readFileSync(abs); } catch { throw new Error(`Файл не найден: ${abs}`); }
+    name = path.basename(abs);
+    mime = guessMime(name);
+  } else if (url) {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`Не удалось скачать файл по url (HTTP ${r.status}).`);
+    bytes = Buffer.from(await r.arrayBuffer());
+    try { name = path.basename(new URL(url).pathname) || "file"; } catch { name = "file"; }
+    mime = r.headers.get("content-type") || guessMime(name);
+  } else {
+    throw new Error("Передай path (локальный файл) ИЛИ url.");
+  }
+  const ext = path.extname(name).toLowerCase().replace(/[^.a-z0-9]/g, "").slice(0, 9);
+  const base = path.basename(name, path.extname(name)).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "file";
+  const safe = `${base}-${Math.random().toString(36).slice(2, 6)}${ext}`;
+  const headers = {};
+  const token = getToken(); const cookie = getCookie();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  else if (cookie) headers.Cookie = cookie;
+  const fd = new FormData();
+  fd.append("files", new Blob([bytes], { type: mime }), safe);
+  fd.append("dir", "assets");
+  const res = await fetch(`${BASE}/api/bots/pages/${siteId}/upload`, { method: "POST", headers, body: fd });
+  const text = await res.text();
+  let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) throw new Error(`Доступ отклонён (HTTP ${res.status}). Токен невалиден/отозван — создай новый на ${TOKENS_PAGE}.`);
+    if (res.status === 402) throw new Error("Лимит хранилища тарифа исчерпан (HTTP 402).");
+    throw httpError("POST", `/api/bots/pages/${siteId}/upload`, res.status, data);
+  }
+  return { asset: `assets/${safe}`, sizeBytes: bytes.length };
+}
+
 const okResult = (obj) => ({ content: [{ type: "text", text: typeof obj === "string" ? obj : JSON.stringify(obj, null, 2) }] });
 const errResult = (e) => ({ isError: true, content: [{ type: "text", text: "❌ " + (e?.message || String(e)) }] });
 
@@ -393,6 +434,14 @@ const TOOLS = [
   { name: "graph_analytics", description: "Аналитика прохождения сценария по узлам (GET /api/bots/graphs/{graphId}/analytics): сколько пользователей дошло до каждого узла — видно, где отваливается воронка. Read-only.", inputSchema: { type: "object", properties: { graphId: { type: "string" } }, required: ["graphId"] } },
   { name: "list_bot_users", description: "Пользователи (подписчики/лиды) бота, постранично (GET /api/bots/{botId}/users). Опц. page (с 0), size (по умолч. 25), query (поиск по имени/username/id). Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, page: { type: "number" }, size: { type: "number" }, query: { type: "string" } }, required: ["botId"] } },
   { name: "list_links", description: "Стартовые (трекинговые) ссылки бота с UTM (GET /api/bots/{botId}/links): code, метки, число стартов. Это точки входа в воронку. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
+  { name: "site_list", description: "Сайты пользователя (раздел «Страницы», GET /api/bots/pages): id, title, mode (BLOCKS — сайт из блоков, CODE — файлы/Mini App), url (основной адрес), publishedRevision. Read-only.", inputSchema: { type: "object", properties: {} } },
+  { name: "site_create", description: "Создать сайт из блоков (POST /api/bots/pages, mode=BLOCKS). Возвращает id. Дальше: site_edit (init=starter — стартовый лендинг, init=blank — пустая главная) → site_publish. slug — «название» в адресе pages.retensy.com/<id>/<slug>/ (необязательно, по умолчанию транслит title).", inputSchema: { type: "object", properties: { title: { type: "string" }, slug: { type: "string" } }, required: ["title"] } },
+  { name: "site_get", description: "Модель сайта из блоков (GET /api/bots/pages/{siteId}/document): revision, draft (SiteModel: theme, globals.header/footer, pages[].blocks[], popups[]) — id страниц/блоков/попапов нужны для site_edit. draft=null — сайт пуст (первый site_edit создаст его). saveToFile — записать модель на диск и вернуть путь.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, saveToFile: { type: "string" } }, required: ["siteId"] } },
+  { name: "site_schema", description: "JSON Schema модели сайта (model) и операций правки (ops) — какие блоки и поля бывают (GET /api/bots/pages/schema). Читай перед первой правкой.", inputSchema: { type: "object", properties: {} } },
+  { name: "site_edit", description: "Правка сайта операциями — всё или ничего (POST /api/bots/pages/{siteId}/document/ops). ops: add_page{title} · update_page{pageId,patch} · remove_page{pageId} · move_page{pageId,delta} · add_block{container: id страницы|попапа, type, after?, variant?, props?, style?} · update_block{blockId, props?, style?, variant?} · move_block{blockId,delta} · duplicate_block{blockId} · remove_block{blockId} · set_global{slot: header|footer, on} · set_theme{theme} · set_settings{settings} · add_popup{name} · update_popup{popupId,name?,width?} · remove_popup{popupId}. props/style/theme — JSON Merge Patch (null удаляет ключ, массивы заменяются целиком). Типы блоков: header, cover, text, image, gallery, buttons, features, form, video, html, spacer, footer. Значения по экранам: {d, t?, m?} (десктоп/планшет/телефон). revision — защита от перезаписи (409, если сайт изменили); init (starter|blank) — с чего начать пустой сайт. Ответ: новая revision и results[] с id созданного. Ошибки — HTTP 422 с путями.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, ops: { type: "array", items: { type: "object" } }, revision: { type: "number" }, init: { type: "string", enum: ["starter", "blank"] } }, required: ["siteId", "ops"] } },
+  { name: "site_publish", description: "Опубликовать черновик сайта (POST /api/bots/pages/{siteId}/publish): рендер в статику, адрес начинает отдавать новую версию. Ошибки проверки — HTTP 422 с путями. Возвращает publishedRevision и url.", inputSchema: { type: "object", properties: { siteId: { type: "string" } }, required: ["siteId"] } },
+  { name: "site_upload_asset", description: "Загрузить картинку/видео в сайт (POST /api/bots/pages/{siteId}/upload, папка assets). Передай path (локальный файл) ИЛИ url. Возвращает asset — строку вида assets/<имя> для полей image/logo/icon/style.bg.image.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, path: { type: "string" }, url: { type: "string" } }, required: ["siteId"] } },
+  { name: "site_leads", description: "Заявки из форм сайта (GET /api/bots/pages/{siteId}/leads): поля, UTM, статус доставки. page (с 0), size (до 100). Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["siteId"] } },
   { name: "article_list", description: "Список СВОИХ статей блога retensy (GET /api/articles/my): id, slug, title, viewCount, даты. id нужен для article_update, slug — публичный адрес /articles/{slug}. Read-only.", inputSchema: { type: "object", properties: {} } },
   { name: "article_get", description: "Получить статью блога по slug (GET /api/articles/by-slug/{slug}) — публичное чтение, в т.ч. чужие. Возвращает title, content (Markdown), excerpt, coverImage, viewCount.", inputSchema: { type: "object", properties: { slug: { type: "string", description: "slug статьи (часть адреса /articles/{slug})" } }, required: ["slug"] } },
   { name: "article_publish", description: "Опубликовать НОВУЮ статью блога retensy (POST /api/articles). content — Markdown (как README на GitHub: заголовки, списки, таблицы, код, картинки по URL). title необязателен: если не передать, заголовком станет первая строка вида «# Заголовок», и она убирается из текста. Обложку можно задать явно через cover (URL картинки) — иначе берётся первая картинка из текста; excerpt (SEO-описание) тоже можно задать явно, иначе генерируется из текста. Возвращает статью с id и slug + публичный URL.", inputSchema: { type: "object", properties: { title: { type: "string", description: "Заголовок (необязателен, если content начинается с «# ...»)" }, content: { type: "string", description: "Тело статьи в Markdown" }, cover: { type: "string", description: "URL обложки (coverImage/OG). Если не задан — берётся первая картинка из текста." }, excerpt: { type: "string", description: "Краткое SEO-описание (≤160 симв). Если не задан — генерируется из текста." } }, required: ["content"] } },
@@ -594,6 +643,36 @@ async function handleCall(params) {
       return okResult(await api(`/api/bots/${a.botId}/users${qs.length ? `?${qs.join("&")}` : ""}`));
     }
     case "list_links": return okResult(await api(`/api/bots/${a.botId}/links`));
+    case "site_list": return okResult(await api("/api/bots/pages"));
+    case "site_create": {
+      if (!a.title) throw new Error("Передай title сайта.");
+      return okResult(await api("/api/bots/pages", { method: "POST", body: { title: a.title, slug: a.slug || undefined, mode: "BLOCKS" } }));
+    }
+    case "site_get": {
+      const doc = await api(`/api/bots/pages/${a.siteId}/document`);
+      if (a.saveToFile) {
+        const abs = path.resolve(String(a.saveToFile).replace(/^~(?=$|[/\\])/, os.homedir()));
+        fs.writeFileSync(abs, JSON.stringify(doc, null, 2));
+        return okResult({ revision: doc?.revision, publishedRevision: doc?.publishedRevision, savedTo: abs });
+      }
+      return okResult(doc);
+    }
+    case "site_schema": return okResult(await api("/api/bots/pages/schema"));
+    case "site_edit": {
+      if (!Array.isArray(a.ops) || !a.ops.length) throw new Error("Передай ops — массив операций (см. site_schema).");
+      return okResult(await api(`/api/bots/pages/${a.siteId}/document/ops`, { method: "POST", body: { ops: a.ops, revision: a.revision, init: a.init } }));
+    }
+    case "site_publish": {
+      const r = await api(`/api/bots/pages/${a.siteId}/publish`, { method: "POST" });
+      return okResult({ publishedRevision: r?.publishedRevision, url: r?.page?.url });
+    }
+    case "site_upload_asset": return okResult(await uploadSiteAsset(a.siteId, { filePath: a.path, url: a.url }));
+    case "site_leads": {
+      const qs = [];
+      if (a.page != null) qs.push(`page=${encodeURIComponent(a.page)}`);
+      if (a.size != null) qs.push(`size=${encodeURIComponent(a.size)}`);
+      return okResult(await api(`/api/bots/pages/${a.siteId}/leads${qs.length ? `?${qs.join("&")}` : ""}`));
+    }
     case "article_list": return okResult(await api("/api/articles/my"));
     case "article_get": return okResult(await api(`/api/articles/by-slug/${encodeURIComponent(a.slug)}`));
     case "article_publish": {
