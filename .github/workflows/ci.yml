@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [master, main]
   pull_request:
-    branches: [main]
+    branches: [master, main]
 
 jobs:
   test:
@@ -23,6 +23,8 @@ jobs:
           node --check src/index.mjs
           node --check scripts/smoke.mjs
           node --check scripts/telemetry.test.mjs
+          node --check scripts/live-edit-422.test.mjs
+          node --check scripts/broadcast-connect.test.mjs
           node --check skills/build-bot-funnel/validate.mjs
       - name: Smoke test (MCP stdio)
         run: node scripts/smoke.mjs
@@ -32,5 +34,14 @@ jobs:
       # Webhook подменяется на локальный сервер — реальный вебхук из CI не дёргается.
       - name: Telemetry redaction test
         run: node scripts/telemetry.test.mjs
+        env:
+          RETENSY_MCP_AUTOUPDATE: "0"
+      - name: API error formatting test (422/409)
+        run: node scripts/live-edit-422.test.mjs
+        env:
+          RETENSY_MCP_AUTOUPDATE: "0"
+      # Аргументы → запрос (рассылки, подключения) и ссылки вместо отказа (OAuth, Instagram, 402).
+      - name: Broadcast & connect test
+        run: node scripts/broadcast-connect.test.mjs
         env:
           RETENSY_MCP_AUTOUPDATE: "0"

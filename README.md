@@ -7,9 +7,13 @@
 
 MCP-сервер (+ скилл для Claude Code) для **сборки и публикации воронок/автоматизаций ботов (Telegram, MAX и Instagram)** в сервисе [retensy `/bots`](https://bots.retensy.com/bots): из текстового описания → валидный граф сценария → заливка и публикация через API.
 
-- 🤖 **30 инструментов сборки/публикации**: `list_bots`, `list_graphs`, `list_channels`, `get_graph`, `create_graph`, `update_graph`, `edit_graph_live`, `patch_graph`, `dry_run`, `publish_graph`, `import_funnel`, `list_templates`, `create_graph_from_template`, `clone_graph`, `copy_graph`, `rename_graph`, `set_active_graph`, `delete_graph`, `upload_file`, `list_files`, `delete_file`, `graph_analytics`, `list_bot_users`, `list_links` (+ `setup`/`set_token`).
+- 🤖 **Сценарии ботов**: `list_bots`, `list_graphs`, `list_channels`, `get_graph`, `create_graph`, `update_graph`, `edit_graph_live`, `patch_graph`, `dry_run`, `publish_graph`, `import_funnel`, `list_templates`, `create_graph_from_template`, `clone_graph`, `copy_graph`, `rename_graph`, `set_active_graph`, `delete_graph`, `upload_file`, `list_files`, `delete_file`, `graph_analytics`, `list_bot_users`, `list_links` (+ `setup`/`set_token`).
+- 🔌 **Боты и сервисы**: `create_bot` (Telegram/MAX по токену), `bot_stop`/`bot_resume`, `connect_integration`/`disconnect_integration` (amoCRM, Битрикс24, GetCourse, Я.Метрика, ЮKassa; Google Таблицы — ссылкой на вход Google).
+- 📣 **Рассылки**: `broadcast_preview` (размер аудитории), `broadcast_send` (сейчас или по расписанию, сразу по нескольким ботам; сообщения или запуск сценария), `broadcast_list`/`broadcast_get`/`broadcast_cancel`, повторяющиеся (`broadcast_recurring`), черновики (`broadcast_drafts`, `broadcast_duplicate`) + скилл `send-broadcast`.
+- 🔗 **Ссылка вместо отказа**: что нельзя сделать через API (вход через Google/Facebook, оплата тарифа, вход в аккаунт) — инструмент возвращает прямую ссылку и одну строку, что сделать.
 - 📝 **Статьи блога** (тот же токен `zmcp_…`): `article_publish`, `article_update`, `article_list`, `article_get` — публикация статей в Markdown (как README на GitHub) в раздел **/articles**.
 - 📎 **Медиа**: `upload_file` грузит фото/видео/документы в библиотеку **/bots/files** (до 50 МБ) и возвращает публичный URL — его вставляешь в медиа-карточку сценария.
+- 🌐 **Сайты из блоков** (раздел «Страницы»): создание, правка операциями (блоки, Zero-блок со свободной вёрсткой, код блока, папки страниц, дизайны, шаблоны из библиотеки), публикация и откат, свои домены, заявки из форм и куда их доставлять — инструменты `site_*` + скилл `build-site`.
 - 🧠 **Скилл `build-bot-funnel`**: учит агента собирать корректный граф (типы узлов, ветки, кнопки, задержки) и проверять его перед публикацией. Поддерживает Telegram, MAX и Instagram.
 - 📦 **Без зависимостей** — чистый Node ≥18, ставится и запускается сразу.
 
@@ -17,9 +21,9 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 
 | Платформа | Онбординг | Триггеры входа | Ограничения |
 |---|---|---|---|
-| **Telegram** | Токен бота (BotFather) | `/start`, команды, callback, текст, рассылки | Полный функционал |
-| **MAX** | Токен бота (MAX Developer) | Команды, callback, текст | Без SUBSCRIBED/reply-клавиатур (мягкие предупреждения) |
-| **Instagram** | OAuth в `/bots/instagram` (без токена) | Комментарий/Direct/Ответ на историю/Упоминание | Ограниченный набор узлов; DELAY ≤ 24ч; ASK_QUESTION только TEXT/EMAIL/PHONE/NUMBER/CONTACT (CONTACT = ручной ввод номера); без рассылок |
+| **Telegram** | Токен бота (BotFather) → `create_bot` | `/start`, команды, callback, текст, рассылки | Полный функционал |
+| **MAX** | Токен бота (MasterBot в MAX) → `create_bot` | Команды, callback, текст | Без SUBSCRIBED/reply-клавиатур (мягкие предупреждения) |
+| **Instagram** ⏸ | OAuth в `/bots/instagram` (без токена) — **сейчас выключен в сервисе** (подключение новых IG-ботов скрыто, флаг `instagram.enabled`) | Комментарий/Direct/Ответ на историю/Упоминание | Ограниченный набор узлов; DELAY ≤ 24ч; ASK_QUESTION только TEXT/EMAIL/PHONE/NUMBER/CONTACT (CONTACT = ручной ввод номера); без рассылок |
 
 ---
 
@@ -32,7 +36,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 /plugin install retensy-mcp@retensy
 ```
 
-Подтянутся и MCP-сервер `bot-graph`, и скилл `build-bot-funnel`. Проверить: `/mcp` и `/plugin`.
+Подтянутся MCP-сервер и скиллы `build-bot-funnel`, `build-site`, `send-broadcast`. Проверить: `/mcp` и `/plugin`.
 
 ### Вариант B — как обычный MCP-сервер (Claude Code / Cursor / Windsurf / любой MCP-клиент)
 
@@ -92,9 +96,13 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `setup` | статус авторизации + пошаговая инструкция подключения |
 | `set_token` | сохранить присланный токен `zmcp_…` (без env/рестарта) |
 | `list_bots` | список ботов |
+| `create_bot(platform, token, name?)` | подключить бота Telegram/MAX по токену (Instagram → ссылка на кабинет) |
+| `bot_stop(botId)` / `bot_resume(botId)` | остановить / запустить бота |
 | `list_graphs(botId)` | графы (сценарии) бота |
 | `list_channels(botId)` | каналы/группы, подключённые к боту (chatId для условия SUBSCRIBED) |
-| `list_integrations()` | подключённые сервисы (amoCRM, Битрикс24, GetCourse, Я.Метрика): `id` = `connectionId` для действий сценария |
+| `list_integrations()` | подключённые сервисы (amoCRM, Битрикс24, GetCourse, Я.Метрика, ЮKassa): `id` = `connectionId` для действий сценария |
+| `connect_integration(provider, creds?, title?, connectionId?)` | подключить/обновить сервис; без кредов — какие поля нужны; Google Таблицы → ссылка входа Google, Instagram → ссылка на кабинет |
+| `disconnect_integration(connectionId)` | удалить подключение |
 | `get_graph(graphId, [summary], [saveToFile])` | получить граф; `summary:true` — компактная сводка (id/type/title + рёбра), `saveToFile` — записать полный JSON на диск (для больших графов, чтобы не упереться в лимит токенов) |
 | `create_graph(botId, name)` | создать пустой граф (DRAFT) |
 | `update_graph(graphId, graphFile\|graph\|nodes,edges)` | залить узлы/рёбра (PUT); `graphFile` — путь к локальному JSON, граф не нужно слать инлайном |
@@ -115,10 +123,68 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `graph_analytics(graphId)` | прохождение сценария по узлам (где отваливается воронка) |
 | `list_bot_users(botId)` | подписчики/лиды бота (постранично, поиск `query`) |
 | `list_links(botId)` | стартовые трекинговые ссылки бота с UTM |
+| `site_list()` | сайты пользователя (id, mode, url, publishedRevision) |
+| `site_create(title, slug?)` | новый сайт из блоков → `id` |
+| `site_get(siteId, saveToFile?)` | модель сайта (`revision`, `draft`, `versions[]` публикаций) |
+| `site_schema()` | JSON Schema модели и операций — читать перед правкой |
+| `site_edit(siteId, ops[], revision?, init?)` | правка операциями, всё или ничего: страницы и папки, блоки, Zero-элементы, код блока (`get/set/add_block_code`), дизайны и их кадры, шаблоны (`add_template`), тема, попапы |
+| `site_templates(category?, full?)` | библиотека шаблонов блоков для `add_template` |
+| `site_publish(siteId)` | опубликовать черновик → `url` |
+| `site_rollback(siteId, revision)` | вернуть прошлую публикацию |
+| `site_upload_asset(siteId, path\|url)` | картинка/видео в сайт → `assets/…` |
+| `site_domains(siteId, action, host?, withWww?, domainId?)` | свои домены: list / add / check / remove (число — по тарифу) |
+| `site_leads(siteId, page?, size?)` | заявки из форм (поля, UTM, статус доставки) |
+| `site_lead_settings(siteId, settings?)` | куда доставлять заявки: бот уведомлений, почта, вебхук, вебхук-сценарий, amoCRM |
+| `broadcast_list(botId?, group?, page?, size?)` | рассылки + счётчики разделов (черновики/запланированные/отправленные/повторы) |
+| `broadcast_get(broadcastId)` | рассылка целиком: статус, счётчики, сообщения |
+| `broadcast_preview(botIds, tagsAll?, tagsNone?)` | сколько подписчиков получат рассылку |
+| `broadcast_send(name, botIds, messages \| graphId, tagsAll?, tagsNone?, scheduledAt?, draftId?)` | отправить сейчас / запланировать; по нескольким ботам; или запуск сценария |
+| `broadcast_cancel(broadcastId)` | отменить запланированную/идущую |
+| `broadcast_recurring(action, …)` | повторяющиеся рассылки: list / create (DAILY·MONTHLY·YEARLY) / stop |
+| `broadcast_drafts(action, …)` | черновики: list / get / create / update / delete |
+| `broadcast_duplicate(broadcastId)` | копия рассылки как черновик |
 | `article_list()` | свои статьи блога (id, slug, title, просмотры) |
 | `article_get(slug)` | статья по slug (Markdown content, excerpt, обложка) |
 | `article_publish(content, title?, cover?, excerpt?)` | новая статья (Markdown; title из `# ...`, если не задан; обложка из `cover`-URL или 1-й картинки → OG; `excerpt` явно или авто) → id, slug, URL |
 | `article_update(id, content, title?)` | обновить свою статью по id |
+
+### Рассылки
+
+Сообщение рассылки — как в мастере кабинета: `{type, text?, mediaUrl?, mediaUrls?, buttons?}`, до 5 сообщений.
+
+| type | Обязательно | Текст | Кнопки |
+|---|---|---|---|
+| `TEXT` | `text` (до 4096) | Telegram-HTML | до 8 URL-кнопок |
+| `PHOTO` `VIDEO` `AUDIO` `FILE` `VOICE` | `mediaUrl` | подпись до 1024 | до 8 |
+| `VIDEONOTE` (кружок) | `mediaUrl` | нет | до 8 |
+| `GALLERY` | `mediaUrls` — 2–10 картинок | подпись до 1024 | нет |
+
+- HTML: `<b> <i> <u> <s> <code> <pre> <blockquote> <tg-spoiler> <a href="https://…">`, перенос строки — `\n`.
+- Кнопки только URL `[{text, url}]` — callback-кнопок в рассылке нет. Медиа — сначала `upload_file`, потом его `url`.
+- Аудитория — подписчики бота, фильтр тегами: `tagsAll` (есть все), `tagsNone` (нет ни одного). До 50 000 на бота, до 20 ботов одного владельца за раз.
+- `scheduledAt` — ISO 8601; без часового пояса считается московским. Пусто — отправить сейчас.
+- Рассылки — на платном тарифе; квота получателей месячная. При нехватке — ошибка с прямой ссылкой на смену тарифа.
+- У Instagram-ботов рассылок нет.
+
+```json
+{"name": "Распродажа", "botIds": ["<id>"], "tagsAll": ["клиент"], "scheduledAt": "2026-10-10T10:00",
+ "messages": ["<b>Только сегодня</b> — скидка 30%",
+              {"type": "PHOTO", "mediaUrl": "https://…/sale.jpg", "text": "Успей до полуночи",
+               "buttons": [{"text": "В магазин", "url": "https://shop.example"}]}]}
+```
+
+### Когда нужен браузер
+
+Через API не делается то, что требует входа пользователя у стороннего сервиса, оплаты или входа в аккаунт.
+Такие инструменты не падают, а возвращают `{needsBrowser: true, url, instruction}` или ошибку со ссылкой:
+
+| Ситуация | Ссылка |
+|---|---|
+| нет токена / токен отозван | `/bots/mcp-tokens` — создать токен и прислать агенту |
+| Google Таблицы (`connect_integration`) | одноразовая ссылка согласия Google (OAuth) |
+| Instagram (`create_bot`, `connect_integration`) | `/bots/connect` — подключается входом через Facebook; сейчас выключен в сервисе |
+| лимит тарифа, рассылки на бесплатном (HTTP 402) | `upgradeUrl` из ответа или `/bots/subscription` |
+| свой домен сайта | DNS у регистратора: A-запись на `dnsTarget` из `site_domains` |
 
 ---
 

@@ -33,7 +33,7 @@ function finish() {
   const ok =
     init?.result?.serverInfo?.name === "retensy-mcp" &&
     Array.isArray(tools) &&
-    tools.length === 39 &&
+    tools.length === 56 &&
     toolNames.includes("list_channels") &&
     toolNames.includes("list_integrations") &&
     toolNames.includes("edit_graph_live") &&
@@ -44,7 +44,10 @@ function finish() {
     toolNames.includes("article_update") &&
     toolNames.includes("article_list") &&
     toolNames.includes("article_get") &&
-    ["site_list", "site_create", "site_get", "site_schema", "site_edit", "site_publish", "site_upload_asset", "site_leads"]
+    ["site_list", "site_create", "site_get", "site_schema", "site_edit", "site_publish", "site_upload_asset", "site_leads", "site_rollback", "site_domains", "site_lead_settings", "site_templates",
+      "create_bot", "bot_stop", "bot_resume", "connect_integration", "disconnect_integration",
+      "broadcast_list", "broadcast_get", "broadcast_preview", "broadcast_send", "broadcast_cancel",
+      "broadcast_recurring", "broadcast_drafts", "broadcast_duplicate"]
       .every((n) => toolNames.includes(n));
   child.kill();
   if (!ok) {
