@@ -56,8 +56,8 @@ description: Собрать сайт или лендинг из блоков в 
 - Дизайны — отдельные экраны-макеты из Zero-кадров (не страницы сайта): `add_design {name}` → id;
   `update_design {designId, name}`, `remove_design {designId}`. Кадр: `add_design_frame {designId, name, w, h}` →
   в `results` `blockId` Zero-кадра — дальше на нём работают `add_element`/`update_element`/`get_block_code` и др.
-- Шаблоны: `site_templates` → `{categories, templates: [{id, category, title, description?, blockTypes}]}`
-  (`full: true` — с блоками целиком). Вставка — `add_template {container, templateId, after?}`: блоки шаблона
+- Шаблоны: `site_templates` → `{categories, templates: [{id, category, title, description?, blocks}]}` (`blocks` —
+  сколько блоков вставится). Вставка — `add_template {container, templateId, after?}`: блоки шаблона
   встают в страницу/попап, дальше правь их тексты обычными `update_block`. Быстрее, чем собирать блоки с нуля.
 
 ## Тариф

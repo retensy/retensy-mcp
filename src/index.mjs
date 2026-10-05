@@ -644,7 +644,7 @@ const TOOLS = [
   { name: "broadcast_drafts", description: "Черновики рассылок (/api/bots/broadcasts/drafts) — те же, что в мастере кабинета. action: list · get {draftId} · create {name?, botIds?, messages?, tagsAll?, tagsNone?, scheduledAt?} · update {draftId, …те же поля — переданные заменяют, остальные остаются} · delete {draftId}. Черновик не проверяется на полноту; отправить — broadcast_send {draftId}. Лимит — 200 черновиков.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "get", "create", "update", "delete"] }, draftId: { type: "string" }, name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, scheduledAt: { type: "string" } }, required: ["action"] } },
   { name: "broadcast_duplicate", description: "Копия прямой рассылки как черновик «Копия — …» (POST /api/bots/broadcasts/{id}/duplicate): бот, фильтр, сообщения. Рассылку по сценарию не дублировать — HTTP 409. Дальше broadcast_drafts update / broadcast_send {draftId}.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" } }, required: ["broadcastId"] } },
   // ---- Сайты: библиотека шаблонов ----
-  { name: "site_templates", description: "Библиотека шаблонов блоков сайта (GET /api/bots/pages/templates): {categories, templates: [{id, category, title, description?, blocks}]}. Вставка — site_edit add_template {container, templateId, after?}. По умолчанию blocks сокращены до типов блоков; full:true — целиком. category — фильтр.", inputSchema: { type: "object", properties: { category: { type: "string" }, full: { type: "boolean" } } } },
+  { name: "site_templates", description: "Библиотека шаблонов блоков сайта (GET /api/bots/pages/templates): {categories: [{id, title, description?}], templates: [{id, category, title, description?, blocks: сколько блоков вставится}]}. Вставка — site_edit add_template {container, templateId, after?} (results.id — первый блок, results.ids — все); дальше блоки правятся как обычные. category — фильтр по id категории.", inputSchema: { type: "object", properties: { category: { type: "string" } } } },
 ];
 
 async function handleCall(params) {
@@ -1087,9 +1087,6 @@ async function handleCall(params) {
       const r = await api("/api/bots/pages/templates");
       let templates = Array.isArray(r?.templates) ? r.templates : [];
       if (a.category) templates = templates.filter((t) => t?.category === a.category);
-      if (!a.full) {
-        templates = templates.map(({ blocks, ...t }) => ({ ...t, blockTypes: Array.isArray(blocks) ? blocks.map((b) => b?.type) : [] }));
-      }
       return okResult({ categories: r?.categories ?? [], templates });
     }
     default:
