@@ -11,7 +11,8 @@ description: Собрать сайт или лендинг из блоков в 
 
 ## Порядок
 
-1. `site_schema` — какие блоки и поля бывают (`model`) и какие операции есть (`ops`).
+1. `site_schema` — какие блоки и поля бывают (`model`) и какие операции есть (`ops`); `site_templates` — готовые
+   секции из библиотеки.
 2. `site_create {title}` → `id`. Для правки существующего — `site_list`, `site_get {siteId}`.
 3. Первый `site_edit` с `init`: `starter` — готовый лендинг (шапка, обложка, текст, преимущества, форма, подвал) или
    `blank` — пустая главная. Заполни тексты, не выдумывай факты о бизнесе — спрашивай.
@@ -48,11 +49,23 @@ description: Собрать сайт или лендинг из блоков в 
   поправь и верни `set_block_code {blockId, code}`; новый блок из кода — `add_block_code {container, code}`. У
   обычных блоков код — JSON `{type, variant, props, style}`. Тот же код пользователь видит во вкладке «Код» редактора.
 
+## Папки, дизайны, шаблоны
+
+- Папки страниц (для навигации в кабинете): `add_folder {name}` → id в `results`; `rename_folder {folderId, name}`,
+  `remove_folder {folderId}`. Страницу в папку — `update_page {pageId, patch: {folder: folderId}}`.
+- Дизайны — отдельные экраны-макеты из Zero-кадров (не страницы сайта): `add_design {name}` → id;
+  `update_design {designId, name}`, `remove_design {designId}`. Кадр: `add_design_frame {designId, name, w, h}` →
+  в `results` `blockId` Zero-кадра — дальше на нём работают `add_element`/`update_element`/`get_block_code` и др.
+- Шаблоны: `site_templates` → `{categories, templates: [{id, category, title, description?, blockTypes}]}`
+  (`full: true` — с блоками целиком). Вставка — `add_template {container, templateId, after?}`: блоки шаблона
+  встают в страницу/попап, дальше правь их тексты обычными `update_block`. Быстрее, чем собирать блоки с нуля.
+
 ## Тариф
 
 - HTML-блок и HTML-элемент Zero публикуются только на платном тарифе: на бесплатном `site_publish` вернёт 422 с
   путями этих элементов — замени их обычными блоками или предложи тариф.
-- Число своих доменов ограничено тарифом (`site_domains add` → 402 с `upgradeUrl`); www-пара корневого домена не в счёт.
+- Число своих доменов ограничено тарифом (`site_domains add` → 402 со ссылкой на смену тарифа — передай её
+  пользователю, оплата только в браузере); www-пара корневого домена не в счёт.
 - На бесплатном тарифе адрес на pages.retensy.com закрыт от поисковиков (noindex).
 
 ## Пример: лендинг кофейни с попапом заявки

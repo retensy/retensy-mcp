@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * retensy-mcp — MCP-сервер для сборки и публикации воронок ботов
+ * retensy-mcp — MCP-сервер для сборки и публикации воронок ботов, рассылок, сайтов и статей
  * (Telegram, MAX, Instagram) через API сервиса retensy /bots.
  * Без внешних зависимостей (голый JSON-RPC по stdio).
  *
@@ -271,13 +271,54 @@ async function api(path_, { method = "GET", body } = {}) {
   let data = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!res.ok) {
-    if (res.status === 401 || res.status === 403) {
-      throw new Error(`Доступ отклонён (HTTP ${res.status}). Токен невалиден, отозван или истёк.\n` +
+    if (res.status === 401) {
+      throw new Error(`Доступ отклонён (HTTP 401). Токен невалиден, отозван или истёк.\n` +
         `Создай новый на ${TOKENS_PAGE} и пришли мне — я сохраню через set_token.`);
     }
+    if (res.status === 403) {
+      // 403 бэкенд отдаёт и на «не твой бот/граф/подключение» — это не всегда про токен.
+      const why = bodyReason(data);
+      throw new Error(`Доступ отклонён (HTTP 403)${why ? `: ${why}` : ""}. Нет прав на этот объект (чужой бот/граф/подключение) ` +
+        `или токен не действует. Если так отвечает любой инструмент — создай новый токен на ${TOKENS_PAGE} и пришли мне (set_token).`);
+    }
+    if (res.status === 402) throw paymentError(data);
     throw httpError(method, path_, res.status, data);
   }
   return data;
+}
+
+/** Причина отказа из тела ответа: {error}/{message} или строка. */
+function bodyReason(data) {
+  if (data == null) return "";
+  if (typeof data === "string") return data.slice(0, 300);
+  const e = data.message || data.error;
+  return typeof e === "string" && e !== "Forbidden" && e !== "Payment Required" ? e.slice(0, 300) : "";
+}
+
+const SUBSCRIPTION_PAGE = `${BASE}/bots/subscription`;
+const PAYMENT_REASONS = {
+  broadcast_not_available: "рассылки недоступны на текущем тарифе",
+  broadcast_quota_exceeded: "исчерпана месячная квота получателей рассылок",
+};
+/** 402 — оплата/тариф: через API не решается, отдаём ссылку, которую пользователь откроет сам. */
+function paymentError(data) {
+  const code = data && typeof data === "object" ? data.error : "";
+  const reason = PAYMENT_REASONS[code] || bodyReason(data) || "лимит тарифа исчерпан";
+  const url = (data && typeof data === "object" && typeof data.upgradeUrl === "string" && data.upgradeUrl) || SUBSCRIPTION_PAGE;
+  const count = data && typeof data === "object" && data.count != null ? ` (получателей: ${data.count})` : "";
+  const err = new Error(`Нужен тариф выше (HTTP 402): ${reason}${count}.\n` +
+    `🔗 Открой ${url} — смена тарифа/оплата делается только в браузере. После оплаты повтори действие.`);
+  err.status = 402;
+  err.data = data;
+  return err;
+}
+
+/**
+ * Действие, которое нельзя сделать через API (OAuth/вход/оплата/2FA): не падаем, а отдаём прямую ссылку и
+ * одну строку инструкции — ассистент передаёт её пользователю как есть.
+ */
+function linkResult(title, url, instruction, extra) {
+  return okResult({ needsBrowser: true, title, url, instruction, ...(extra || {}) });
 }
 
 // MIME по расширению — уходит как Content-Type части multipart, бэкенд по нему определяет тип медиа.
@@ -323,7 +364,7 @@ async function uploadMedia({ filePath, url, filename }) {
   let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) throw new Error(`Доступ отклонён (HTTP ${res.status}). Токен невалиден/отозван — создай новый на ${TOKENS_PAGE}.`);
-    if (res.status === 402) throw new Error("Лимит хранилища тарифа исчерпан (HTTP 402). Удали ненужные файлы (delete_file) или подними тариф на /bots/subscription.");
+    if (res.status === 402) throw new Error(`Лимит хранилища тарифа исчерпан (HTTP 402). Удали ненужные файлы (delete_file) или подними тариф: 🔗 ${SUBSCRIPTION_PAGE}`);
     if (res.status === 413) throw new Error("Файл больше 50 МБ (HTTP 413) — лимит Telegram для видео/документов.");
     throw httpError("POST", "/api/bots/media", res.status, data);
   }
@@ -365,7 +406,7 @@ async function uploadSiteAsset(siteId, { filePath, url }) {
   let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!res.ok) {
     if (res.status === 401 || res.status === 403) throw new Error(`Доступ отклонён (HTTP ${res.status}). Токен невалиден/отозван — создай новый на ${TOKENS_PAGE}.`);
-    if (res.status === 402) throw new Error("Лимит хранилища тарифа исчерпан (HTTP 402).");
+    if (res.status === 402) throw new Error(`Лимит хранилища тарифа исчерпан (HTTP 402). Подними тариф: 🔗 ${SUBSCRIPTION_PAGE}`);
     throw httpError("POST", `/api/bots/pages/${siteId}/upload`, res.status, data);
   }
   return { asset: `assets/${safe}`, sizeBytes: bytes.length };
@@ -406,13 +447,133 @@ function graphSummary(g) {
   return { graphId: g?.id, name: g?.name, status: g?.status, version: g?.version, counts: { nodes: nodes.length, edges: edges.length }, nodes, edges };
 }
 
+// ============================================================================
+// Рассылки
+// ============================================================================
+// Бэкенд на 400 отдаёт только статус (без причины), поэтому правила TgBroadcastController.validateDirectMessage
+// повторены здесь — агент получает понятную ошибку до запроса, а не голый «HTTP 400».
+const BC_TYPES = ["TEXT", "PHOTO", "VIDEO", "AUDIO", "FILE", "VOICE", "VIDEONOTE", "GALLERY"];
+const BC_MEDIA = new Set(["PHOTO", "VIDEO", "AUDIO", "FILE", "VOICE", "VIDEONOTE"]);
+const BC_MAX_MESSAGES = 5, BC_MAX_BOTS = 20, BC_MAX_BUTTONS = 8, BC_TEXT_MAX = 4096, BC_CAPTION_MAX = 1024;
+
+/**
+ * Сообщение рассылки как его строит мастер в кабинете (broadcastBlocks.ts → blocksToMessages).
+ * Принимает и сокращения: строка → TEXT; url → mediaUrl; urls → mediaUrls; type в любом регистре.
+ * strict=false (черновик) — только нормализация, без проверки полноты.
+ */
+function normalizeBroadcastMessage(m, i, strict = true) {
+  if (typeof m === "string") m = { type: "TEXT", text: m };
+  if (!m || typeof m !== "object") throw new Error(`messages[${i}]: ожидается объект {type, text?, mediaUrl?, mediaUrls?, buttons?}.`);
+  const mediaUrl = (m.mediaUrl || m.url || m.photoUrl || "").trim();
+  const type = String(m.type || (mediaUrl ? "PHOTO" : "TEXT")).toUpperCase();
+  if (!BC_TYPES.includes(type)) throw new Error(`messages[${i}]: неизвестный type ${type}. Бывают: ${BC_TYPES.join(", ")}.`);
+  const out = { type, parseMode: m.parseMode === null ? undefined : "HTML" };
+  const text = typeof m.text === "string" && m.text.trim() ? m.text : undefined;
+  if (text !== undefined && type !== "VIDEONOTE") out.text = text;
+  if (BC_MEDIA.has(type)) { out.mediaUrl = mediaUrl; if (type === "PHOTO") out.photoUrl = mediaUrl; }
+  if (type === "GALLERY") out.mediaUrls = (m.mediaUrls || m.urls || []).map((u) => String(u || "").trim()).filter(Boolean);
+  const buttons = (Array.isArray(m.buttons) ? m.buttons : [])
+    .filter((b) => b && String(b.text || "").trim() && String(b.url || "").trim())
+    .map((b) => ({ text: String(b.text).trim(), url: String(b.url).trim() }));
+  if (type !== "GALLERY") out.buttons = buttons;
+  if (!strict) return out;
+  if (type === "TEXT" && !out.text) throw new Error(`messages[${i}]: у TEXT нужен text.`);
+  if (BC_MEDIA.has(type) && !out.mediaUrl) throw new Error(`messages[${i}]: у ${type} нужен mediaUrl (загрузи файл через upload_file и возьми url).`);
+  if (type === "GALLERY" && (out.mediaUrls.length < 2 || out.mediaUrls.length > 10)) throw new Error(`messages[${i}]: GALLERY — от 2 до 10 картинок в mediaUrls.`);
+  if (type === "GALLERY" && buttons.length) throw new Error(`messages[${i}]: у GALLERY не бывает кнопок — вынеси их в следующее сообщение.`);
+  if (type === "VIDEONOTE" && text) throw new Error(`messages[${i}]: VIDEONOTE (кружок) не поддерживает текст.`);
+  const plain = (out.text || "").replace(/<[^>]+>/g, "").length;
+  const limit = type === "TEXT" ? BC_TEXT_MAX : BC_CAPTION_MAX;
+  if (plain > limit) throw new Error(`messages[${i}]: текст длиннее ${limit} символов (${plain}).`);
+  if (buttons.length > BC_MAX_BUTTONS) throw new Error(`messages[${i}]: не больше ${BC_MAX_BUTTONS} кнопок.`);
+  for (const b of buttons) if (!/^(https?:\/\/|tg:\/\/)/i.test(b.url)) throw new Error(`messages[${i}]: кнопка «${b.text}» — url должен быть ссылкой https://… (callback-кнопок в рассылке нет).`);
+  return out;
+}
+
+function normalizeBroadcastMessages(list, strict = true) {
+  if (!Array.isArray(list)) list = list == null ? [] : [list];
+  if (strict && (list.length < 1 || list.length > BC_MAX_MESSAGES)) throw new Error(`messages: от 1 до ${BC_MAX_MESSAGES} сообщений.`);
+  if (list.length > BC_MAX_MESSAGES) throw new Error(`messages: не больше ${BC_MAX_MESSAGES}.`);
+  return list.map((m, i) => normalizeBroadcastMessage(m, i, strict));
+}
+
+/** botIds из botIds[] или botId. */
+function botIdsOf(a) {
+  const ids = Array.isArray(a.botIds) ? a.botIds : a.botId ? [a.botId] : [];
+  return [...new Set(ids.map(String).filter(Boolean))];
+}
+
+const strList = (v) => (Array.isArray(v) ? v : v ? [v] : []).map((t) => String(t).trim()).filter(Boolean);
+
+/**
+ * Время запуска → ISO-instant. Строка без пояса (2026-10-06T10:00) считается московской (+03:00) — как
+ * продукт считает расписание повторов; «now»/пусто — сразу.
+ */
+function toInstant(v, field) {
+  if (v == null || v === "" || v === "now") return null;
+  let s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?$/.test(s)) s = (s.length === 10 ? `${s}T00:00` : s.replace(" ", "T")) + "+03:00";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) throw new Error(`${field}: не распознал время «${v}». Формат ISO 8601, например 2026-10-06T10:00:00+03:00.`);
+  return d.toISOString();
+}
+
+/** У Instagram-ботов рассылок нет (окно 24 ч Meta) — отказываем до запроса. */
+async function assertBroadcastBots(botIds) {
+  if (!botIds.length) throw new Error("Передай botIds — id ботов (list_bots), по которым рассылать.");
+  if (botIds.length > BC_MAX_BOTS) throw new Error(`botIds: не больше ${BC_MAX_BOTS} ботов за раз.`);
+  const bots = await api("/api/bots");
+  const byId = new Map((Array.isArray(bots) ? bots : []).map((b) => [String(b.id), b]));
+  for (const id of botIds) {
+    const b = byId.get(id);
+    if (!b) throw new Error(`Бот ${id} не найден среди твоих ботов (list_bots).`);
+    if (String(b.platform || "").toUpperCase() === "INSTAGRAM") {
+      throw new Error(`Бот ${b.name || b.username || id} — Instagram: рассылок у Instagram-ботов нет (Meta разрешает писать только в окне 24 ч после сообщения пользователя). Используй сценарий с триггером.`);
+    }
+  }
+  return byId;
+}
+
+function qs(params) {
+  const parts = Object.entries(params).filter(([, v]) => v != null && v !== "").map(([k, v]) => `${k}=${encodeURIComponent(v)}`);
+  return parts.length ? `?${parts.join("&")}` : "";
+}
+
+// ============================================================================
+// Подключения сервисов
+// ============================================================================
+const CONNECT_PAGE = `${BASE}/bots/connect`;
+const INTEGRATIONS_PAGE = `${BASE}/bots/integrations`;
+/** Поля кредов — как форма кабинета (IntegrationsPage.tsx PROVIDER_FIELDS). */
+const PROVIDER_FIELDS = {
+  AMOCRM: { name: "amoCRM", fields: { subdomain: "поддомен: acme из acme.amocrm.ru", longToken: "долгосрочный токен: amoCRM → Интеграции → ваша интеграция → Ключи и доступы" } },
+  BITRIX24: { name: "Битрикс24", fields: { webhookUrl: "URL входящего вебхука: Приложения → Разработчикам → Входящий вебхук (права: CRM)" } },
+  GETCOURSE: { name: "GetCourse", fields: { account: "аккаунт: school из school.getcourse.ru", apiKey: "секретный ключ: Настройки → API (показывается один раз)" } },
+  YAMETRIKA: { name: "Яндекс Метрика", fields: { counterId: "номер счётчика", oauthToken: "OAuth-токен Яндекса с доступом к загрузке офлайн-конверсий (выдаётся на oauth.yandex.ru)" } },
+  YOOKASSA: { name: "ЮKassa", fields: { shopId: "shopId магазина — число: ЮKassa → Настройки → Магазин", secretKey: "секретный ключ: ЮKassa → Интеграция → Ключи API (показывается один раз)" } },
+};
+const PROVIDER_ALIASES = {
+  amocrm: "AMOCRM", amo: "AMOCRM", bitrix24: "BITRIX24", bitrix: "BITRIX24", getcourse: "GETCOURSE",
+  yametrika: "YAMETRIKA", metrika: "YAMETRIKA", yandex_metrika: "YAMETRIKA", yandexmetrika: "YAMETRIKA",
+  yookassa: "YOOKASSA", yukassa: "YOOKASSA", ukassa: "YOOKASSA",
+  google_sheets: "GOOGLE_SHEETS", googlesheets: "GOOGLE_SHEETS", sheets: "GOOGLE_SHEETS", google: "GOOGLE_SHEETS",
+  instagram: "INSTAGRAM", telegram: "TELEGRAM", max: "MAX",
+};
+const normProvider = (p) => PROVIDER_ALIASES[String(p || "").trim().toLowerCase().replace(/[\s.-]+/g, "_")] || String(p || "").trim().toUpperCase();
+
+/** Instagram подключается только входом через Facebook (OAuth) и сейчас выключен в сервисе (instagram.enabled). */
+function instagramAnswer() {
+  return linkResult("Instagram: подключение через вход Facebook (OAuth) — сейчас выключено в сервисе", CONNECT_PAGE,
+    "Instagram-аккаунт нельзя подключить по API или токену: только входом через Facebook в кабинете. Сейчас подключение Instagram в retensy выключено (страница /bots/instagram ведёт на список ботов). Открой каталог подключений по ссылке — когда Instagram включат, он появится там. Пока доступны Telegram и MAX (create_bot).");
+}
+
 const TOOLS = [
   { name: "setup", description: "Показать статус авторизации и пошаговую инструкцию подключения. Вызывай первым, если пользователь не знает, что делать, или при ошибке доступа.", inputSchema: { type: "object", properties: {} } },
   { name: "set_token", description: "Сохранить персональный токен (zmcp_...), который пользователь создал на /bots/mcp-tokens. Применяется сразу, без рестарта.", inputSchema: { type: "object", properties: { token: { type: "string", description: "Секрет токена, начинается с zmcp_" } }, required: ["token"] } },
   { name: "list_bots", description: "Список ботов пользователя (id, имя, статус).", inputSchema: { type: "object", properties: {} } },
   { name: "list_graphs", description: "Список сценариев САМОГО бота (без узлов). Вебхук-сценарии, которые лишь отвечают через этого бота, сюда не входят — их публикуют в вебе, в «Сценариях» автора.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   { name: "list_channels", description: "Список каналов/групп, подключённых к боту (chatId, title, type, статус бота, дата). chatId — числовой id для условия SUBSCRIBED («Подписан на канал»).", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
-  { name: "list_integrations", description: "Список подключённых сервисов пользователя (GET /api/bots/integrations): {id, provider, title, hint, createdAt}. **id отсюда — это `connectionId`**, обязательное поле действий amocrm_send/amocrm_update/bitrix24_call/getcourse_send/getcourse_order/yametrika_event. Без него действие упадёт «не выбрано подключение». Креды не отдаются — только маскированный hint. Read-only.", inputSchema: { type: "object", properties: {} } },
+  { name: "list_integrations", description: "Список подключённых сервисов пользователя (GET /api/bots/integrations): {id, provider, title, hint, createdAt}. **id отсюда — это `connectionId`**, обязательное поле действий amocrm_send/amocrm_update/bitrix24_call/getcourse_send/getcourse_order/yametrika_event. Без него действие упадёт «не выбрано подключение». Креды не отдаются — только маскированный hint. Подключить новый — connect_integration. Read-only.", inputSchema: { type: "object", properties: {} } },
   { name: "get_graph", description: "Получить граф по graphId. Для БОЛЬШИХ графов (десятки узлов JSON может превысить лимит токенов) используй summary:true (компактная сводка: id/type/title/позиции + рёбра) или saveToFile (записать полный граф на диск и вернуть сводку+путь — потом правь файл и заливай через update_graph/edit_graph_live с graphFile).", inputSchema: { type: "object", properties: { graphId: { type: "string" }, summary: { type: "boolean", description: "true = вернуть компактную сводку без объёмных text/cards/buttons" }, saveToFile: { type: "string", description: "Путь: записать полный граф (JSON) на диск, вернуть сводку + путь" } }, required: ["graphId"] } },
   { name: "create_graph", description: "Создать пустой граф (DRAFT) в боте. Возвращает граф с id.", inputSchema: { type: "object", properties: { botId: { type: "string" }, name: { type: "string" } }, required: ["botId", "name"] } },
   { name: "update_graph", description: "Залить узлы/рёбра в граф (PUT, сырой replace без бэкапа). Для правок СУЩЕСТВУЮЩЕГО/живого сценария используй edit_graph_live. Активный (PUBLISHED) граф сервер проверяет как публикацию: при ошибках HTTP 422 со всеми code@nodeId, граф НЕ сохранён. Черновик сохраняется без проверок публикации, кроме размера: граф больше 4 МБ → HTTP 422 GRAPH_TOO_LARGE, не сохранён. Принимает graphFile (путь к локальному файлу — НЕ нужно слать граф инлайном, удобно для больших графов), graph-контейнер или nodes/edges.", inputSchema: { type: "object", properties: { graphId: { type: "string" }, graphFile: { type: "string", description: "Путь к локальному JSON графа (контейнер retensy-bot-graph или {nodes,edges}); поддерживается ~" }, graph: { type: "object" }, nodes: { type: "array" }, edges: { type: "array" }, canvasMeta: { type: "object" }, name: { type: "string" } }, required: ["graphId"] } },
@@ -440,6 +601,9 @@ const TOOLS = [
   { name: "site_schema", description: "JSON Schema модели сайта (model) и операций правки (ops) — какие блоки и поля бывают (GET /api/bots/pages/schema). Читай перед первой правкой.", inputSchema: { type: "object", properties: {} } },
   { name: "site_edit", description: "Правка сайта операциями — всё или ничего (POST /api/bots/pages/{siteId}/document/ops). " +
     "Страницы: add_page{title} · update_page{pageId,patch: {title?, path?, seo?{title,description,noindex,ogTitle,ogDescription,ogImage}, showHeader?, showFooter?, folder?}} · remove_page{pageId} · move_page{pageId,delta}. " +
+    "Папки страниц: add_folder{name} (id в results) · rename_folder{folderId,name} · remove_folder{folderId}; страница в папку — update_page{pageId, patch:{folder: folderId}}. " +
+    "Дизайны (отдельные экраны-макеты из Zero-кадров): add_design{name} (id в results) · update_design{designId,name} · remove_design{designId} · add_design_frame{designId,name,w,h} → в results blockId Zero-кадра, дальше с ним работают операции Zero-элементов. " +
+    "Шаблоны: add_template{container, templateId, after?} — вставить шаблон из библиотеки (site_templates). " +
     "Блоки: add_block{container: id страницы|попапа, type, after?, variant?, props?, style?} · update_block{blockId, props?, style?, variant?} · move_block{blockId,delta} · duplicate_block{blockId} · remove_block{blockId}. " +
     "Код блока: get_block_code{blockId} (results[i].code: Zero — разметка <zero>…</zero>, остальные — JSON) · set_block_code{blockId,code} · add_block_code{container,code,after?}. " +
     "Zero-блок (type zero, свободная вёрстка как в Tilda): add_element{blockId, kind: text|image|button|shape|video|html|group, frame?{d:{x,y,w,h,container?,axisX?,axisY?}, t?, m?}, props?, style?, hover?, anim?, link?, parent?, name?, fixed?} · update_element{blockId,elementId, …те же поля, hidden?, locked?, link:null — убрать} · remove_element · move_element{delta: +1 — слой выше} · group_elements{blockId,elementIds[],name?} · ungroup_element. " +
@@ -457,6 +621,30 @@ const TOOLS = [
   { name: "article_get", description: "Получить статью блога по slug (GET /api/articles/by-slug/{slug}) — публичное чтение, в т.ч. чужие. Возвращает title, content (Markdown), excerpt, coverImage, viewCount.", inputSchema: { type: "object", properties: { slug: { type: "string", description: "slug статьи (часть адреса /articles/{slug})" } }, required: ["slug"] } },
   { name: "article_publish", description: "Опубликовать НОВУЮ статью блога retensy (POST /api/articles). content — Markdown (как README на GitHub: заголовки, списки, таблицы, код, картинки по URL). title необязателен: если не передать, заголовком станет первая строка вида «# Заголовок», и она убирается из текста. Обложку можно задать явно через cover (URL картинки) — иначе берётся первая картинка из текста; excerpt (SEO-описание) тоже можно задать явно, иначе генерируется из текста. Возвращает статью с id и slug + публичный URL.", inputSchema: { type: "object", properties: { title: { type: "string", description: "Заголовок (необязателен, если content начинается с «# ...»)" }, content: { type: "string", description: "Тело статьи в Markdown" }, cover: { type: "string", description: "URL обложки (coverImage/OG). Если не задан — берётся первая картинка из текста." }, excerpt: { type: "string", description: "Краткое SEO-описание (≤160 симв). Если не задан — генерируется из текста." } }, required: ["content"] } },
   { name: "article_update", description: "Обновить СВОЮ статью по id (PUT /api/articles/{id}; id бери из article_list). content — Markdown; title необязателен (как в article_publish, иначе берётся из «# ...»). Только владелец — чужую вернёт 403.", inputSchema: { type: "object", properties: { id: { type: "string", description: "id статьи из article_list" }, title: { type: "string" }, content: { type: "string", description: "Новое тело в Markdown" } }, required: ["id", "content"] } },
+  // ---- Боты ----
+  { name: "create_bot", description: "Подключить бота по токену (POST /api/bots): platform TELEGRAM (токен от @BotFather) или MAX (токен от MasterBot в MAX). Вебхук настраивается сам; name — отображаемое имя (иначе @username). Возвращает бота с id. Число ботов ограничено тарифом — HTTP 402 со ссылкой на смену тарифа. platform INSTAGRAM по токену не подключается (только вход через Facebook в кабинете, сейчас выключен) — инструмент вернёт ссылку на кабинет вместо ошибки.", inputSchema: { type: "object", properties: { platform: { type: "string", enum: ["TELEGRAM", "MAX", "INSTAGRAM"] }, token: { type: "string", description: "Токен бота: 123456789:AA… (Telegram) или токен MAX" }, name: { type: "string" } }, required: ["platform"] } },
+  { name: "bot_stop", description: "Остановить бота (POST /api/bots/{botId}/stop): снимает вебхук, бот перестаёт отвечать, сценарии и подписчики сохраняются. Запуск обратно — bot_resume.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
+  { name: "bot_resume", description: "Запустить остановленного бота или бота, приостановленного лимитом тарифа (POST /api/bots/{botId}/resume). Если лимит ботов тарифа исчерпан — HTTP 402 со ссылкой на смену тарифа.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
+  // ---- Подключения ----
+  { name: "connect_integration", description: "Подключить сервис (POST /api/bots/integrations) — дальше его id (= connectionId) ставится в действия сценария и в site_lead_settings. provider и creds: AMOCRM {subdomain, longToken} · BITRIX24 {webhookUrl} · GETCOURSE {account, apiKey} · YAMETRIKA {counterId, oauthToken} · YOOKASSA {shopId, secretKey}. Без нужных creds вернёт, какие поля и где их взять. connectionId — обновить креды/название существующего подключения (PUT). Сервисы со входом через браузер не падают, а возвращают ссылку для пользователя: GOOGLE_SHEETS → ссылка согласия Google (OAuth; после неё таблицы выбираются в узле «Google Таблицы»), INSTAGRAM → кабинет (вход через Facebook, сейчас выключен). TELEGRAM/MAX — это боты: используй create_bot. Креды не возвращаются и не попадают в отчёты.", inputSchema: { type: "object", properties: { provider: { type: "string", description: "AMOCRM | BITRIX24 | GETCOURSE | YAMETRIKA | YOOKASSA | GOOGLE_SHEETS | INSTAGRAM" }, title: { type: "string", description: "Название подключения в кабинете (например «amoCRM продажи»)" }, creds: { type: "object", description: "Поля провайдера, см. описание" }, connectionId: { type: "string", description: "id существующего подключения (list_integrations) — обновить его" } }, required: ["provider"] } },
+  { name: "disconnect_integration", description: "Удалить подключение сервиса по id из list_integrations (DELETE /api/bots/integrations/{id}). Действия сценария с этим connectionId перестанут работать.", inputSchema: { type: "object", properties: { connectionId: { type: "string" } }, required: ["connectionId"] } },
+  // ---- Рассылки ----
+  { name: "broadcast_list", description: "Рассылки. Без botId — по всем ботам постранично (GET /api/bots/broadcasts): {counts: {drafts, scheduled, sent, recurring}, page: {content: [{id, botId, botUsername, name, status, direct, totalJobs, sentJobs, failedJobs, skippedByQuota, scheduledAt, createdAt}], totalElements…}}; group: scheduled (ещё не начали) | sent (идут/завершены). С botId — полная история одного бота. status: EXPANDING/MATERIALIZING/READY (ждёт) → RUNNING → DONE | CANCELLING → CANCELLED | FAILED. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, group: { type: "string", enum: ["scheduled", "sent"] }, page: { type: "number" }, size: { type: "number", description: "до 100, по умолчанию 20" } } } },
+  { name: "broadcast_get", description: "Рассылка целиком по id (GET /api/bots/broadcasts/{id}): статус, счётчики отправки, фильтр аудитории, сообщения, время. Read-only.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" } }, required: ["broadcastId"] } },
+  { name: "broadcast_preview", description: "Сколько подписчиков получат рассылку (POST /api/bots/{botId}/broadcasts/preview) — по каждому боту и всего. Фильтр по тегам: tagsAll — есть ВСЕ эти теги, tagsNone — нет НИ ОДНОГО; без тегов — все подписчики бота. Лимит — 50 000 получателей на бота. Ничего не отправляет.", inputSchema: { type: "object", properties: { botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } } } } },
+  { name: "broadcast_send", description: "Отправить рассылку сейчас или запланировать (scheduledAt). " +
+    "Прямая (по умолчанию, POST /api/bots/broadcasts/direct): name, botIds[] (1–20 ботов ОДНОГО владельца; по каждому создаётся своя рассылка), messages[] (1–5), tagsAll?/tagsNone? (фильтр по тегам). " +
+    "Сообщение: {type, text?, mediaUrl?, mediaUrls?, buttons?}; type: TEXT (text обязателен, до 4096) · PHOTO | VIDEO | AUDIO | FILE | VOICE (mediaUrl обязателен, text — подпись до 1024) · VIDEONOTE (кружок: mediaUrl, без текста) · GALLERY (mediaUrls: 2–10 картинок, подпись, БЕЗ кнопок). " +
+    "text — Telegram-HTML: <b> <i> <u> <s> <code> <pre> <blockquote> <tg-spoiler> <a href=\"https://…\">, перенос строки — \\n (не <br>); прочее экранируется. buttons — до 8 URL-кнопок [{text, url}] (callback-кнопок в рассылке нет). Можно строкой — это TEXT. Медиа — сначала upload_file, потом его url. " +
+    "По сценарию (graphId): POST /api/bots/{botId}/broadcasts — один botId, сценарий самого бота, entryNodeId? — с какого узла начать. " +
+    "draftId — отправить черновик (поля черновика, переданные аргументы их перекрывают); после отправки черновик удаляется. " +
+    "scheduledAt — ISO 8601 (без пояса — московское время); пусто — сразу. Немедленная резервирует квоту получателей тарифа, отложенная считает аудиторию в момент отправки. Рассылки только на платном тарифе — HTTP 402 со ссылкой. У Instagram-ботов рассылок нет. Возвращает {broadcastIds, totalAudience}.", inputSchema: { type: "object", properties: { name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, scheduledAt: { type: "string", description: "ISO 8601, напр. 2026-10-06T10:00:00+03:00; пусто — сразу" }, graphId: { type: "string", description: "рассылка запуском сценария бота вместо сообщений" }, entryNodeId: { type: "string" }, draftId: { type: "string" } } } },
+  { name: "broadcast_cancel", description: "Отменить рассылку (POST /api/bots/broadcasts/{id}/cancel): запланированная не уйдёт, идущая остановится (статус CANCELLING → CANCELLED). Уже завершённую отменить нельзя — HTTP 409.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" } }, required: ["broadcastId"] } },
+  { name: "broadcast_recurring", description: "Повторяющиеся рассылки (/api/bots/broadcasts/recurring). action: list — правила (активные и остановленные); create {name, botIds[], messages[], tagsAll?, tagsNone?, recurrence: DAILY|MONTHLY|YEARLY, firstRunAt} — сообщения как в broadcast_send, firstRunAt — первый запуск в будущем (ISO 8601, без пояса — московское), дальше в то же время суток/число (Москва); stop {ruleId} — остановить правило (уже отправленные прогоны не трогаются). Нужен платный тариф (402 со ссылкой).", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "create", "stop"] }, ruleId: { type: "string" }, name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, recurrence: { type: "string", enum: ["DAILY", "MONTHLY", "YEARLY"] }, firstRunAt: { type: "string" } }, required: ["action"] } },
+  { name: "broadcast_drafts", description: "Черновики рассылок (/api/bots/broadcasts/drafts) — те же, что в мастере кабинета. action: list · get {draftId} · create {name?, botIds?, messages?, tagsAll?, tagsNone?, scheduledAt?} · update {draftId, …те же поля — переданные заменяют, остальные остаются} · delete {draftId}. Черновик не проверяется на полноту; отправить — broadcast_send {draftId}. Лимит — 200 черновиков.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "get", "create", "update", "delete"] }, draftId: { type: "string" }, name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, scheduledAt: { type: "string" } }, required: ["action"] } },
+  { name: "broadcast_duplicate", description: "Копия прямой рассылки как черновик «Копия — …» (POST /api/bots/broadcasts/{id}/duplicate): бот, фильтр, сообщения. Рассылку по сценарию не дублировать — HTTP 409. Дальше broadcast_drafts update / broadcast_send {draftId}.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" } }, required: ["broadcastId"] } },
+  // ---- Сайты: библиотека шаблонов ----
+  { name: "site_templates", description: "Библиотека шаблонов блоков сайта (GET /api/bots/pages/templates): {categories, templates: [{id, category, title, description?, blocks}]}. Вставка — site_edit add_template {container, templateId, after?}. По умолчанию blocks сокращены до типов блоков; full:true — целиком. category — фильтр.", inputSchema: { type: "object", properties: { category: { type: "string" }, full: { type: "boolean" } } } },
 ];
 
 async function handleCall(params) {
@@ -718,6 +906,191 @@ async function handleCall(params) {
       if (!a.content || !String(a.content).trim()) throw new Error("Передай content (Markdown).");
       const updated = await api(`/api/articles/${a.id}`, { method: "PUT", body: { title: a.title, content: a.content } });
       return okResult({ ...updated, publicUrl: updated?.slug ? `${BASE}/articles/${updated.slug}` : null });
+    }
+    // ---- Боты ----
+    case "create_bot": {
+      const platform = String(a.platform || "").trim().toUpperCase();
+      if (platform === "INSTAGRAM") return instagramAnswer();
+      if (platform !== "TELEGRAM" && platform !== "MAX") throw new Error("platform: TELEGRAM | MAX (Instagram подключается только в кабинете).");
+      const token = String(a.token || "").trim();
+      if (!token) {
+        return okResult(platform === "MAX"
+          ? "Нужен токен MAX-бота: создай бота у MasterBot в MAX и пришли токен — я подключу его (create_bot {platform:\"MAX\", token})."
+          : "Нужен токен Telegram-бота: открой https://t.me/BotFather → /newbot (или /token для существующего) и пришли токен вида 123456789:AA… — я подключу его (create_bot {platform:\"TELEGRAM\", token}).");
+      }
+      let bot;
+      try {
+        bot = await api("/api/bots", { method: "POST", body: { token, platform } });
+      } catch (e) {
+        // 400 приходит строкой-причиной (неверный токен, бот уже подключён) — её и показываем.
+        if (e.status === 400) throw new Error(`Бот не подключён: ${typeof e.data === "string" && e.data ? e.data : "токен не принят"}. Проверь токен (${platform === "MAX" ? "MasterBot в MAX" : "@BotFather → /token"}).`);
+        throw e;
+      }
+      if (a.name && bot?.id) {
+        try { bot = await api(`/api/bots/${bot.id}`, { method: "PATCH", body: { name: a.name } }); }
+        catch (e) { return okResult({ ...bot, warning: `Бот подключён, но имя не задано: ${(e.message || "").split("\n")[0]}` }); }
+      }
+      return okResult(bot);
+    }
+    case "bot_stop": return okResult(await api(`/api/bots/${a.botId}/stop`, { method: "POST" }));
+    case "bot_resume": return okResult(await api(`/api/bots/${a.botId}/resume`, { method: "POST" }));
+    // ---- Подключения ----
+    case "connect_integration": {
+      const provider = normProvider(a.provider);
+      if (provider === "INSTAGRAM") return instagramAnswer();
+      if (provider === "TELEGRAM" || provider === "MAX") {
+        return okResult(`${provider === "MAX" ? "MAX" : "Telegram"} подключается как бот, а не интеграция: вызови create_bot {platform:"${provider}", token}.`);
+      }
+      if (provider === "GOOGLE_SHEETS") {
+        const r = await api(`/api/bots/google/auth-url${qs({ returnPath: "/bots/integrations" })}`, { method: "POST" });
+        let connected = [];
+        try { const ids = await api("/api/bots/google/identities"); connected = Array.isArray(ids) ? ids : []; } catch { /* список не обязателен */ }
+        if (!r?.authUrl) throw new Error(`Сервер не вернул ссылку авторизации Google. Подключи в кабинете: ${INTEGRATIONS_PAGE}`);
+        return linkResult("Google Таблицы: вход через Google (OAuth)", r.authUrl,
+          "Открой ссылку, выбери Google-аккаунт и разреши доступ к таблицам — затем таблица выбирается в узле сценария «Google Таблицы». Ссылка одноразовая и живёт недолго: если истекла, вызови connect_integration ещё раз.",
+          { connectedGoogleAccounts: connected });
+      }
+      const spec = PROVIDER_FIELDS[provider];
+      if (!spec) throw new Error(`Неизвестный provider «${a.provider}». Бывают: ${Object.keys(PROVIDER_FIELDS).join(", ")}, GOOGLE_SHEETS, INSTAGRAM. Каталог: ${CONNECT_PAGE}`);
+      const creds = a.creds && typeof a.creds === "object" ? Object.fromEntries(
+        Object.entries(a.creds).filter(([, v]) => v != null && String(v).trim() !== "").map(([k, v]) => [k, String(v).trim()])) : {};
+      const missing = Object.keys(spec.fields).filter((k) => !creds[k]);
+      if (missing.length && (!a.connectionId || Object.keys(creds).length)) {
+        return okResult({
+          connected: false,
+          provider,
+          need: Object.fromEntries(missing.map((k) => [k, spec.fields[k]])),
+          instruction: `Для ${spec.name} не хватает полей creds: ${missing.join(", ")}. Попроси их у пользователя и вызови connect_integration ещё раз. Или пусть подключит сам в кабинете: ${CONNECT_PAGE}`,
+        });
+      }
+      const title = a.title || spec.name;
+      try {
+        const saved = a.connectionId
+          ? await api(`/api/bots/integrations/${a.connectionId}`, { method: "PUT", body: { title: a.title, creds: Object.keys(creds).length ? creds : undefined } })
+          : await api("/api/bots/integrations", { method: "POST", body: { provider, title, creds } });
+        return okResult({ connected: true, connectionId: saved?.id, ...saved, hint: "connectionId ставь в действия сценария (amocrm_send, bitrix24_call, getcourse_send, yametrika_event, оплата ЮKassa) и в site_lead_settings.amoConnectionId." });
+      } catch (e) {
+        if (e.status === 400) throw new Error(`${spec.name} не подключён: ${bodyReason(e.data) || "креды не приняты"}. Проверь поля: ${Object.entries(spec.fields).map(([k, v]) => `${k} — ${v}`).join("; ")}.`);
+        throw e;
+      }
+    }
+    case "disconnect_integration":
+      await api(`/api/bots/integrations/${a.connectionId}`, { method: "DELETE" });
+      return okResult(`🗑️ Подключение ${a.connectionId} удалено.`);
+    // ---- Рассылки ----
+    case "broadcast_list": {
+      if (a.botId) return okResult(await api(`/api/bots/${a.botId}/broadcasts`));
+      const page = await api(`/api/bots/broadcasts${qs({ page: a.page, size: a.size, group: a.group })}`);
+      let counts = null;
+      try { counts = await api("/api/bots/broadcasts/counts"); } catch { /* счётчики не обязательны */ }
+      return okResult({ counts, page });
+    }
+    case "broadcast_get": return okResult(await api(`/api/bots/broadcasts/${a.broadcastId}`));
+    case "broadcast_preview": {
+      const ids = botIdsOf(a);
+      await assertBroadcastBots(ids);
+      const filter = { tagsAll: strList(a.tagsAll), tagsNone: strList(a.tagsNone) };
+      const perBot = [];
+      for (const id of ids) {
+        const r = await api(`/api/bots/${id}/broadcasts/preview`, { method: "POST", body: filter });
+        perBot.push({ botId: id, count: r?.count ?? null, limit: r?.limit ?? null });
+      }
+      return okResult({ total: perBot.reduce((s, r) => s + (Number(r.count) || 0), 0), perBot, filter });
+    }
+    case "broadcast_send": {
+      if (a.graphId) {
+        const ids = botIdsOf(a);
+        if (ids.length !== 1) throw new Error("Рассылка по сценарию — ровно один botId (сценарий принадлежит боту).");
+        await assertBroadcastBots(ids);
+        if (!a.name) throw new Error("Передай name рассылки.");
+        const b = await api(`/api/bots/${ids[0]}/broadcasts`, { method: "POST", body: {
+          name: a.name, audienceFilter: { tagsAll: strList(a.tagsAll), tagsNone: strList(a.tagsNone) },
+          graphId: a.graphId, entryNodeId: a.entryNodeId || undefined, scheduledAt: toInstant(a.scheduledAt, "scheduledAt") } });
+        return okResult({ broadcastIds: [b?.id], status: b?.status, scheduledAt: b?.scheduledAt ?? null, broadcast: b });
+      }
+      let draft = null;
+      if (a.draftId) draft = await api(`/api/bots/broadcasts/drafts/${a.draftId}`);
+      const pick = (k) => (a[k] !== undefined ? a[k] : draft?.[k]);
+      const ids = botIdsOf({ botIds: a.botIds ?? (a.botId ? undefined : draft?.botIds), botId: a.botId });
+      await assertBroadcastBots(ids);
+      const name = String(pick("name") || "").trim();
+      if (!name) throw new Error("Передай name рассылки (видно только тебе в списке рассылок).");
+      const body = {
+        name, botIds: ids,
+        tagsAll: strList(a.tagsAll !== undefined ? a.tagsAll : draft?.audienceFilter?.tagsAll),
+        tagsNone: strList(a.tagsNone !== undefined ? a.tagsNone : draft?.audienceFilter?.tagsNone),
+        messages: normalizeBroadcastMessages(pick("messages")),
+        scheduledAt: toInstant(pick("scheduledAt"), "scheduledAt"),
+      };
+      if (body.scheduledAt && new Date(body.scheduledAt).getTime() <= Date.now()) {
+        // Прошедшее время бэкенд молча считает «сейчас» — для черновика с устаревшей датой это сюрприз.
+        if (a.scheduledAt !== undefined) throw new Error(`scheduledAt ${body.scheduledAt} уже прошло — укажи будущее время или не передавай его (отправить сейчас).`);
+        body.scheduledAt = null;
+      }
+      const r = await api("/api/bots/broadcasts/direct", { method: "POST", body });
+      let draftDeleted = false;
+      if (a.draftId) { try { await api(`/api/bots/broadcasts/drafts/${a.draftId}`, { method: "DELETE" }); draftDeleted = true; } catch { /* не критично */ } }
+      return okResult({ ...r, scheduledAt: body.scheduledAt, ...(a.draftId ? { draftDeleted } : {}) });
+    }
+    case "broadcast_cancel":
+      await api(`/api/bots/broadcasts/${a.broadcastId}/cancel`, { method: "POST" });
+      return okResult(`⏹️ Рассылка ${a.broadcastId} отменяется (CANCELLING → CANCELLED).`);
+    case "broadcast_recurring": {
+      const base = "/api/bots/broadcasts/recurring";
+      if (a.action === "list") return okResult(await api(base));
+      if (a.action === "stop") {
+        if (!a.ruleId) throw new Error("Передай ruleId (broadcast_recurring action=list).");
+        await api(`${base}/${a.ruleId}/stop`, { method: "POST" });
+        return okResult(`⏹️ Правило ${a.ruleId} остановлено — новых прогонов не будет.`);
+      }
+      if (a.action === "create") {
+        const ids = botIdsOf(a);
+        await assertBroadcastBots(ids);
+        if (!a.name) throw new Error("Передай name.");
+        const recurrence = String(a.recurrence || "").toUpperCase();
+        if (!["DAILY", "MONTHLY", "YEARLY"].includes(recurrence)) throw new Error("recurrence: DAILY | MONTHLY | YEARLY.");
+        const firstRunAt = toInstant(a.firstRunAt, "firstRunAt");
+        if (!firstRunAt || new Date(firstRunAt).getTime() <= Date.now()) throw new Error("firstRunAt — время первого запуска в будущем (ISO 8601, без пояса — московское).");
+        return okResult(await api(base, { method: "POST", body: {
+          name: a.name, botIds: ids, tagsAll: strList(a.tagsAll), tagsNone: strList(a.tagsNone),
+          messages: normalizeBroadcastMessages(a.messages), recurrence, firstRunAt } }));
+      }
+      throw new Error("action: list | create | stop.");
+    }
+    case "broadcast_drafts": {
+      const base = "/api/bots/broadcasts/drafts";
+      if (a.action === "list") return okResult(await api(base));
+      if (a.action === "create" || a.action === "update") {
+        if (a.action === "update" && !a.draftId) throw new Error("Передай draftId (broadcast_drafts action=list).");
+        // update: PUT заменяет черновик целиком — непереданные поля берём из текущего, чтобы правка текста не стёрла ботов.
+        const cur = a.action === "update" ? (await api(`${base}/${a.draftId}`)) || {} : {};
+        const has = (k) => a[k] !== undefined;
+        const body = {
+          name: has("name") ? a.name : cur.name,
+          botIds: has("botIds") || has("botId") ? botIdsOf(a) : (cur.botIds || []),
+          tagsAll: strList(has("tagsAll") ? a.tagsAll : cur.audienceFilter?.tagsAll),
+          tagsNone: strList(has("tagsNone") ? a.tagsNone : cur.audienceFilter?.tagsNone),
+          messages: normalizeBroadcastMessages(has("messages") ? a.messages : cur.messages, false),
+          scheduledAt: toInstant(has("scheduledAt") ? a.scheduledAt : cur.scheduledAt, "scheduledAt"),
+        };
+        if (a.action === "create") return okResult(await api(base, { method: "POST", body }));
+        return okResult(await api(`${base}/${a.draftId}`, { method: "PUT", body }));
+      }
+      if (!a.draftId) throw new Error("Передай draftId (broadcast_drafts action=list).");
+      if (a.action === "get") return okResult(await api(`${base}/${a.draftId}`));
+      if (a.action === "delete") { await api(`${base}/${a.draftId}`, { method: "DELETE" }); return okResult(`🗑️ Черновик ${a.draftId} удалён.`); }
+      throw new Error("action: list | get | create | update | delete.");
+    }
+    case "broadcast_duplicate":
+      return okResult(await api(`/api/bots/broadcasts/${a.broadcastId}/duplicate`, { method: "POST" }));
+    case "site_templates": {
+      const r = await api("/api/bots/pages/templates");
+      let templates = Array.isArray(r?.templates) ? r.templates : [];
+      if (a.category) templates = templates.filter((t) => t?.category === a.category);
+      if (!a.full) {
+        templates = templates.map(({ blocks, ...t }) => ({ ...t, blockTypes: Array.isArray(blocks) ? blocks.map((b) => b?.type) : [] }));
+      }
+      return okResult({ categories: r?.categories ?? [], templates });
     }
     default:
       throw new Error(`Неизвестный инструмент: ${params && params.name}`);

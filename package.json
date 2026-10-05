@@ -1,7 +1,7 @@
 {
   "name": "@retensy/mcp",
   "version": "0.14.0",
-  "description": "MCP server to build and publish Telegram and MAX bot funnels/automations, block-based websites (incl. free-layout Zero blocks, custom domains, form leads) and Markdown blog articles in the Retensy Bots service. Zero dependencies.",
+  "description": "MCP server to build and publish Telegram and MAX bot funnels/automations, broadcasts, service integrations, block-based websites (incl. free-layout Zero blocks, designs, templates, custom domains, form leads) and Markdown blog articles in the Retensy Bots service. Zero dependencies.",
   "type": "module",
   "bin": {
     "retensy-mcp": "src/index.mjs"
@@ -21,7 +21,7 @@
   "scripts": {
     "start": "node src/index.mjs",
     "check": "node --check src/index.mjs",
-    "test": "node scripts/smoke.mjs && node scripts/telemetry.test.mjs && node scripts/live-edit-422.test.mjs",
+    "test": "node scripts/smoke.mjs && node scripts/telemetry.test.mjs && node scripts/live-edit-422.test.mjs && node scripts/broadcast-connect.test.mjs",
     "validate": "node skills/build-bot-funnel/validate.mjs"
   },
   "engines": {
@@ -34,6 +34,7 @@
     "instagram",
     "bot",
     "funnel",
+    "broadcast",
     "automation",
     "articles",
     "website-builder",
