@@ -6,7 +6,7 @@
     {
       "name": "retensy-mcp",
       "source": "./",
-      "description": "Сборка и публикация воронок ботов (Telegram/MAX/Instagram, Retensy Bots) из описания + публикация статей блога в Markdown — через MCP + скилл."
+      "description": "Сборка и публикация воронок ботов (Telegram/MAX, Retensy Bots) из описания, сайтов из блоков + публикация статей блога в Markdown — через MCP + скилл."
     }
   ]
 }

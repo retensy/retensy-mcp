@@ -27,7 +27,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.12.1";
+const VERSION = "0.14.0";
 const PKG_NAME = "@retensy/mcp";
 const BASE = (process.env.RETENSY_BASE_URL || "https://bots.retensy.com").replace(/\/+$/, "");
 const CONFIG_DIR = path.join(os.homedir(), ".retensy-bot-graph");
@@ -438,9 +438,20 @@ const TOOLS = [
   { name: "site_create", description: "Создать сайт из блоков (POST /api/bots/pages, mode=BLOCKS). Возвращает id. Дальше: site_edit (init=starter — стартовый лендинг, init=blank — пустая главная) → site_publish. slug — «название» в адресе pages.retensy.com/<id>/<slug>/ (необязательно, по умолчанию транслит title).", inputSchema: { type: "object", properties: { title: { type: "string" }, slug: { type: "string" } }, required: ["title"] } },
   { name: "site_get", description: "Модель сайта из блоков (GET /api/bots/pages/{siteId}/document): revision, draft (SiteModel: theme, globals.header/footer, pages[].blocks[], popups[]) — id страниц/блоков/попапов нужны для site_edit. draft=null — сайт пуст (первый site_edit создаст его). saveToFile — записать модель на диск и вернуть путь.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, saveToFile: { type: "string" } }, required: ["siteId"] } },
   { name: "site_schema", description: "JSON Schema модели сайта (model) и операций правки (ops) — какие блоки и поля бывают (GET /api/bots/pages/schema). Читай перед первой правкой.", inputSchema: { type: "object", properties: {} } },
-  { name: "site_edit", description: "Правка сайта операциями — всё или ничего (POST /api/bots/pages/{siteId}/document/ops). ops: add_page{title} · update_page{pageId,patch} · remove_page{pageId} · move_page{pageId,delta} · add_block{container: id страницы|попапа, type, after?, variant?, props?, style?} · update_block{blockId, props?, style?, variant?} · move_block{blockId,delta} · duplicate_block{blockId} · remove_block{blockId} · set_global{slot: header|footer, on} · set_theme{theme} · set_settings{settings} · add_popup{name} · update_popup{popupId,name?,width?} · remove_popup{popupId}. props/style/theme — JSON Merge Patch (null удаляет ключ, массивы заменяются целиком). Типы блоков: header, cover, text, image, gallery, buttons, features, form, video, html, spacer, footer. Значения по экранам: {d, t?, m?} (десктоп/планшет/телефон). revision — защита от перезаписи (409, если сайт изменили); init (starter|blank) — с чего начать пустой сайт. Ответ: новая revision и results[] с id созданного. Ошибки — HTTP 422 с путями.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, ops: { type: "array", items: { type: "object" } }, revision: { type: "number" }, init: { type: "string", enum: ["starter", "blank"] } }, required: ["siteId", "ops"] } },
+  { name: "site_edit", description: "Правка сайта операциями — всё или ничего (POST /api/bots/pages/{siteId}/document/ops). " +
+    "Страницы: add_page{title} · update_page{pageId,patch: {title?, path?, seo?{title,description,noindex,ogTitle,ogDescription,ogImage}, showHeader?, showFooter?, folder?}} · remove_page{pageId} · move_page{pageId,delta}. " +
+    "Блоки: add_block{container: id страницы|попапа, type, after?, variant?, props?, style?} · update_block{blockId, props?, style?, variant?} · move_block{blockId,delta} · duplicate_block{blockId} · remove_block{blockId}. " +
+    "Код блока: get_block_code{blockId} (results[i].code: Zero — разметка <zero>…</zero>, остальные — JSON) · set_block_code{blockId,code} · add_block_code{container,code,after?}. " +
+    "Zero-блок (type zero, свободная вёрстка как в Tilda): add_element{blockId, kind: text|image|button|shape|video|html|group, frame?{d:{x,y,w,h,container?,axisX?,axisY?}, t?, m?}, props?, style?, hover?, anim?, link?, parent?, name?, fixed?} · update_element{blockId,elementId, …те же поля, hidden?, locked?, link:null — убрать} · remove_element · move_element{delta: +1 — слой выше} · group_elements{blockId,elementIds[],name?} · ungroup_element. " +
+    "Сайт: set_global{slot: header|footer, on} · set_theme{theme} · set_settings{settings} · add_popup{name} · update_popup{popupId,name?,width?} · remove_popup{popupId}. " +
+    "props/style/theme/frame — JSON Merge Patch (null удаляет ключ, массивы заменяются целиком). Типы блоков: header, cover, text, image, gallery, buttons, features, form, video, html, spacer, footer, zero. " +
+    "Значения по экранам: {d, t?, m?} (десктоп/планшет/телефон). revision — защита от перезаписи (409, если сайт изменили); init (starter|blank) — с чего начать пустой сайт. " +
+    "Ответ: новая revision и results[] с id созданного (и code у get_block_code). Ошибки — HTTP 422 с путями. Тариф: HTML-блок и HTML-элемент Zero публикуются только на платном тарифе (422 при site_publish).", inputSchema: { type: "object", properties: { siteId: { type: "string" }, ops: { type: "array", items: { type: "object" } }, revision: { type: "number" }, init: { type: "string", enum: ["starter", "blank"] } }, required: ["siteId", "ops"] } },
   { name: "site_publish", description: "Опубликовать черновик сайта (POST /api/bots/pages/{siteId}/publish): рендер в статику, адрес начинает отдавать новую версию. Ошибки проверки — HTTP 422 с путями. Возвращает publishedRevision и url.", inputSchema: { type: "object", properties: { siteId: { type: "string" } }, required: ["siteId"] } },
   { name: "site_upload_asset", description: "Загрузить картинку/видео в сайт (POST /api/bots/pages/{siteId}/upload, папка assets). Передай path (локальный файл) ИЛИ url. Возвращает asset — строку вида assets/<имя> для полей image/logo/icon/style.bg.image.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, path: { type: "string" }, url: { type: "string" } }, required: ["siteId"] } },
+  { name: "site_rollback", description: "Вернуть прошлую публикацию сайта (POST /api/bots/pages/{siteId}/publish/rollback): revision — номер из истории публикаций (site_get → versions[]). Черновик заменяется этой версией и сразу публикуется. Возвращает publishedRevision и url.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, revision: { type: "number" } }, required: ["siteId", "revision"] } },
+  { name: "site_domains", description: "Свои домены сайта (/api/bots/pages/{siteId}/domains). action: list — домены, статусы и dnsTarget (IP для A-записи); add {host, withWww?} — привязать (withWww у корневого домена добавляет www-пару); check {domainId} — перепроверить DNS и сертификат; remove {domainId} — отвязать. Число доменов ограничено тарифом (HTTP 402 с upgradeUrl). Каждое действие возвращает актуальный список.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, action: { type: "string", enum: ["list", "add", "check", "remove"] }, host: { type: "string" }, withWww: { type: "boolean" }, domainId: { type: "string" } }, required: ["siteId", "action"] } },
+  { name: "site_lead_settings", description: "Куда доставлять заявки из форм сайта (/api/bots/pages/{siteId}/lead-settings). Без settings — прочитать: текущие настройки и доступные вебхук-сценарии и подключения amoCRM. С settings — сохранить целиком: {notifyBot: в бот уведомлений из профиля, notifyEmail: письмо на почту аккаунта, webhookUrl?: POST JSON на ваш адрес, scenarioId?: вебхук-сценарий, который запускает заявка, amoConnectionId?: сделка в amoCRM}.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, settings: { type: "object" } }, required: ["siteId"] } },
   { name: "site_leads", description: "Заявки из форм сайта (GET /api/bots/pages/{siteId}/leads): поля, UTM, статус доставки. page (с 0), size (до 100). Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["siteId"] } },
   { name: "article_list", description: "Список СВОИХ статей блога retensy (GET /api/articles/my): id, slug, title, viewCount, даты. id нужен для article_update, slug — публичный адрес /articles/{slug}. Read-only.", inputSchema: { type: "object", properties: {} } },
   { name: "article_get", description: "Получить статью блога по slug (GET /api/articles/by-slug/{slug}) — публичное чтение, в т.ч. чужие. Возвращает title, content (Markdown), excerpt, coverImage, viewCount.", inputSchema: { type: "object", properties: { slug: { type: "string", description: "slug статьи (часть адреса /articles/{slug})" } }, required: ["slug"] } },
@@ -672,6 +683,28 @@ async function handleCall(params) {
       if (a.page != null) qs.push(`page=${encodeURIComponent(a.page)}`);
       if (a.size != null) qs.push(`size=${encodeURIComponent(a.size)}`);
       return okResult(await api(`/api/bots/pages/${a.siteId}/leads${qs.length ? `?${qs.join("&")}` : ""}`));
+    }
+    case "site_rollback": {
+      if (typeof a.revision !== "number") throw new Error("Передай revision — номер публикации (site_get → versions[]).");
+      const r = await api(`/api/bots/pages/${a.siteId}/publish/rollback`, { method: "POST", body: { revision: a.revision } });
+      return okResult({ publishedRevision: r?.publishedRevision, url: r?.page?.url });
+    }
+    case "site_domains": {
+      const base = `/api/bots/pages/${a.siteId}/domains`;
+      if (a.action === "list") return okResult(await api(base));
+      if (a.action === "add") {
+        if (!a.host) throw new Error("Передай host — домен, например example.ru.");
+        return okResult(await api(base, { method: "POST", body: { host: a.host, withWww: !!a.withWww } }));
+      }
+      if (!a.domainId) throw new Error("Передай domainId (site_domains action=list).");
+      if (a.action === "check") return okResult(await api(`${base}/${a.domainId}/check`, { method: "POST" }));
+      if (a.action === "remove") return okResult(await api(`${base}/${a.domainId}`, { method: "DELETE" }));
+      throw new Error("action: list | add | check | remove.");
+    }
+    case "site_lead_settings": {
+      const p_ = `/api/bots/pages/${a.siteId}/lead-settings`;
+      if (a.settings == null) return okResult(await api(p_));
+      return okResult(await api(p_, { method: "PUT", body: a.settings }));
     }
     case "article_list": return okResult(await api("/api/articles/my"));
     case "article_get": return okResult(await api(`/api/articles/by-slug/${encodeURIComponent(a.slug)}`));

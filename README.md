@@ -10,6 +10,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 - 🤖 **30 инструментов сборки/публикации**: `list_bots`, `list_graphs`, `list_channels`, `get_graph`, `create_graph`, `update_graph`, `edit_graph_live`, `patch_graph`, `dry_run`, `publish_graph`, `import_funnel`, `list_templates`, `create_graph_from_template`, `clone_graph`, `copy_graph`, `rename_graph`, `set_active_graph`, `delete_graph`, `upload_file`, `list_files`, `delete_file`, `graph_analytics`, `list_bot_users`, `list_links` (+ `setup`/`set_token`).
 - 📝 **Статьи блога** (тот же токен `zmcp_…`): `article_publish`, `article_update`, `article_list`, `article_get` — публикация статей в Markdown (как README на GitHub) в раздел **/articles**.
 - 📎 **Медиа**: `upload_file` грузит фото/видео/документы в библиотеку **/bots/files** (до 50 МБ) и возвращает публичный URL — его вставляешь в медиа-карточку сценария.
+- 🌐 **Сайты из блоков** (раздел «Страницы»): создание, правка операциями (блоки, Zero-блок со свободной вёрсткой, код блока), публикация и откат, свои домены, заявки из форм и куда их доставлять — инструменты `site_*` + скилл `build-site`.
 - 🧠 **Скилл `build-bot-funnel`**: учит агента собирать корректный граф (типы узлов, ветки, кнопки, задержки) и проверять его перед публикацией. Поддерживает Telegram, MAX и Instagram.
 - 📦 **Без зависимостей** — чистый Node ≥18, ставится и запускается сразу.
 
@@ -19,7 +20,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 |---|---|---|---|
 | **Telegram** | Токен бота (BotFather) | `/start`, команды, callback, текст, рассылки | Полный функционал |
 | **MAX** | Токен бота (MAX Developer) | Команды, callback, текст | Без SUBSCRIBED/reply-клавиатур (мягкие предупреждения) |
-| **Instagram** | OAuth в `/bots/instagram` (без токена) | Комментарий/Direct/Ответ на историю/Упоминание | Ограниченный набор узлов; DELAY ≤ 24ч; ASK_QUESTION только TEXT/EMAIL/PHONE/NUMBER/CONTACT (CONTACT = ручной ввод номера); без рассылок |
+| **Instagram** ⏸ | OAuth в `/bots/instagram` (без токена) — **сейчас выключен в сервисе** (подключение новых IG-ботов скрыто, флаг `instagram.enabled`) | Комментарий/Direct/Ответ на историю/Упоминание | Ограниченный набор узлов; DELAY ≤ 24ч; ASK_QUESTION только TEXT/EMAIL/PHONE/NUMBER/CONTACT (CONTACT = ручной ввод номера); без рассылок |
 
 ---
 
@@ -115,6 +116,17 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `graph_analytics(graphId)` | прохождение сценария по узлам (где отваливается воронка) |
 | `list_bot_users(botId)` | подписчики/лиды бота (постранично, поиск `query`) |
 | `list_links(botId)` | стартовые трекинговые ссылки бота с UTM |
+| `site_list()` | сайты пользователя (id, mode, url, publishedRevision) |
+| `site_create(title, slug?)` | новый сайт из блоков → `id` |
+| `site_get(siteId, saveToFile?)` | модель сайта (`revision`, `draft`, `versions[]` публикаций) |
+| `site_schema()` | JSON Schema модели и операций — читать перед правкой |
+| `site_edit(siteId, ops[], revision?, init?)` | правка операциями, всё или ничего: страницы, блоки, Zero-элементы, код блока (`get/set/add_block_code`), тема, попапы |
+| `site_publish(siteId)` | опубликовать черновик → `url` |
+| `site_rollback(siteId, revision)` | вернуть прошлую публикацию |
+| `site_upload_asset(siteId, path\|url)` | картинка/видео в сайт → `assets/…` |
+| `site_domains(siteId, action, host?, withWww?, domainId?)` | свои домены: list / add / check / remove (число — по тарифу) |
+| `site_leads(siteId, page?, size?)` | заявки из форм (поля, UTM, статус доставки) |
+| `site_lead_settings(siteId, settings?)` | куда доставлять заявки: бот уведомлений, почта, вебхук, вебхук-сценарий, amoCRM |
 | `article_list()` | свои статьи блога (id, slug, title, просмотры) |
 | `article_get(slug)` | статья по slug (Markdown content, excerpt, обложка) |
 | `article_publish(content, title?, cover?, excerpt?)` | новая статья (Markdown; title из `# ...`, если не задан; обложка из `cover`-URL или 1-й картинки → OG; `excerpt` явно или авто) → id, slug, URL |
