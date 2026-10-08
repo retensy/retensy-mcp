@@ -213,6 +213,12 @@ for (const n of nodes) {
       if (!blank(f.status) && ev !== "chat_member" && ev !== "my_chat_member") warns.push(`${who}: фильтр по статусу работает только у chat_member/my_chat_member.`);
       break;
     }
+    case "TRIGGER_SITE_FORM":
+      // Бэкенд (GraphValidator.validateSiteFormTrigger): siteId обязателен и должен быть UUID своего сайта.
+      if (blank(c.siteId)) errors.push(`SITE_FORM_NO_SITE: ${who} — нужен siteId (id сайта из site_list).`);
+      else if (!UUID_RE.test(String(c.siteId).trim())) errors.push(`SITE_FORM_NO_SITE: ${who} — siteId «${c.siteId}» не UUID сайта (site_list).`);
+      if (c.formId != null && typeof c.formId !== "string") errors.push(`${who}: formId — строка (id формы из site_get) или пусто = любая форма.`);
+      break;
     case "TRIGGER_COMMENT":
       errors.push(`TRIGGER_COMMENT_DEAD: ${who} — этот тип триггера не сработает никогда (рантайм не выставляет event=comment). Для Instagram используй TRIGGER_IG_COMMENT.`);
       break;
