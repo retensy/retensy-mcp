@@ -27,7 +27,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.15.1";
+const VERSION = "0.15.2";
 /** С чего начать пустой сайт (init у /document/ops; на сайте с черновиком игнорируется). */
 const SITE_INITS = ["starter", "blank", "mini-landing"];
 /** Безвредная операция, когда нужен только init: бэкенд не принимает пустой ops[]. */
@@ -652,7 +652,7 @@ const TOOLS = [
   { name: "disconnect_integration", description: "Удалить подключение сервиса по id из list_integrations (DELETE /api/bots/integrations/{id}). Действия сценария с этим connectionId перестанут работать.", inputSchema: { type: "object", properties: { connectionId: { type: "string" } }, required: ["connectionId"] } },
   // ---- Рассылки ----
   { name: "broadcast_list", description: "Рассылки. Без botId — по всем ботам постранично (GET /api/bots/broadcasts): {counts: {drafts, scheduled, sent, recurring}, page: {content: [{id, botId, botUsername, name, status, direct, totalJobs, sentJobs, failedJobs, skippedByQuota, scheduledAt, createdAt}], totalElements…}}; group: scheduled (ещё не начали) | sent (идут/завершены). С botId — полная история одного бота. status: EXPANDING/MATERIALIZING/READY (ждёт) → RUNNING → DONE | CANCELLING → CANCELLED | FAILED. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, group: { type: "string", enum: ["scheduled", "sent"] }, page: { type: "number" }, size: { type: "number", description: "до 100, по умолчанию 20" } } } },
-  { name: "broadcast_get", description: "Рассылка целиком по id (GET /api/bots/broadcasts/{id}): статус, счётчики отправки, фильтр аудитории, сообщения, время. Read-only.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" } }, required: ["broadcastId"] } },
+  { name: "broadcast_get", description: "Рассылка целиком по id (GET /api/bots/broadcasts/{id}): статус, счётчики отправки, фильтр аудитории, сообщения, время. При failedJobs > 0 — ещё errors: топ-5 причин ошибок [{error, count}] (GET …/{id}/errors; детали живут 30 дней). Read-only.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" } }, required: ["broadcastId"] } },
   { name: "broadcast_preview", description: "Сколько подписчиков получат рассылку (POST /api/bots/{botId}/broadcasts/preview) — по каждому боту и всего. Фильтр по тегам: tagsAll — есть ВСЕ эти теги, tagsNone — нет НИ ОДНОГО; без тегов — все подписчики бота. Лимит — 50 000 получателей на бота. Ничего не отправляет.", inputSchema: { type: "object", properties: { botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } } } } },
   { name: "broadcast_send", description: "Отправить рассылку сейчас или запланировать (scheduledAt). " +
     "Прямая (по умолчанию, POST /api/bots/broadcasts/direct): name, botIds[] (1–20 ботов ОДНОГО владельца; по каждому создаётся своя рассылка), messages[] (1–5), tagsAll?/tagsNone? (фильтр по тегам). " +
@@ -664,7 +664,7 @@ const TOOLS = [
   { name: "broadcast_cancel", description: "Отменить рассылку (POST /api/bots/broadcasts/{id}/cancel): запланированная не уйдёт, идущая остановится (статус CANCELLING → CANCELLED). Уже завершённую отменить нельзя — HTTP 409.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" } }, required: ["broadcastId"] } },
   { name: "broadcast_recurring", description: "Повторяющиеся рассылки (/api/bots/broadcasts/recurring). action: list — правила (активные и остановленные); create {name, botIds[], messages[], tagsAll?, tagsNone?, recurrence: DAILY|MONTHLY|YEARLY, firstRunAt} — сообщения как в broadcast_send, firstRunAt — первый запуск в будущем (ISO 8601, без пояса — московское), дальше в то же время суток/число (Москва); stop {ruleId} — остановить правило (уже отправленные прогоны не трогаются). Нужен платный тариф (402 со ссылкой).", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "create", "stop"] }, ruleId: { type: "string" }, name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, recurrence: { type: "string", enum: ["DAILY", "MONTHLY", "YEARLY"] }, firstRunAt: { type: "string" } }, required: ["action"] } },
   { name: "broadcast_drafts", description: "Черновики рассылок (/api/bots/broadcasts/drafts) — те же, что в мастере кабинета. action: list · get {draftId} · create {name?, botIds?, messages?, tagsAll?, tagsNone?, scheduledAt?} · update {draftId, …те же поля — переданные заменяют, остальные остаются} · delete {draftId}. Черновик не проверяется на полноту; отправить — broadcast_send {draftId}. Лимит — 200 черновиков.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "get", "create", "update", "delete"] }, draftId: { type: "string" }, name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, scheduledAt: { type: "string" } }, required: ["action"] } },
-  { name: "broadcast_duplicate", description: "Копия прямой рассылки как черновик «Копия — …» (POST /api/bots/broadcasts/{id}/duplicate): бот, фильтр, сообщения. Рассылку по сценарию не дублировать — HTTP 409. Дальше broadcast_drafts update / broadcast_send {draftId}.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" } }, required: ["broadcastId"] } },
+  { name: "broadcast_duplicate", description: "Копия как новый черновик «<имя> (копия)»: исходник не меняется, время отправки и статистика не переносятся. broadcastId — прямая рассылка (POST /api/bots/broadcasts/{id}/duplicate: бот, фильтр, сообщения; по сценарию — HTTP 409); draftId — черновик (POST /api/bots/broadcasts/drafts/{id}/duplicate). Дальше broadcast_drafts update / broadcast_send {draftId}.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" }, draftId: { type: "string" } } } },
   // ---- Сайты: библиотека шаблонов ----
   { name: "site_templates", description: "Библиотека шаблонов блоков сайта (GET /api/bots/pages/templates): {categories: [{id, title, description?}], templates: [{id, category, title, description?, blocks: сколько блоков вставится}]}. Вставка — site_edit add_template {container, templateId, after?} (results.id — первый блок, results.ids — все); дальше блоки правятся как обычные. category — фильтр по id категории.", inputSchema: { type: "object", properties: { category: { type: "string" } } } },
 ];
@@ -1034,7 +1034,11 @@ async function handleCall(params) {
       try { counts = await api("/api/bots/broadcasts/counts"); } catch { /* счётчики не обязательны */ }
       return okResult({ counts, page });
     }
-    case "broadcast_get": return okResult(await api(`/api/bots/broadcasts/${a.broadcastId}`));
+    case "broadcast_get": {
+      const b = await api(`/api/bots/broadcasts/${a.broadcastId}`);
+      if (b && b.failedJobs > 0) b.errors = await api(`/api/bots/broadcasts/${a.broadcastId}/errors`).catch(() => []);
+      return okResult(b);
+    }
     case "broadcast_preview": {
       const ids = botIdsOf(a);
       await assertBroadcastBots(ids);
@@ -1131,6 +1135,8 @@ async function handleCall(params) {
       throw new Error("action: list | get | create | update | delete.");
     }
     case "broadcast_duplicate":
+      if (a.draftId) return okResult(await api(`/api/bots/broadcasts/drafts/${a.draftId}/duplicate`, { method: "POST" }));
+      if (!a.broadcastId) throw new Error("Передай broadcastId или draftId.");
       return okResult(await api(`/api/bots/broadcasts/${a.broadcastId}/duplicate`, { method: "POST" }));
     case "site_templates": {
       const r = await api("/api/bots/pages/templates");
