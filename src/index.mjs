@@ -27,7 +27,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.14.0";
+const VERSION = "0.15.0";
 const PKG_NAME = "@retensy/mcp";
 const BASE = (process.env.RETENSY_BASE_URL || "https://bots.retensy.com").replace(/\/+$/, "");
 const CONFIG_DIR = path.join(os.homedir(), ".retensy-bot-graph");
@@ -542,8 +542,22 @@ function qs(params) {
 // ============================================================================
 // Подключения сервисов
 // ============================================================================
-const CONNECT_PAGE = `${BASE}/bots/connect`;
-const INTEGRATIONS_PAGE = `${BASE}/bots/integrations`;
+/** IA v2: каталог и подключения — раздел «Интеграции». Старые /bots/connect|integrations остаются в кабинете (Instagram — там). */
+const CONNECT_PAGE = `${BASE}/integrations`;
+const INTEGRATIONS_PAGE = CONNECT_PAGE;
+const LEGACY_CONNECT_PAGE = `${BASE}/bots/connect`;
+/** Ключи с секретами: бэкенд их не отдаёт (только маска hint), но вычищаем и здесь — секрет не должен попасть в вывод. */
+const SECRET_OUT_RX = /^(creds|credsEnc|credentials|password|api_?key|.*secret(key)?|.*token)$/i;
+function withoutSecrets(v) {
+  if (Array.isArray(v)) return v.map(withoutSecrets);
+  if (!v || typeof v !== "object") return v;
+  const out = {};
+  for (const [k, x] of Object.entries(v)) {
+    if (SECRET_OUT_RX.test(k) && typeof x !== "boolean") continue; // secret:true в схеме каталога — флаг, не секрет
+    out[k] = withoutSecrets(x);
+  }
+  return out;
+}
 /** Поля кредов — как форма кабинета (IntegrationsPage.tsx PROVIDER_FIELDS). */
 const PROVIDER_FIELDS = {
   AMOCRM: { name: "amoCRM", fields: { subdomain: "поддомен: acme из acme.amocrm.ru", longToken: "долгосрочный токен: amoCRM → Интеграции → ваша интеграция → Ключи и доступы" } },
@@ -563,7 +577,7 @@ const normProvider = (p) => PROVIDER_ALIASES[String(p || "").trim().toLowerCase(
 
 /** Instagram подключается только входом через Facebook (OAuth) и сейчас выключен в сервисе (instagram.enabled). */
 function instagramAnswer() {
-  return linkResult("Instagram: подключение через вход Facebook (OAuth) — сейчас выключено в сервисе", CONNECT_PAGE,
+  return linkResult("Instagram: подключение через вход Facebook (OAuth) — сейчас выключено в сервисе", LEGACY_CONNECT_PAGE,
     "Instagram-аккаунт нельзя подключить по API или токену: только входом через Facebook в кабинете. Сейчас подключение Instagram в retensy выключено (страница /bots/instagram ведёт на список ботов). Открой каталог подключений по ссылке — когда Instagram включат, он появится там. Пока доступны Telegram и MAX (create_bot).");
 }
 
@@ -573,6 +587,10 @@ const TOOLS = [
   { name: "list_bots", description: "Список ботов пользователя (id, имя, статус).", inputSchema: { type: "object", properties: {} } },
   { name: "list_graphs", description: "Список сценариев САМОГО бота (без узлов). Вебхук-сценарии, которые лишь отвечают через этого бота, сюда не входят — их публикуют в вебе, в «Сценариях» автора.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   { name: "list_channels", description: "Список каналов/групп, подключённых к боту (chatId, title, type, статус бота, дата). chatId — числовой id для условия SUBSCRIBED («Подписан на канал»).", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
+  { name: "integration_catalog", description: "Каталог сервисов Integration Core (GET /api/integrations/catalog): [{provider, name, category, authType, configSchema: [{key, label, hint, secret}] — поля подключения, actions: [{kind, label, inputs}] — действия для сценария и coreDelivery, healthCheck — умеет ли integration_test}]. 404 — Integration Core выключен в сервисе. Read-only.", inputSchema: { type: "object", properties: {} } },
+  { name: "integration_status", description: "Статус подключения (GET /api/integrations/{id}/status): {status: UNKNOWN | OK | NEEDS_REAUTH (ключ отозван/устарел — обнови через connect_integration) | ERROR, lastCheckedAt, lastError, supported}. Только своё подключение (чужое — 403). Read-only, внешний сервис не вызывает.", inputSchema: { type: "object", properties: { connectionId: { type: "string", description: "id из list_integrations" } }, required: ["connectionId"] } },
+  { name: "integration_test", description: "Проверить подключение (POST /api/integrations/{id}/test): выполняет ЖИВУЮ проверку ключа во внешнем сервисе от имени владельца (без побочных эффектов — ничего не создаёт) и обновляет статус. Ответ как у integration_status; supported:false — сервис проверку не умеет. Только своё подключение (чужое — 403); 404 — Integration Core выключен.", inputSchema: { type: "object", properties: { connectionId: { type: "string", description: "id из list_integrations" } }, required: ["connectionId"] } },
+  { name: "channel_post", description: "Разовый пост от имени бота в канал/группу Telegram или MAX (раздел «Публикации», POST /api/bots/{botId}/linked-chats/{chatId}/post). Бот должен быть администратором канала (list_channels). text и/или mediaUrl — файл из upload_file (тип фото/видео/документ берётся из файла; чужие ссылки не принимаются). Лимиты: Telegram — 4096 символов текста, 1024 подписи к файлу; MAX — 4000. Ответ {ok, messageId?}. Публикует сразу — подтверди текст с пользователем.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "number", description: "chatId из list_channels" }, text: { type: "string" }, mediaUrl: { type: "string", description: "url из upload_file" } }, required: ["botId", "chatId"] } },
   { name: "list_integrations", description: "Список подключённых сервисов пользователя (GET /api/bots/integrations): {id, provider, title, hint, createdAt}. **id отсюда — это `connectionId`**, обязательное поле действий amocrm_send/amocrm_update/bitrix24_call/getcourse_send/getcourse_order/yametrika_event. Без него действие упадёт «не выбрано подключение». Креды не отдаются — только маскированный hint. Подключить новый — connect_integration. Read-only.", inputSchema: { type: "object", properties: {} } },
   { name: "get_graph", description: "Получить граф по graphId. Для БОЛЬШИХ графов (десятки узлов JSON может превысить лимит токенов) используй summary:true (компактная сводка: id/type/title/позиции + рёбра) или saveToFile (записать полный граф на диск и вернуть сводку+путь — потом правь файл и заливай через update_graph/edit_graph_live с graphFile).", inputSchema: { type: "object", properties: { graphId: { type: "string" }, summary: { type: "boolean", description: "true = вернуть компактную сводку без объёмных text/cards/buttons" }, saveToFile: { type: "string", description: "Путь: записать полный граф (JSON) на диск, вернуть сводку + путь" } }, required: ["graphId"] } },
   { name: "create_graph", description: "Создать пустой граф (DRAFT) в боте. Возвращает граф с id.", inputSchema: { type: "object", properties: { botId: { type: "string" }, name: { type: "string" } }, required: ["botId", "name"] } },
@@ -615,7 +633,7 @@ const TOOLS = [
   { name: "site_upload_asset", description: "Загрузить картинку/видео в сайт (POST /api/bots/pages/{siteId}/upload, папка assets). Передай path (локальный файл) ИЛИ url. Возвращает asset — строку вида assets/<имя> для полей image/logo/icon/style.bg.image.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, path: { type: "string" }, url: { type: "string" } }, required: ["siteId"] } },
   { name: "site_rollback", description: "Вернуть прошлую публикацию сайта (POST /api/bots/pages/{siteId}/publish/rollback): revision — номер из истории публикаций (site_get → versions[]). Черновик заменяется этой версией и сразу публикуется. Возвращает publishedRevision и url.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, revision: { type: "number" } }, required: ["siteId", "revision"] } },
   { name: "site_domains", description: "Свои домены сайта (/api/bots/pages/{siteId}/domains). action: list — домены, статусы и dnsTarget (IP для A-записи); add {host, withWww?} — привязать (withWww у корневого домена добавляет www-пару); check {domainId} — перепроверить DNS и сертификат; remove {domainId} — отвязать. Число доменов ограничено тарифом (HTTP 402 с upgradeUrl). Каждое действие возвращает актуальный список.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, action: { type: "string", enum: ["list", "add", "check", "remove"] }, host: { type: "string" }, withWww: { type: "boolean" }, domainId: { type: "string" } }, required: ["siteId", "action"] } },
-  { name: "site_lead_settings", description: "Куда доставлять заявки из форм сайта (/api/bots/pages/{siteId}/lead-settings). Без settings — прочитать: текущие настройки и доступные вебхук-сценарии и подключения amoCRM. С settings — сохранить целиком: {notifyBot: в бот уведомлений из профиля, notifyEmail: письмо на почту аккаунта, webhookUrl?: POST JSON на ваш адрес, scenarioId?: вебхук-сценарий, который запускает заявка, amoConnectionId?: сделка в amoCRM}.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, settings: { type: "object" } }, required: ["siteId"] } },
+  { name: "site_lead_settings", description: "Куда доставлять заявки из форм сайта (/api/bots/pages/{siteId}/lead-settings). Без settings — прочитать: {settings, scenarios (вебхук-сценарии), amoConnections, coreConnections: [{id, name, provider}] — подключения для доставки «Интеграция», без кредов}. С settings — сохранить ЦЕЛИКОМ (сначала прочитай и поменяй нужное): {notifyBot: в бот уведомлений из профиля, notifyEmail: письмо на почту аккаунта, webhookUrl?: POST JSON на ваш адрес, scenarioId?: вебхук-сценарий, который запускает заявка, amoConnectionId?: сделка в amoCRM, coreDelivery?: {connectionId: id из coreConnections, kind: действие сервиса из integration_catalog (actions[].kind, например amocrm_send), params?: {поле действия: шаблон}} | null}. Пустые params заполнятся из заявки (имя, телефон, почта, текст); в шаблонах — {{var.name}}, {{var.phone}}, {{var.email}}, {{var.<имя поля>}}, {{var.lead_text}} (текст заявки). Чужое подключение или неизвестный kind — 400. Запуск сценариев по заявке — триггер TRIGGER_SITE_FORM (скилл build-bot-funnel).", inputSchema: { type: "object", properties: { siteId: { type: "string" }, settings: { type: "object", properties: { notifyBot: { type: "boolean" }, notifyEmail: { type: "boolean" }, webhookUrl: { type: "string" }, scenarioId: { type: "string" }, amoConnectionId: { type: "string" }, coreDelivery: { type: ["object", "null"], properties: { connectionId: { type: "string" }, kind: { type: "string" }, params: { type: "object", additionalProperties: { type: "string" } } } } } } }, required: ["siteId"] } },
   { name: "site_leads", description: "Заявки из форм сайта (GET /api/bots/pages/{siteId}/leads): поля, UTM, статус доставки. page (с 0), size (до 100). Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["siteId"] } },
   { name: "article_list", description: "Список СВОИХ статей блога retensy (GET /api/articles/my): id, slug, title, viewCount, даты. id нужен для article_update, slug — публичный адрес /articles/{slug}. Read-only.", inputSchema: { type: "object", properties: {} } },
   { name: "article_get", description: "Получить статью блога по slug (GET /api/articles/by-slug/{slug}) — публичное чтение, в т.ч. чужие. Возвращает title, content (Markdown), excerpt, coverImage, viewCount.", inputSchema: { type: "object", properties: { slug: { type: "string", description: "slug статьи (часть адреса /articles/{slug})" } }, required: ["slug"] } },
@@ -626,7 +644,7 @@ const TOOLS = [
   { name: "bot_stop", description: "Остановить бота (POST /api/bots/{botId}/stop): снимает вебхук, бот перестаёт отвечать, сценарии и подписчики сохраняются. Запуск обратно — bot_resume.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   { name: "bot_resume", description: "Запустить остановленного бота или бота, приостановленного лимитом тарифа (POST /api/bots/{botId}/resume). Если лимит ботов тарифа исчерпан — HTTP 402 со ссылкой на смену тарифа.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   // ---- Подключения ----
-  { name: "connect_integration", description: "Подключить сервис (POST /api/bots/integrations) — дальше его id (= connectionId) ставится в действия сценария и в site_lead_settings. provider и creds: AMOCRM {subdomain, longToken} · BITRIX24 {webhookUrl} · GETCOURSE {account, apiKey} · YAMETRIKA {counterId, oauthToken} · YOOKASSA {shopId, secretKey}. Без нужных creds вернёт, какие поля и где их взять. connectionId — обновить креды/название существующего подключения (PUT). Сервисы со входом через браузер не падают, а возвращают ссылку для пользователя: GOOGLE_SHEETS → ссылка согласия Google (OAuth; после неё таблицы выбираются в узле «Google Таблицы»), INSTAGRAM → кабинет (вход через Facebook, сейчас выключен). TELEGRAM/MAX — это боты: используй create_bot. Креды не возвращаются и не попадают в отчёты.", inputSchema: { type: "object", properties: { provider: { type: "string", description: "AMOCRM | BITRIX24 | GETCOURSE | YAMETRIKA | YOOKASSA | GOOGLE_SHEETS | INSTAGRAM" }, title: { type: "string", description: "Название подключения в кабинете (например «amoCRM продажи»)" }, creds: { type: "object", description: "Поля провайдера, см. описание" }, connectionId: { type: "string", description: "id существующего подключения (list_integrations) — обновить его" } }, required: ["provider"] } },
+  { name: "connect_integration", description: "Подключить сервис (POST /api/bots/integrations) — дальше его id (= connectionId) ставится в действия сценария и в site_lead_settings. provider и creds: AMOCRM {subdomain, longToken} · BITRIX24 {webhookUrl} · GETCOURSE {account, apiKey} · YAMETRIKA {counterId, oauthToken} · YOOKASSA {shopId, secretKey}. Без нужных creds вернёт, какие поля и где их взять. connectionId — обновить креды/название существующего подключения (PUT). Сервисы со входом через браузер не падают, а возвращают ссылку для пользователя: GOOGLE_SHEETS → ссылка согласия Google (OAuth; после неё таблицы выбираются в узле «Google Таблицы»), INSTAGRAM → кабинет (вход через Facebook, сейчас выключен). TELEGRAM/MAX — это боты: используй create_bot. Креды хранятся в сервисе зашифрованными и НИКОГДА не возвращаются — ни здесь, ни в list_integrations (только маска hint); в отчёты не попадают. Проверить ключ после подключения — integration_test.", inputSchema: { type: "object", properties: { provider: { type: "string", description: "AMOCRM | BITRIX24 | GETCOURSE | YAMETRIKA | YOOKASSA | GOOGLE_SHEETS | INSTAGRAM" }, title: { type: "string", description: "Название подключения в кабинете (например «amoCRM продажи»)" }, creds: { type: "object", description: "Поля провайдера, см. описание" }, connectionId: { type: "string", description: "id существующего подключения (list_integrations) — обновить его" } }, required: ["provider"] } },
   { name: "disconnect_integration", description: "Удалить подключение сервиса по id из list_integrations (DELETE /api/bots/integrations/{id}). Действия сценария с этим connectionId перестанут работать.", inputSchema: { type: "object", properties: { connectionId: { type: "string" } }, required: ["connectionId"] } },
   // ---- Рассылки ----
   { name: "broadcast_list", description: "Рассылки. Без botId — по всем ботам постранично (GET /api/bots/broadcasts): {counts: {drafts, scheduled, sent, recurring}, page: {content: [{id, botId, botUsername, name, status, direct, totalJobs, sentJobs, failedJobs, skippedByQuota, scheduledAt, createdAt}], totalElements…}}; group: scheduled (ещё не начали) | sent (идут/завершены). С botId — полная история одного бота. status: EXPANDING/MATERIALIZING/READY (ждёт) → RUNNING → DONE | CANCELLING → CANCELLED | FAILED. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, group: { type: "string", enum: ["scheduled", "sent"] }, page: { type: "number" }, size: { type: "number", description: "до 100, по умолчанию 20" } } } },
@@ -677,7 +695,26 @@ async function handleCall(params) {
     case "list_bots": return okResult(await api("/api/bots"));
     case "list_graphs": return okResult(await api(`/api/bots/${a.botId}/graphs`));
     case "list_channels": return okResult(await api(`/api/bots/${a.botId}/linked-chats`));
-    case "list_integrations": return okResult(await api("/api/bots/integrations"));
+    case "list_integrations": return okResult(withoutSecrets(await api("/api/bots/integrations")));
+    case "integration_catalog": return okResult(withoutSecrets(await api("/api/integrations/catalog")));
+    case "integration_status":
+    case "integration_test": {
+      const id = String(a.connectionId || "").trim();
+      if (!id) throw new Error("Передай connectionId — id подключения из list_integrations.");
+      const live = params.name === "integration_test";
+      const p_ = `/api/integrations/${encodeURIComponent(id)}/${live ? "test" : "status"}`;
+      return okResult(withoutSecrets(await api(p_, live ? { method: "POST" } : undefined)));
+    }
+    case "channel_post": {
+      if (!a.botId) throw new Error("Передай botId (list_bots).");
+      const chatId = Number(a.chatId);
+      if (!Number.isSafeInteger(chatId)) throw new Error("chatId — числовой id канала из list_channels (например -1001234567890).");
+      const text = a.text == null ? "" : String(a.text);
+      if (!text.trim() && !a.mediaUrl) throw new Error("Пустой пост: передай text и/или mediaUrl (файл из upload_file).");
+      const body = { text };
+      if (a.mediaUrl) body.mediaUrl = String(a.mediaUrl);
+      return okResult(await api(`/api/bots/${encodeURIComponent(a.botId)}/linked-chats/${chatId}/post`, { method: "POST", body }));
+    }
     case "get_graph": {
       const g = await api(`/api/bots/graphs/${a.graphId}`);
       if (a.saveToFile) {
@@ -891,8 +928,8 @@ async function handleCall(params) {
     }
     case "site_lead_settings": {
       const p_ = `/api/bots/pages/${a.siteId}/lead-settings`;
-      if (a.settings == null) return okResult(await api(p_));
-      return okResult(await api(p_, { method: "PUT", body: a.settings }));
+      if (a.settings == null) return okResult(withoutSecrets(await api(p_)));
+      return okResult(withoutSecrets(await api(p_, { method: "PUT", body: a.settings })));
     }
     case "article_list": return okResult(await api("/api/articles/my"));
     case "article_get": return okResult(await api(`/api/articles/by-slug/${encodeURIComponent(a.slug)}`));
@@ -968,7 +1005,7 @@ async function handleCall(params) {
         const saved = a.connectionId
           ? await api(`/api/bots/integrations/${a.connectionId}`, { method: "PUT", body: { title: a.title, creds: Object.keys(creds).length ? creds : undefined } })
           : await api("/api/bots/integrations", { method: "POST", body: { provider, title, creds } });
-        return okResult({ connected: true, connectionId: saved?.id, ...saved, hint: "connectionId ставь в действия сценария (amocrm_send, bitrix24_call, getcourse_send, yametrika_event, оплата ЮKassa) и в site_lead_settings.amoConnectionId." });
+        return okResult({ connected: true, connectionId: saved?.id, ...withoutSecrets(saved), note: "Креды сохранены зашифрованными и обратно не отдаются (только маска hint).", usage: "connectionId ставь в действия сценария (amocrm_send, bitrix24_call, getcourse_send, yametrika_event, оплата ЮKassa) и в site_lead_settings (amoConnectionId или coreDelivery.connectionId). Проверить ключ — integration_test." });
       } catch (e) {
         if (e.status === 400) throw new Error(`${spec.name} не подключён: ${bodyReason(e.data) || "креды не приняты"}. Проверь поля: ${Object.entries(spec.fields).map(([k, v]) => `${k} — ${v}`).join("; ")}.`);
         throw e;

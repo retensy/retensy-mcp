@@ -8,7 +8,7 @@
 MCP-сервер (+ скилл для Claude Code) для **сборки и публикации воронок/автоматизаций ботов (Telegram, MAX и Instagram)** в сервисе [retensy `/bots`](https://bots.retensy.com/bots): из текстового описания → валидный граф сценария → заливка и публикация через API.
 
 - 🤖 **Сценарии ботов**: `list_bots`, `list_graphs`, `list_channels`, `get_graph`, `create_graph`, `update_graph`, `edit_graph_live`, `patch_graph`, `dry_run`, `publish_graph`, `import_funnel`, `list_templates`, `create_graph_from_template`, `clone_graph`, `copy_graph`, `rename_graph`, `set_active_graph`, `delete_graph`, `upload_file`, `list_files`, `delete_file`, `graph_analytics`, `list_bot_users`, `list_links` (+ `setup`/`set_token`).
-- 🔌 **Боты и сервисы**: `create_bot` (Telegram/MAX по токену), `bot_stop`/`bot_resume`, `connect_integration`/`disconnect_integration` (amoCRM, Битрикс24, GetCourse, Я.Метрика, ЮKassa; Google Таблицы — ссылкой на вход Google).
+- 🔌 **Боты и сервисы**: `create_bot` (Telegram/MAX по токену), `bot_stop`/`bot_resume`, `connect_integration`/`disconnect_integration` (amoCRM, Битрикс24, GetCourse, Я.Метрика, ЮKassa; Google Таблицы — ссылкой на вход Google; креды хранятся зашифрованными и не возвращаются), `integration_catalog`/`integration_status`/`integration_test` (каталог Integration Core и живая проверка подключения), `channel_post` (пост в канал Telegram/MAX).
 - 📣 **Рассылки**: `broadcast_preview` (размер аудитории), `broadcast_send` (сейчас или по расписанию, сразу по нескольким ботам; сообщения или запуск сценария), `broadcast_list`/`broadcast_get`/`broadcast_cancel`, повторяющиеся (`broadcast_recurring`), черновики (`broadcast_drafts`, `broadcast_duplicate`) + скилл `send-broadcast`.
 - 🔗 **Ссылка вместо отказа**: что нельзя сделать через API (вход через Google/Facebook, оплата тарифа, вход в аккаунт) — инструмент возвращает прямую ссылку и одну строку, что сделать.
 - 📝 **Статьи блога** (тот же токен `zmcp_…`): `article_publish`, `article_update`, `article_list`, `article_get` — публикация статей в Markdown (как README на GitHub) в раздел **/articles**.
@@ -103,6 +103,10 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `list_integrations()` | подключённые сервисы (amoCRM, Битрикс24, GetCourse, Я.Метрика, ЮKassa): `id` = `connectionId` для действий сценария |
 | `connect_integration(provider, creds?, title?, connectionId?)` | подключить/обновить сервис; без кредов — какие поля нужны; Google Таблицы → ссылка входа Google, Instagram → ссылка на кабинет |
 | `disconnect_integration(connectionId)` | удалить подключение |
+| `integration_catalog()` | каталог Integration Core: поля подключения (`configSchema`) и действия (`actions[].kind`) сервисов |
+| `integration_status(connectionId)` | статус подключения: `OK` / `NEEDS_REAUTH` / `ERROR` / `UNKNOWN`, последняя проверка и ошибка |
+| `integration_test(connectionId)` | живая проверка ключа во внешнем сервисе от имени владельца (без побочных эффектов) |
+| `channel_post(botId, chatId, text?, mediaUrl?)` | разовый пост в канал/группу Telegram или MAX (раздел «Публикации»); файл — из `upload_file` |
 | `get_graph(graphId, [summary], [saveToFile])` | получить граф; `summary:true` — компактная сводка (id/type/title + рёбра), `saveToFile` — записать полный JSON на диск (для больших графов, чтобы не упереться в лимит токенов) |
 | `create_graph(botId, name)` | создать пустой граф (DRAFT) |
 | `update_graph(graphId, graphFile\|graph\|nodes,edges)` | залить узлы/рёбра (PUT); `graphFile` — путь к локальному JSON, граф не нужно слать инлайном |
@@ -134,7 +138,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `site_upload_asset(siteId, path\|url)` | картинка/видео в сайт → `assets/…` |
 | `site_domains(siteId, action, host?, withWww?, domainId?)` | свои домены: list / add / check / remove (число — по тарифу) |
 | `site_leads(siteId, page?, size?)` | заявки из форм (поля, UTM, статус доставки) |
-| `site_lead_settings(siteId, settings?)` | куда доставлять заявки: бот уведомлений, почта, вебхук, вебхук-сценарий, amoCRM |
+| `site_lead_settings(siteId, settings?)` | куда доставлять заявки: бот уведомлений, почта, вебхук, вебхук-сценарий, amoCRM, «Интеграция» (`coreDelivery {connectionId, kind, params}` из `coreConnections`) |
 | `broadcast_list(botId?, group?, page?, size?)` | рассылки + счётчики разделов (черновики/запланированные/отправленные/повторы) |
 | `broadcast_get(broadcastId)` | рассылка целиком: статус, счётчики, сообщения |
 | `broadcast_preview(botIds, tagsAll?, tagsNone?)` | сколько подписчиков получат рассылку |

@@ -19,7 +19,9 @@ description: Собрать сайт или лендинг из блоков в 
 4. Картинки — `site_upload_asset {siteId, path|url}` → `assets/…` в поля `image`, `logo`, `icon`, `style.bg.image`.
 5. `site_get` — проверь модель, `site_publish` — сайт открыт по `url`.
 6. После публикации: заявки — `site_leads`, куда их слать — `site_lead_settings` (бот уведомлений, почта, вебхук,
-   вебхук-сценарий бота, amoCRM); свой домен — `site_domains` (`add` → пользователь ставит A-запись на `dnsTarget`
+   вебхук-сценарий бота, amoCRM, «Интеграция» — `coreDelivery {connectionId, kind, params?}`: любое подключение из
+   `coreConnections`, действие — `kind` из `integration_catalog`; запуск автоматизаций по заявке — сценарий с триггером
+   `TRIGGER_SITE_FORM {siteId, formId}`, скилл build-bot-funnel); свой домен — `site_domains` (`add` → пользователь ставит A-запись на `dnsTarget`
    → `check`); неудачная публикация — `site_rollback {revision}` из `site_get → versions[]`.
 
 ## Правила модели
