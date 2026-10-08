@@ -140,13 +140,13 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `site_leads(siteId, page?, size?)` | заявки из форм (поля, UTM, статус доставки) |
 | `site_lead_settings(siteId, settings?)` | куда доставлять заявки: бот уведомлений, почта, вебхук, вебхук-сценарий, amoCRM, «Интеграция» (`coreDelivery {connectionId, kind, params}` из `coreConnections`) |
 | `broadcast_list(botId?, group?, page?, size?)` | рассылки + счётчики разделов (черновики/запланированные/отправленные/повторы) |
-| `broadcast_get(broadcastId)` | рассылка целиком: статус, счётчики, сообщения |
+| `broadcast_get(broadcastId)` | рассылка целиком: статус, счётчики, сообщения, причины ошибок |
 | `broadcast_preview(botIds, tagsAll?, tagsNone?)` | сколько подписчиков получат рассылку |
 | `broadcast_send(name, botIds, messages \| graphId, tagsAll?, tagsNone?, scheduledAt?, draftId?)` | отправить сейчас / запланировать; по нескольким ботам; или запуск сценария |
 | `broadcast_cancel(broadcastId)` | отменить запланированную/идущую |
 | `broadcast_recurring(action, …)` | повторяющиеся рассылки: list / create (DAILY·MONTHLY·YEARLY) / stop |
 | `broadcast_drafts(action, …)` | черновики: list / get / create / update / delete |
-| `broadcast_duplicate(broadcastId)` | копия рассылки как черновик |
+| `broadcast_duplicate(broadcastId` или `draftId)` | копия рассылки или черновика — новый черновик «… (копия)» |
 | `article_list()` | свои статьи блога (id, slug, title, просмотры) |
 | `article_get(slug)` | статья по slug (Markdown content, excerpt, обложка) |
 | `article_publish(content, title?, cover?, excerpt?)` | новая статья (Markdown; title из `# ...`, если не задан; обложка из `cover`-URL или 1-й картинки → OG; `excerpt` явно или авто) → id, slug, URL |

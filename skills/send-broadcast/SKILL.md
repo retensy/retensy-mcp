@@ -16,7 +16,8 @@ description: Сделать рассылку подписчикам ботов r
 5. `broadcast_send {name, botIds, messages, tagsAll?, tagsNone?, scheduledAt?}` → `{broadcastIds, totalAudience}`.
    Не уверен в тексте — сначала `broadcast_drafts {action: "create", …}`: пользователь увидит черновик в кабинете,
    отправка — `broadcast_send {draftId}` (черновик после отправки удаляется).
-6. Статус — `broadcast_get {broadcastId}` / `broadcast_list`; остановить — `broadcast_cancel`.
+6. Статус — `broadcast_get {broadcastId}` (с причинами ошибок) / `broadcast_list`; остановить — `broadcast_cancel`.
+   Повторить или взять за основу — `broadcast_duplicate {broadcastId | draftId}` → черновик «… (копия)».
 
 ## Сообщение
 
