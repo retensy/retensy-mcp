@@ -14,8 +14,10 @@ description: Собрать сайт или лендинг из блоков в 
 1. `site_schema` — какие блоки и поля бывают (`model`) и какие операции есть (`ops`); `site_templates` — готовые
    секции из библиотеки.
 2. `site_create {title}` → `id`. Для правки существующего — `site_list`, `site_get {siteId}`.
-3. Первый `site_edit` с `init`: `starter` — готовый лендинг (шапка, обложка, текст, преимущества, форма, подвал) или
-   `blank` — пустая главная. Заполни тексты, не выдумывай факты о бизнесе — спрашивай.
+3. Первый `site_edit` с `init`: `starter` — готовый лендинг (шапка, обложка, текст, преимущества, форма, подвал),
+   `blank` — пустая главная или `mini-landing` — мини-лендинг «как Taplink» (см. ниже). Только `init` без `ops` —
+   создать черновик из шаблона; то же сразу при создании — `site_create {title, template}`. На сайте с черновиком
+   `init` игнорируется. Заполни тексты, не выдумывай факты о бизнесе — спрашивай.
 4. Картинки — `site_upload_asset {siteId, path|url}` → `assets/…` в поля `image`, `logo`, `icon`, `style.bg.image`.
 5. `site_get` — проверь модель, `site_publish` — сайт открыт по `url`.
 6. После публикации: заявки — `site_leads`, куда их слать — `site_lead_settings` (бот уведомлений, почта, вебхук,
@@ -50,6 +52,21 @@ description: Собрать сайт или лендинг из блоков в 
 - Целиком переписать блок проще кодом: `get_block_code {blockId}` → в `results[i].code` разметка `<zero …>…</zero>`,
   поправь и верни `set_block_code {blockId, code}`; новый блок из кода — `add_block_code {container, code}`. У
   обычных блоков код — JSON `{type, variant, props, style}`. Тот же код пользователь видит во вкладке «Код» редактора.
+
+## Мини-лендинг и блок «Кнопки мессенджеров»
+
+`init: "mini-landing"` (или `site_create {template: "mini-landing"}`) — одна страница без шапки и подвала, колонка
+640px, на весь экран блок `type: "messengers"`. Его `props`:
+
+- `avatar?` (`assets/…`), `title?`, `text?`;
+- `bots: [{botId, label?, start?}]` — боты владельца по порядку, кнопки собираются при публикации; пусто — все
+  активные боты (Telegram, MAX, Instagram). `start` — метка старта (латиница, цифры, `_`, `-`);
+- `links: [{label, action, style: primary|secondary|link}]` — свои кнопки (до 10): `action` —
+  `{kind:"url", href}` (только http(s), mailto:, tel:, относительные и `#якорь`; `javascript:`/`data:`/`vbscript:` бэкенд отклоняет),
+  `{kind:"phone", phone}`, `{kind:"email", email}`, `{kind:"page"|"anchor"|"popup"|"bot", …}`;
+- `colors: "brand"` (цвета мессенджеров) | `"theme"` (основной цвет темы).
+
+Блок ставится и на обычный сайт: `add_block {container, type: "messengers"}`.
 
 ## Папки, дизайны, шаблоны
 

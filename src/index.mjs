@@ -27,7 +27,11 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.15.0";
+const VERSION = "0.15.1";
+/** С чего начать пустой сайт (init у /document/ops; на сайте с черновиком игнорируется). */
+const SITE_INITS = ["starter", "blank", "mini-landing"];
+/** Безвредная операция, когда нужен только init: бэкенд не принимает пустой ops[]. */
+const SITE_NOOP_OPS = [{ op: "set_settings", settings: {} }];
 const PKG_NAME = "@retensy/mcp";
 const BASE = (process.env.RETENSY_BASE_URL || "https://bots.retensy.com").replace(/\/+$/, "");
 const CONFIG_DIR = path.join(os.homedir(), ".retensy-bot-graph");
@@ -614,7 +618,7 @@ const TOOLS = [
   { name: "list_bot_users", description: "Пользователи (подписчики/лиды) бота, постранично (GET /api/bots/{botId}/users). Опц. page (с 0), size (по умолч. 25), query (поиск по имени/username/id). Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, page: { type: "number" }, size: { type: "number" }, query: { type: "string" } }, required: ["botId"] } },
   { name: "list_links", description: "Стартовые (трекинговые) ссылки бота с UTM (GET /api/bots/{botId}/links): code, метки, число стартов. Это точки входа в воронку. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   { name: "site_list", description: "Сайты пользователя (раздел «Страницы», GET /api/bots/pages): id, title, mode (BLOCKS — сайт из блоков, CODE — файлы/Mini App), url (основной адрес), publishedRevision. Read-only.", inputSchema: { type: "object", properties: {} } },
-  { name: "site_create", description: "Создать сайт из блоков (POST /api/bots/pages, mode=BLOCKS). Возвращает id. Дальше: site_edit (init=starter — стартовый лендинг, init=blank — пустая главная) → site_publish. slug — «название» в адресе pages.retensy.com/<id>/<slug>/ (необязательно, по умолчанию транслит title).", inputSchema: { type: "object", properties: { title: { type: "string" }, slug: { type: "string" } }, required: ["title"] } },
+  { name: "site_create", description: "Создать сайт из блоков (POST /api/bots/pages, mode=BLOCKS). Возвращает id. Дальше: site_edit (init=starter — стартовый лендинг, init=blank — пустая главная, init=mini-landing — мини-лендинг с кнопками мессенджеров) → site_publish. template (starter|blank|mini-landing) — сразу создать черновик из шаблона (как «Мини-лендинг» в редакторе), в ответе revision. slug — «название» в адресе pages.retensy.com/<id>/<slug>/ (необязательно, по умолчанию транслит title).", inputSchema: { type: "object", properties: { title: { type: "string" }, slug: { type: "string" }, template: { type: "string", enum: ["starter", "blank", "mini-landing"] } }, required: ["title"] } },
   { name: "site_get", description: "Модель сайта из блоков (GET /api/bots/pages/{siteId}/document): revision, draft (SiteModel: theme, globals.header/footer, pages[].blocks[], popups[]) — id страниц/блоков/попапов нужны для site_edit. draft=null — сайт пуст (первый site_edit создаст его). saveToFile — записать модель на диск и вернуть путь.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, saveToFile: { type: "string" } }, required: ["siteId"] } },
   { name: "site_schema", description: "JSON Schema модели сайта (model) и операций правки (ops) — какие блоки и поля бывают (GET /api/bots/pages/schema). Читай перед первой правкой.", inputSchema: { type: "object", properties: {} } },
   { name: "site_edit", description: "Правка сайта операциями — всё или ничего (POST /api/bots/pages/{siteId}/document/ops). " +
@@ -626,9 +630,9 @@ const TOOLS = [
     "Код блока: get_block_code{blockId} (results[i].code: Zero — разметка <zero>…</zero>, остальные — JSON) · set_block_code{blockId,code} · add_block_code{container,code,after?}. " +
     "Zero-блок (type zero, свободная вёрстка как в Tilda): add_element{blockId, kind: text|image|button|shape|video|html|group, frame?{d:{x,y,w,h,container?,axisX?,axisY?}, t?, m?}, props?, style?, hover?, anim?, link?, parent?, name?, fixed?} · update_element{blockId,elementId, …те же поля, hidden?, locked?, link:null — убрать} · remove_element · move_element{delta: +1 — слой выше} · group_elements{blockId,elementIds[],name?} · ungroup_element. " +
     "Сайт: set_global{slot: header|footer, on} · set_theme{theme} · set_settings{settings} · add_popup{name} · update_popup{popupId,name?,width?} · remove_popup{popupId}. " +
-    "props/style/theme/frame — JSON Merge Patch (null удаляет ключ, массивы заменяются целиком). Типы блоков: header, cover, text, image, gallery, buttons, features, form, video, html, spacer, footer, zero. " +
-    "Значения по экранам: {d, t?, m?} (десктоп/планшет/телефон). revision — защита от перезаписи (409, если сайт изменили); init (starter|blank) — с чего начать пустой сайт. " +
-    "Ответ: новая revision и results[] с id созданного (и code у get_block_code). Ошибки — HTTP 422 с путями. Тариф: HTML-блок и HTML-элемент Zero публикуются только на платном тарифе (422 при site_publish).", inputSchema: { type: "object", properties: { siteId: { type: "string" }, ops: { type: "array", items: { type: "object" } }, revision: { type: "number" }, init: { type: "string", enum: ["starter", "blank"] } }, required: ["siteId", "ops"] } },
+    "props/style/theme/frame — JSON Merge Patch (null удаляет ключ, массивы заменяются целиком). Типы блоков: header, cover, text, image, gallery, buttons, features, form, video, html, spacer, footer, zero, messengers. " +
+    "Значения по экранам: {d, t?, m?} (десктоп/планшет/телефон). revision — защита от перезаписи (409, если сайт изменили); init (starter|blank|mini-landing) — с чего начать пустой сайт (на сайте с черновиком игнорируется); только init без ops — создать черновик из шаблона. " +
+    "Ответ: новая revision и results[] с id созданного (и code у get_block_code). Ошибки — HTTP 422 с путями. Тариф: HTML-блок и HTML-элемент Zero публикуются только на платном тарифе (422 при site_publish).", inputSchema: { type: "object", properties: { siteId: { type: "string" }, ops: { type: "array", items: { type: "object" } }, revision: { type: "number" }, init: { type: "string", enum: ["starter", "blank", "mini-landing"] } }, required: ["siteId"] } },
   { name: "site_publish", description: "Опубликовать черновик сайта (POST /api/bots/pages/{siteId}/publish): рендер в статику, адрес начинает отдавать новую версию. Ошибки проверки — HTTP 422 с путями. Возвращает publishedRevision и url.", inputSchema: { type: "object", properties: { siteId: { type: "string" } }, required: ["siteId"] } },
   { name: "site_upload_asset", description: "Загрузить картинку/видео в сайт (POST /api/bots/pages/{siteId}/upload, папка assets). Передай path (локальный файл) ИЛИ url. Возвращает asset — строку вида assets/<имя> для полей image/logo/icon/style.bg.image.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, path: { type: "string" }, url: { type: "string" } }, required: ["siteId"] } },
   { name: "site_rollback", description: "Вернуть прошлую публикацию сайта (POST /api/bots/pages/{siteId}/publish/rollback): revision — номер из истории публикаций (site_get → versions[]). Черновик заменяется этой версией и сразу публикуется. Возвращает publishedRevision и url.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, revision: { type: "number" } }, required: ["siteId", "revision"] } },
@@ -882,7 +886,12 @@ async function handleCall(params) {
     case "site_list": return okResult(await api("/api/bots/pages"));
     case "site_create": {
       if (!a.title) throw new Error("Передай title сайта.");
-      return okResult(await api("/api/bots/pages", { method: "POST", body: { title: a.title, slug: a.slug || undefined, mode: "BLOCKS" } }));
+      if (a.template != null && !SITE_INITS.includes(a.template)) throw new Error(`template — одно из: ${SITE_INITS.join(", ")}.`);
+      const page = await api("/api/bots/pages", { method: "POST", body: { title: a.title, slug: a.slug || undefined, mode: "BLOCKS" } });
+      if (!a.template) return okResult(page);
+      // черновик сразу, как редактор при «Мини-лендинг»: бэкенд не берёт пустой ops[] — безвредная set_settings{}
+      const doc = await api(`/api/bots/pages/${page.id}/document/ops`, { method: "POST", body: { ops: SITE_NOOP_OPS, init: a.template } });
+      return okResult({ ...page, template: a.template, revision: doc?.revision });
     }
     case "site_get": {
       const doc = await api(`/api/bots/pages/${a.siteId}/document`);
@@ -895,8 +904,11 @@ async function handleCall(params) {
     }
     case "site_schema": return okResult(await api("/api/bots/pages/schema"));
     case "site_edit": {
-      if (!Array.isArray(a.ops) || !a.ops.length) throw new Error("Передай ops — массив операций (см. site_schema).");
-      return okResult(await api(`/api/bots/pages/${a.siteId}/document/ops`, { method: "POST", body: { ops: a.ops, revision: a.revision, init: a.init } }));
+      const hasOps = Array.isArray(a.ops) && a.ops.length > 0;
+      if (!hasOps && !a.init) throw new Error("Передай ops — массив операций (см. site_schema) — или init, чтобы только создать черновик.");
+      if (a.init != null && !SITE_INITS.includes(a.init)) throw new Error(`init — одно из: ${SITE_INITS.join(", ")}.`);
+      const ops = hasOps ? a.ops : SITE_NOOP_OPS; // бэкенд отвечает 422 на пустой ops[]
+      return okResult(await api(`/api/bots/pages/${a.siteId}/document/ops`, { method: "POST", body: { ops, revision: a.revision, init: a.init } }));
     }
     case "site_publish": {
       const r = await api(`/api/bots/pages/${a.siteId}/publish`, { method: "POST" });
