@@ -51,3 +51,8 @@ jobs:
         run: node scripts/integration-core.test.mjs
         env:
           RETENSY_MCP_AUTOUPDATE: "0"
+      # site_edit/site_create с init (mini-landing): без ops — безвредная set_settings{}, не пустой ops[].
+      - name: Site init test
+        run: node scripts/site-init.test.mjs
+        env:
+          RETENSY_MCP_AUTOUPDATE: "0"

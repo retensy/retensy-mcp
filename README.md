@@ -128,10 +128,10 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `list_bot_users(botId)` | подписчики/лиды бота (постранично, поиск `query`) |
 | `list_links(botId)` | стартовые трекинговые ссылки бота с UTM |
 | `site_list()` | сайты пользователя (id, mode, url, publishedRevision) |
-| `site_create(title, slug?)` | новый сайт из блоков → `id` |
+| `site_create(title, slug?, template?)` | новый сайт из блоков → `id`; `template` (`starter`/`blank`/`mini-landing`) — сразу черновик из шаблона |
 | `site_get(siteId, saveToFile?)` | модель сайта (`revision`, `draft`, `versions[]` публикаций) |
 | `site_schema()` | JSON Schema модели и операций — читать перед правкой |
-| `site_edit(siteId, ops[], revision?, init?)` | правка операциями, всё или ничего: страницы и папки, блоки, Zero-элементы, код блока (`get/set/add_block_code`), дизайны и их кадры, шаблоны (`add_template`), тема, попапы |
+| `site_edit(siteId, ops[]?, revision?, init?)` | правка операциями (`init`: `starter`/`blank`/`mini-landing`; только `init` — черновик из шаблона), всё или ничего: страницы и папки, блоки, Zero-элементы, код блока (`get/set/add_block_code`), дизайны и их кадры, шаблоны (`add_template`), тема, попапы |
 | `site_templates(category?, full?)` | библиотека шаблонов блоков для `add_template` |
 | `site_publish(siteId)` | опубликовать черновик → `url` |
 | `site_rollback(siteId, revision)` | вернуть прошлую публикацию |
