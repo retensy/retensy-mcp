@@ -97,7 +97,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `setup` | статус авторизации + пошаговая инструкция подключения |
 | `set_token` | сохранить присланный токен `zmcp_…` (без env/рестарта) |
 | `list_bots` | список ботов |
-| `create_bot(platform, token, name?)` | подключить бота Telegram/MAX по токену (Instagram → ссылка на кабинет) |
+| `create_bot(platform, token?, name?)` | подключить бота Telegram/MAX по токену; `WEB` — чат-виджет для сайта без токена → botId, key, snippet (Instagram → ссылка на кабинет) |
+| `web_widget_snippet(botId)` | код вставки чат-виджета на сайт |
 | `bot_stop(botId)` / `bot_resume(botId)` | остановить / запустить бота |
 | `list_graphs(botId)` | графы (сценарии) бота |
 | `list_channels(botId)` | каналы/группы, подключённые к боту (chatId для условия SUBSCRIBED) |
@@ -166,6 +167,11 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `kb_add_text(kbId, title, text)` | добавить источник «Текст/инструкция» |
 | `kb_add_site(kbId, url, schedule?)` | добавить сайт обходом страниц; `schedule`: `NEVER`\|`DAILY`\|`WEEKLY`\|`MONTHLY` |
 | `kb_reindex(kbId, docId, headerRow?)` | переиндексировать файл из оригинала («Повторить»); `headerRow` — для таблиц, если шапка определилась неверно |
+| `kb_list()` / `kb_create(name)` | базы знаний: список / новая (база агента создаётся с ним — `kbId` в `agent_get`) (id → `knowledgeBaseId` узла `AI_REPLY mode:"agent"`) |
+| `kb_delete_doc(kbId, docId)` | удалить документ из базы знаний вместе с фрагментами |
+| `bot_user_get(botId, chatId)` | карточка подписчика: теги, переменные, ai_summary |
+| `bot_user_runs(botId, chatId)` | журнал запусков с шагами — проверка, что сценарий реально выполнил действия (CRM, уведомление, HTTP) |
+| `dialog_messages(botId, chatId)` / `dialog_reply(botId, chatId, text)` | переписка с подписчиком / ответ оператора (уходит реальному человеку) |
 
 ### Рассылки
 
