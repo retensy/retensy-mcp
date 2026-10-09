@@ -33,7 +33,7 @@ function finish() {
   const ok =
     init?.result?.serverInfo?.name === "retensy-mcp" &&
     Array.isArray(tools) &&
-    tools.length === 73 &&
+    tools.length === 74 &&
     toolNames.includes("list_channels") &&
     toolNames.includes("list_integrations") &&
     toolNames.includes("edit_graph_live") &&
