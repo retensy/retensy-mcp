@@ -1,6 +1,6 @@
 # retensy-mcp ↔ платформа: паритет и доступ PAT
 
-Состояние на 09.10.2026, ветка `bc/f-mcp` (от `feat/battery-completion`, 99 инструментов).
+Состояние на 09.10.2026, ветка `bc/f-mcp` (от `feat/battery-completion`, 100 инструментов).
 Источник фич платформы — контроллеры `backend/src/main/java/org/skiddgoddamn/controller/**` (retensy-bots
 `feat/battery-completion`), доступ токена — `security/PatAuthFilter.java`.
 
@@ -47,9 +47,12 @@ PAT, инструмента нет; **PAT** — путь закрыт для т�
 | Интеграции: Google-аккаунты | `/api/bots/google/auth-url`, `/identities` | внутри `connect_integration` (GOOGLE_SHEETS) | частично (отвязка аккаунта — нет) |
 | Журнал вызовов интеграций | `GET /api/bots/integrations/calls?connectionId=&ok=&limit=` (IntegrationConnectionController, ветка bc/b-actions) | `integration_calls` (новый) | ждёт бэкенд (путь и параметры сверены с bc/b-actions) |
 | Прогоны/журналы: по подписчику | `GET /{botId}/users/{chatId}/runs` | `bot_user_runs` | есть |
-| Прогоны/журналы: по боту, один прогон | `GET /api/bots/{botId}/runs`, `/api/bots/runs/{runId}` | `bot_runs` (новый) | есть |
+| Прогоны/журналы: по боту, один прогон (вкл. headless) | `GET /api/bots/{botId}/runs`, `/api/bots/runs/{runId}` | `bot_runs` (новый) | есть |
+| Прогоны/журналы: по сценарию (вкл. вебхук/расписание) | `GET /api/bots/graphs/{graphId}/runs?page&size` | `scenario_runs` (новый) | ждёт бэкенд (путь сверен) |
+| Статус прогона `PARTIAL` | контракт 1.1 | описан в `dry_run`, `bot_runs`, `bot_user_runs`, `scenario_runs` | есть |
 | Расписания: повторяющиеся рассылки | `/api/bots/broadcasts/recurring` | `broadcast_recurring` | есть |
-| Расписания: триггер сценария по cron | узел `TRIGGER_SCHEDULE` в графе (контракт 1.4, агент A) | через графовые инструменты | ждёт бэкенд (узел) |
+| Расписания: триггер сценария по cron | узел `TRIGGER_SCHEDULE` (`cron`, `timezone`) | графовые инструменты; схема и `validate.mjs` скилла `build-bot-funnel` | ждёт бэкенд (узел описан) |
+| Новые действия сценария: `booking_slots/book/cancel`, `lead_link_contact`, `invite_link_create/revoke`, `subscription_extend/check`, `yookassa_charge_saved`, `meta_capi_event`, `agent_chat` (handoff), DELAY UNTIL / SCHEDULE от `{{var.x}}` + `offset` | GraphValidator / FlowExecutor | `reference/schema.md`, `validate.mjs` (не отклоняет; kind Integration Core — предупреждение) | ждёт бэкенд (описано) |
 | Рассылки: отправка, список, карточка, ошибки, отмена, превью, черновики, копия | TgBroadcastController, BroadcastDraftController | `broadcast_send`, `broadcast_list`, `broadcast_get`, `broadcast_cancel`, `broadcast_preview`, `broadcast_drafts`, `broadcast_duplicate` | есть |
 | Каналы/группы бота, посты | `/{botId}/linked-chats`, `/linked-chats/{chatId}/post`; `/api/bots/{botId}/channels` | `list_channels`, `channel_post` | частично (добавить/убрать канал — нет) |
 | Стартовые ссылки | `GET/POST /{botId}/links`, `DELETE /links/{id}` | `list_links` | частично (создать/удалить — нет) |
@@ -135,6 +138,7 @@ PAT, инструмента нет; **PAT** — путь закрыт для т�
 | `bot_users_import` | `POST /api/bots/{botId}/users/import` | есть в проде |
 | `bot_runs` | `GET /api/bots/{botId}/runs`, `GET /api/bots/runs/{runId}` | есть в проде |
 | `bot_delete` | `DELETE /api/bots/{botId}` | есть в проде |
+| `scenario_runs` | `GET /api/bots/graphs/{graphId}/runs?page&size` | требует бэкенд feat/battery-completion |
 | `booking_calendar_list/get/create/update/delete` | `GET/POST /api/bots/booking/calendars`, `GET/PUT/DELETE /{id}` (PUT — целиком, MCP накладывает поля на текущий) | требует бэкенд feat/battery-completion |
 | `booking_slots`, `booking_list` | `GET /{id}/slots?from&to&limit`, `GET /{id}/bookings?from` | требует бэкенд feat/battery-completion |
 | `booking_create`, `booking_cancel` | `POST /{id}/bookings {slotAt,name,phone}` (409 — занят), `POST /{id}/bookings/{bookingId}/cancel` | требует бэкенд feat/battery-completion |

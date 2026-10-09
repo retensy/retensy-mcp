@@ -90,6 +90,11 @@
   `{{var.<имя>}}`, всегда `{{var.name}}`/`{{var.email}}`/`{{var.phone}}` (по имени поля, иначе по подписи),
   UTM `{{var.utm_*}}`. Прогон без чата: узлы отправки — только с `config.target`. Работает и в сценарии
   без бота (источник WEBHOOK — тогда `TRIGGER_WEBHOOK` не обязателен), и в сценарии бота; не для Instagram.
+- `TRIGGER_SCHEDULE` — `{ "cron": "0 9 * * 1-5", "timezone": "Europe/Moscow" }` — запуск сценария по расписанию:
+  cron из 5 полей (минута час день месяц день-недели), не чаще раза в минуту; зона по умолчанию `Europe/Moscow`.
+  Прогон **headless** (без чата): узлы отправки — только с явным `config.target`, действия, которым нужен
+  подписчик, пропускаются; время срабатывания — `{{schedule.at}}`. Запуски, пропущенные во время простоя сервиса,
+  не догоняются. Работает в опубликованном активном сценарии (бота или вебхук-сценарии). Журнал — `scenario_runs`.
 - ~~`TRIGGER_COMMENT`~~ — **мёртвый тип**: рантайм нигде не выставляет `event="comment"`, сработать
   он не может. Убран из палитры редактора. Комментарии Instagram — `TRIGGER_IG_COMMENT`.
 
@@ -145,8 +150,8 @@ IG-боты не поддерживают команды (`/start`). Вход �
 - `DELAY` — пауза. Три вида (`kind`):
   - **`FIXED`** («Отправить через»): `{ "kind":"FIXED", "durationSec": 86400 }` — `durationSec` в **секундах** (60 = 1 мин, 3600 = 1 час, 86400 = 1 сутки). Редактор также пишет `{ "kind":"FIXED", "duration": 24, "unit":"MINUTES"|"HOURS"|"DAYS" }` (минуты/часы/дни — чтобы не вбивать большие числа). Для генерации проще `durationSec`.
   - **`TOMORROW`** («Отправить завтра»): `{ "kind":"TOMORROW", "time":"18:00" }` — завтра в указанное время `HH:mm` (МСК), относительно момента, когда пользователь дошёл до узла.
-  - **`UNTIL`** («Отправить в»): `{ "kind":"UNTIL", "isoTimestamp":"2026-06-25T15:00:00Z" }` — конкретный момент в ISO-8601 (UTC). ⚠️ Рантайм читает только `isoTimestamp`; пары `isoDate`+`time` НЕ работают.
-- `SCHEDULE` — `{ "isoDate":"2026-06-25", "time":"18:00", "timezone":"Europe/Moscow" }`. Выходы `scheduled` / `past`.
+  - **`UNTIL`** («Отправить в»): `{ "kind":"UNTIL", "isoTimestamp":"2026-06-25T15:00:00Z" }` — конкретный момент в ISO-8601. ⚠️ Рантайм читает только `isoTimestamp`; пары `isoDate`+`time` НЕ работают. Можно шаблон из переменной и смещение: `{ "kind":"UNTIL", "isoTimestamp":"{{var.slot_at}}", "offset":"-24h", "timezone":"Europe/Moscow" }` — «за сутки до записи» (`offset`: `-30m`, `+1d`, единицы s/m/h/d/w; дата без зоны читается в `timezone`, по умолчанию Москва). Момент уже прошёл → выход `late`, если ребро нарисовано, иначе шаг выполняется сразу (`snapshot.lateBy`). Шаблон не разобрался как дата → выход `error`.
+- `SCHEDULE` — `{ "isoDate":"2026-06-25", "time":"18:00", "timezone":"Europe/Moscow" }`. Выходы `scheduled` / `past`. `isoDate` может быть и ISO дата-временем или шаблоном (`"{{var.slot_at}}"`, тогда `time` не нужен) + `offset` как у `DELAY UNTIL`.
 - Прогон без пауз (между `DELAY`, `ASK_QUESTION`/`awaitReply`, ожиданием оплаты) ограничен **5 минутами**: дольше — рантайм обрывает его с ошибкой шага `run deadline exceeded` (прогон `FAILED`, пауза подписчика снята). Длинные цепочки `external_request` / `CALL_WEBHOOK` / `AI_REPLY` разноси `DELAY` — после паузы начинается новый прогон.
 - Массовый одинаковый момент срабатывания (`TOMORROW`/`UNTIL`/`SCHEDULE` у тысяч подписчиков одного бота) расходится постепенно: до 10 срабатываний на бота в секунду, время растёт с аудиторией (≈100 с на 1000 подписчиков, ≈17 мин на 10 000), другие боты не ждут. Не рассчитывай, что все получат сообщение в одну секунду.
 - Если Telegram вернул боту 429 (`retry after N`, пауза не дольше часа), срабатывания `DELAY`/`SCHEDULE` и рассылки этого бота (и по `BROADCAST_FILTER`, и прямые) ждут конца паузы; после такой паузы рассылка продолжается без потерь и без повтора уже доставленного. Это только про паузу 429: если сервис перезапустился посреди отправки, получатель, на котором её прервали, через ≤15 мин может получить рассылку (или прогон сценария) повторно. Ответ подписчику в живом диалоге отправляется сразу, без ожидания; если Telegram откажет снова, шаг уходит в ветку «Ошибка», если она проведена, иначе дальше по обычному выходу.
@@ -164,7 +169,12 @@ IG-боты не поддерживают команды (`/start`). Вход �
     ветвиться по коду ответа надо следующим блоком `SWITCH`. **Платное действие** (как `CALL_WEBHOOK`):
     на бесплатном тарифе публикация падает с `PREMIUM_NODE_FORBIDDEN`.
     Ещё есть `subscriber_webhook` — `url` + `method`/`headersJson`/`bodyTemplate`
-  - **уведомления**: `notify` (`text`) — владельцу бота в бот уведомлений из его профиля (Telegram/MAX); не подключён → действие не удалось, блок уходит в `error`; `subscriber_email` (`email`,`text`), `agent_chat`
+  - **уведомления**: `notify` (`text`) — владельцу бота в бот уведомлений из его профиля (Telegram/MAX); не подключён → действие не удалось, блок уходит в `error`; `subscriber_email` (`email`,`text`)
+  - **передача оператору**: `agent_chat` (без полей) — «позвать человека»: диалог встаёт на паузу (бот и ИИ молчат, входящие копятся в «Диалогах»), владельцу уходит уведомление; без бота уведомлений действие помечается `NOT_CONFIGURED`, пауза всё равно включается. Вернуть боту — кнопка в «Диалогах» или MCP `dialog_handoff {active:false}`. В dry-run и headless-прогонах пропускается.
+  - **запись на слоты** (календарь — `booking_calendar_create`/`booking_calendar_list`): `booking_slots` — `calendarId`, опц. `days` (1–62, по умолч. 7), `limit` (1–50, по умолч. 10), `saveTo` (по умолч. `slots`) → переменные `slots` (нумерованный список для сообщения), `slots_json`, `slots_count`; `booking_book` — `calendarId`, `slotAt` (по умолч. `{{var.slot_at}}`; можно номер из списка «2», ISO-время или подпись слота), опц. `slotsVar`, `name`/`phone` (по умолч. `{{var.name}}`/`{{var.phone}}`) → `booking_id`, `slot_at` (ISO с зоной — для напоминания `DELAY UNTIL {{var.slot_at}} offset -24h`), `slot_label`, `booking_status`; занятый слот → выход блока **`taken`** (если ребро нарисовано, иначе `error`); `booking_cancel` — `bookingId` (по умолч. `{{var.booking_id}}`), освобождает слот.
+  - **контакт заявки**: `lead_link_contact` — `phone`/`email` (по умолч. `{{var.phone}}`/`{{var.email}}`) → склейка с единым контактом владельца по телефону E.164 или email, `{{var.contact_id}}`.
+  - **платный доступ / подписки** (бот должен быть админом группы/канала): `invite_link_create` — персональная ссылка на одно вступление: опц. `expireHours` (по умолч. 24), `name`, `saveTo` (по умолч. `invite_link`), `send` (false — не отправлять), `text`; `invite_link_revoke` — `link` (по умолч. `{{var.invite_link}}`); `subscription_extend` — `period` (`1mo`, `30d`, `1y`, `2w`, `12h`), опц. `var` (по умолч. `sub_until`), `timezone` — продлевает от max(сейчас, текущий срок); `subscription_check` — опц. `var`, `saveTo` (по умолч. `sub_active`) → `true`/`false`; `yookassa_charge_saved` — рекуррентное списание по сохранённому способу оплаты: `connectionId` (ЮKassa), `amount`, `description`, опц. `paymentMethodId` (по умолч. `{{var.yk_payment_method_id}}`), `periodKey` (по умолч. `{{var.sub_until}}` — защита от двойного списания за период). Доступ продлевает не списание, а сценарий `TRIGGER_PAYMENT` → `subscription_extend`.
+  - **Meta Conversions API** (Integration Core): `meta_capi_event` — `connectionId`, `eventName` (Purchase/Lead/…), опц. `dealId`, `stage`, `eventId`, `email`/`phone` (сырые — хешируются SHA-256), `value`, `currency`, `actionSource`. Поля других провайдеров — в `integration_catalog` (`actions[].inputs`).
   - **бот/шаг**: `stop_bot`, `delete_step_message`, `cancel_payment_subscription`
   - **Google Таблицы (работает)**: `gsheets_send` — дописать строку-заявку в таблицу: `{ "kind":"gsheets_send", "googleEmail":"me@gmail.com", "spreadsheetId":"<id таблицы>", "sheetName":"Лист1", "cells":["{{from.first_name}}","{{var.phone}}","{{var.email}}"] }`. `cells` — значения по порядку (шаблоны), бот дописывает их строкой в конец листа. Google-аккаунт подключается В ВЕБЕ (`/bots` → у действия кнопка «Подключить Google»), НЕ через MCP — у пользователя уже должен быть подключён `googleEmail`. Нужны `googleEmail` + `spreadsheetId` + непустой `cells[]` (иначе `ACTION_GSHEETS_INCOMPLETE`).
     Остальные четыре действия с таблицами тоже РАБОТАЮТ и тоже требуют `googleEmail` + `spreadsheetId`:
@@ -195,7 +205,7 @@ IG-боты не поддерживают команды (`/start`). Вход �
       (`ClientId`|`Yclid`, по умолчанию `ClientId`), **`idValue`** (обязателен после рендера —
       пустой обрывает действие), опц. `target`, `price`, `currency` (по умолчанию `RUB`),
       `dateTime` (unix-секунды, по умолчанию «сейчас»).
-  - **Единственные НЕ интегрированные действия**: `agent_chat` и `cancel_payment_subscription` —
+  - **Единственное НЕ интегрированное действие**: `cancel_payment_subscription` —
     принимается как no-op с пометкой `integration_not_connected`.
   - **модерация группы**: `group_unban`, `group_kick`, `group_approve`, `group_decline`
 
@@ -445,11 +455,11 @@ node validate.mjs graph.json --platform=INSTAGRAM
 | `ASK_QUESTION` | `valid`, `invalid` |
 | `SEND_MESSAGE` с `awaitReply:true` | `valid`, `invalid` (+ `btn_N` для кнопок) |
 | `CALL_WEBHOOK` | `ok`, `error` |
-| `ACTIONS` | `next`, плюс `error` — если внутри есть действие, которое может упасть (внешний запрос, CRM, Таблицы) |
+| `ACTIONS` | `next`, плюс `error` — если внутри есть действие, которое может упасть (внешний запрос, CRM, Таблицы); `taken` — слот `booking_book` занят |
 | `SWITCH` | `case_<id>`, `default` |
 | `STOP_AND_ERROR` | выходов нет (терминатор) |
 | `SCHEDULE` | `scheduled`, `past` |
-| `DELAY` | `next` |
+| `DELAY` | `next`; у `UNTIL` ещё `late` (момент уже прошёл) и `error` (шаблон не разобрался как дата) |
 | `AI_REPLY` (`mode` не задан/`simple`) | `next`, `error` |
 | `AI_REPLY` (`mode:"agent"`) | `answered`, `action_<id>` (по числу `actions[]`), `unknown`, `budget_exhausted`, `error` — **выхода `next` нет** |
 

@@ -69,3 +69,5 @@ jobs:
         run: node scripts/parity-tools.test.mjs
         env:
           RETENSY_MCP_AUTOUPDATE: "0"
+      - name: Graph validator test
+        run: node scripts/validate-graph.test.mjs

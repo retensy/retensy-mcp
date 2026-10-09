@@ -139,6 +139,9 @@ check("bot_runs список → GET runs?page&size", !!req("GET", `/api/bots/${
 await call("bot_runs", { runId: "r1" });
 check("bot_runs по runId → GET /api/bots/runs/r1", !!req("GET", "/api/bots/runs/r1"));
 
+await call("scenario_runs", { graphId: B, page: 0, size: 20 });
+check("scenario_runs → GET /graphs/{id}/runs?page&size", !!req("GET", `/api/bots/graphs/${B}/runs?page=0&size=20`));
+check("scenario_runs graphId не UUID — ошибка до запроса", isErr(await call("scenario_runs", { graphId: "g1" })) && none("/graphs/g1/"));
 const noConfirm = await call("bot_delete", { botId: B });
 check("bot_delete без confirm — ошибка до запроса", isErr(noConfirm) && !req("DELETE", `/api/bots/${B}`));
 await call("bot_delete", { botId: B, confirm: true });

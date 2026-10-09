@@ -174,7 +174,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `dialog_messages(botId, chatId)` / `dialog_reply(botId, chatId, text)` | переписка с подписчиком / ответ оператора (уходит реальному человеку) |
 | `dialog_handoff(botId, chatId, active)` | передать диалог оператору (бот и ИИ молчат) / вернуть боту ¹ |
 | `bot_users_import(botId, rows)` | добавить подписчикам метки и новые поля (`rows: [{chatId, tags?, variables?}]`; существующие поля не перезаписываются) |
-| `bot_runs(botId` или `runId)` | журнал прогонов бота / один прогон с шагами |
+| `bot_runs(botId` или `runId)` | журнал прогонов бота / один прогон с шагами (статус `PARTIAL` — «завершён с ошибками») |
+| `scenario_runs(graphId, page?, size?)` | журнал прогонов одного сценария, включая headless (вебхук, заявки сайта, `TRIGGER_SCHEDULE`) ¹ |
 | `bot_delete(botId, confirm:true)` | удалить бота навсегда (только по явной просьбе) |
 | `web_widget_settings(botId, settings?)` | вид чат-виджета: прочитать / изменить (поля накладываются на текущие) |
 | `integration_update(connectionId, title?, creds?)` | переименовать подключение или заменить ключи |
