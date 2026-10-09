@@ -28,10 +28,12 @@ const srv = http.createServer((req, res) => {
     const k = `${req.method} ${req.url}`;
     // Ответы намеренно «протекают» секретами — инструмент обязан их вычистить.
     if (k === "GET /api/integrations/catalog") {
-      return json(200, [{ provider: "demo", name: "Demo CRM", category: "CRM", authType: "API_KEY", healthCheck: true,
-        configSchema: [{ key: "apiKey", label: "Ключ", hint: "из кабинета", secret: true }],
+      return json(200, [{ provider: "demo", name: "Demo CRM", category: "CRM", authType: "API_KEY", healthCheck: true, status: "LIVE",
+        configSchema: [{ key: "apiKey", label: "Ключ", hint: "из кабинета", secret: true }, { key: "note", label: "Заметка", hint: "необязательно" }],
         actions: [{ kind: "demo_send", label: "Отправить", inputs: [{ key: "phone", label: "Телефон", hint: "" }] }],
-        credsEnc: SECRET }]);
+        credsEnc: SECRET },
+        { provider: "futuresvc", name: "Future Service", category: "CRM", authType: "API_KEY", status: "COMING_SOON",
+          configSchema: [{ key: "apiKey", label: "Ключ", hint: "" }], actions: [] }]);
     }
     if (k === "GET /api/integrations/c1/status") return json(200, { status: "OK", lastCheckedAt: "2026-10-08T10:00:00Z", lastError: null, supported: true, creds: { apiKey: SECRET } });
     if (k === "POST /api/integrations/c1/test") return json(200, { status: "NEEDS_REAUTH", lastError: "401", supported: true, secretKey: SECRET, accessToken: SECRET });
@@ -84,6 +86,10 @@ const empty = await call("channel_post", { botId: "b1", chatId: -1001234567890, 
 const badChat = await call("channel_post", { botId: "b1", chatId: "abc", text: "x" });
 const list = await call("list_integrations", {});
 const conn = await call("connect_integration", { provider: "amocrm", creds: { subdomain: "acme", longToken: SECRET } });
+const connCatalog = await call("connect_integration", { provider: "demo", creds: { apiKey: SECRET } });
+const connCatalogMissing = await call("connect_integration", { provider: "demo", creds: {} });
+const connCatalogComingSoon = await call("connect_integration", { provider: "futuresvc", creds: { apiKey: "x" } });
+const connUnknown = await call("connect_integration", { provider: "nope_unknown" });
 const leadGet = await call("site_lead_settings", { siteId: "s1" });
 const cd = { connectionId: "c1", kind: "demo_send", params: { phone: "{{var.phone}}" } };
 const leadPut = await call("site_lead_settings", { siteId: "s1", settings: { notifyBot: true, coreDelivery: cd } });
@@ -93,7 +99,8 @@ child.kill();
 srv.close();
 try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* windows lock */ }
 
-const outputs = [catalog, status, test, foreign, post, list, conn, leadGet, leadPut].map(textOf);
+const outputs = [catalog, status, test, foreign, post, list, conn, connCatalog, connCatalogMissing, connCatalogComingSoon, connUnknown, leadGet, leadPut].map(textOf);
+const demoPost = seen.find((s) => s.method === "POST" && s.url === "/api/bots/integrations" && s.body?.provider === "demo");
 const toolDesc = (n) => JSON.stringify(tools.find((t) => t.name === n) ?? {});
 const checks = [
   ["catalog: GET /api/integrations/catalog", !!req("GET", "/api/integrations/catalog") && textOf(catalog).includes("demo_send")],
@@ -115,6 +122,13 @@ const checks = [
   ["описания: новые инструменты в tools/list", ["integration_catalog", "integration_status", "integration_test", "channel_post"].every((n) => tools.some((t) => t.name === n))],
   ["описание integration_test: живая проверка от имени владельца", toolDesc("integration_test").includes("ЖИВУЮ") && toolDesc("integration_test").includes("от имени владельца")],
   ["описание connect_integration: зашифрованы, не возвращаются", toolDesc("connect_integration").includes("зашифрованными") && toolDesc("connect_integration").includes("НИКОГДА не возвращаются")],
+  ["описание connect_integration: упоминает каталог", toolDesc("connect_integration").includes("integration_catalog")],
+  ["connect каталог: provider в нижнем регистре ушёл в POST", demoPost?.body?.provider === "demo" && demoPost?.body?.creds?.apiKey === SECRET],
+  ["connect каталог: connectionId и маска на месте", textOf(connCatalog).includes('"connectionId": "c2"') && !connCatalog?.result?.isError],
+  ["connect каталог: не хватает creds — список полей, без запроса", connCatalogMissing?.result?.isError !== true && textOf(connCatalogMissing).includes("apiKey") && textOf(connCatalogMissing).includes('"connected": false')],
+  ["connect каталог: необязательное поле не требуется", !JSON.parse(textOf(connCatalogMissing)).need?.note],
+  ["connect каталог: COMING_SOON нельзя подключить", connCatalogComingSoon?.result?.isError === true && textOf(connCatalogComingSoon).includes("COMING_SOON")],
+  ["connect: неизвестный provider — ошибка со списком из каталога", connUnknown?.result?.isError === true && textOf(connUnknown).includes("demo")],
   ["схема site_lead_settings: coreDelivery", toolDesc("site_lead_settings").includes("coreDelivery")],
 ];
 let failed = 0;

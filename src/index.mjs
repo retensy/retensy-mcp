@@ -648,7 +648,7 @@ const TOOLS = [
   { name: "bot_stop", description: "Остановить бота (POST /api/bots/{botId}/stop): снимает вебхук, бот перестаёт отвечать, сценарии и подписчики сохраняются. Запуск обратно — bot_resume.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   { name: "bot_resume", description: "Запустить остановленного бота или бота, приостановленного лимитом тарифа (POST /api/bots/{botId}/resume). Если лимит ботов тарифа исчерпан — HTTP 402 со ссылкой на смену тарифа.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   // ---- Подключения ----
-  { name: "connect_integration", description: "Подключить сервис (POST /api/bots/integrations) — дальше его id (= connectionId) ставится в действия сценария и в site_lead_settings. provider и creds: AMOCRM {subdomain, longToken} · BITRIX24 {webhookUrl} · GETCOURSE {account, apiKey} · YAMETRIKA {counterId, oauthToken} · YOOKASSA {shopId, secretKey}. Без нужных creds вернёт, какие поля и где их взять. connectionId — обновить креды/название существующего подключения (PUT). Сервисы со входом через браузер не падают, а возвращают ссылку для пользователя: GOOGLE_SHEETS → ссылка согласия Google (OAuth; после неё таблицы выбираются в узле «Google Таблицы»), INSTAGRAM → кабинет (вход через Facebook, сейчас выключен). TELEGRAM/MAX — это боты: используй create_bot. Креды хранятся в сервисе зашифрованными и НИКОГДА не возвращаются — ни здесь, ни в list_integrations (только маска hint); в отчёты не попадают. Проверить ключ после подключения — integration_test.", inputSchema: { type: "object", properties: { provider: { type: "string", description: "AMOCRM | BITRIX24 | GETCOURSE | YAMETRIKA | YOOKASSA | GOOGLE_SHEETS | INSTAGRAM" }, title: { type: "string", description: "Название подключения в кабинете (например «amoCRM продажи»)" }, creds: { type: "object", description: "Поля провайдера, см. описание" }, connectionId: { type: "string", description: "id существующего подключения (list_integrations) — обновить его" } }, required: ["provider"] } },
+  { name: "connect_integration", description: "Подключить сервис (POST /api/bots/integrations) — дальше его id (= connectionId) ставится в действия сценария и в site_lead_settings. provider и creds: AMOCRM {subdomain, longToken} · BITRIX24 {webhookUrl} · GETCOURSE {account, apiKey} · YAMETRIKA {counterId, oauthToken} · YOOKASSA {shopId, secretKey}. Остальные ~25 сервисов (smsru, retailcrm, cloudpayments, rest_api, yandex_market и т.д.) берутся из каталога Integration Core (integration_catalog) — provider передавай его provider-ключом в НИЖНЕМ регистре, нужные creds — из configSchema каждого провайдера (hint подскажет, где взять; поле с «необязательно»/optional в hint можно не слать). Без нужных creds вернёт, какие поля и где их взять. connectionId — обновить креды/название существующего подключения (PUT). Сервисы со входом через браузер не падают, а возвращают ссылку для пользователя: GOOGLE_SHEETS → ссылка согласия Google (OAuth; после неё таблицы выбираются в узле «Google Таблицы»), INSTAGRAM → кабинет (вход через Facebook, сейчас выключен). TELEGRAM/MAX — это боты: используй create_bot. Провайдер каталога со статусом COMING_SOON/IN_DEVELOPMENT подключить нельзя (вернёт ошибку). Если каталог недоступен (офлайн/выключен) — работают только 5 легаси-провайдеров выше. Креды хранятся в сервисе зашифрованными и НИКОГДА не возвращаются — ни здесь, ни в list_integrations (только маска hint); в отчёты не попадают. Проверить ключ после подключения — integration_test.", inputSchema: { type: "object", properties: { provider: { type: "string", description: "AMOCRM | BITRIX24 | GETCOURSE | YAMETRIKA | YOOKASSA | GOOGLE_SHEETS | INSTAGRAM, либо провайдер из integration_catalog (его ключ в нижнем регистре, напр. smsru, retailcrm, cloudpayments)" }, title: { type: "string", description: "Название подключения в кабинете (например «amoCRM продажи»)" }, creds: { type: "object", description: "Поля провайдера: для легаси — см. описание, для остальных — ключи из configSchema провайдера в integration_catalog" }, connectionId: { type: "string", description: "id существующего подключения (list_integrations) — обновить его" } }, required: ["provider"] } },
   { name: "disconnect_integration", description: "Удалить подключение сервиса по id из list_integrations (DELETE /api/bots/integrations/{id}). Действия сценария с этим connectionId перестанут работать.", inputSchema: { type: "object", properties: { connectionId: { type: "string" } }, required: ["connectionId"] } },
   // ---- Рассылки ----
   { name: "broadcast_list", description: "Рассылки. Без botId — по всем ботам постранично (GET /api/bots/broadcasts): {counts: {drafts, scheduled, sent, recurring}, page: {content: [{id, botId, botUsername, name, status, direct, totalJobs, sentJobs, failedJobs, skippedByQuota, scheduledAt, createdAt}], totalElements…}}; group: scheduled (ещё не начали) | sent (идут/завершены). С botId — полная история одного бота. status: EXPANDING/MATERIALIZING/READY (ждёт) → RUNNING → DONE | CANCELLING → CANCELLED | FAILED. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, group: { type: "string", enum: ["scheduled", "sent"] }, page: { type: "number" }, size: { type: "number", description: "до 100, по умолчанию 20" } } } },
@@ -1000,26 +1000,69 @@ async function handleCall(params) {
           { connectedGoogleAccounts: connected });
       }
       const spec = PROVIDER_FIELDS[provider];
-      if (!spec) throw new Error(`Неизвестный provider «${a.provider}». Бывают: ${Object.keys(PROVIDER_FIELDS).join(", ")}, GOOGLE_SHEETS, INSTAGRAM. Каталог: ${CONNECT_PAGE}`);
+      if (spec) {
+        // Легаси-провайдер (одна из исходных 5) — шлём enum `provider` как раньше, без каталога.
+        const creds = a.creds && typeof a.creds === "object" ? Object.fromEntries(
+          Object.entries(a.creds).filter(([, v]) => v != null && String(v).trim() !== "").map(([k, v]) => [k, String(v).trim()])) : {};
+        const missing = Object.keys(spec.fields).filter((k) => !creds[k]);
+        if (missing.length && (!a.connectionId || Object.keys(creds).length)) {
+          return okResult({
+            connected: false,
+            provider,
+            need: Object.fromEntries(missing.map((k) => [k, spec.fields[k]])),
+            instruction: `Для ${spec.name} не хватает полей creds: ${missing.join(", ")}. Попроси их у пользователя и вызови connect_integration ещё раз. Или пусть подключит сам в кабинете: ${CONNECT_PAGE}`,
+          });
+        }
+        const title = a.title || spec.name;
+        try {
+          const saved = a.connectionId
+            ? await api(`/api/bots/integrations/${a.connectionId}`, { method: "PUT", body: { title: a.title, creds: Object.keys(creds).length ? creds : undefined } })
+            : await api("/api/bots/integrations", { method: "POST", body: { provider, title, creds } });
+          return okResult({ connected: true, connectionId: saved?.id, ...withoutSecrets(saved), note: "Креды сохранены зашифрованными и обратно не отдаются (только маска hint).", usage: "connectionId ставь в действия сценария (amocrm_send, bitrix24_call, getcourse_send, yametrika_event, оплата ЮKassa) и в site_lead_settings (amoConnectionId или coreDelivery.connectionId). Проверить ключ — integration_test." });
+        } catch (e) {
+          if (e.status === 400) throw new Error(`${spec.name} не подключён: ${bodyReason(e.data) || "креды не приняты"}. Проверь поля: ${Object.entries(spec.fields).map(([k, v]) => `${k} — ${v}`).join("; ")}.`);
+          throw e;
+        }
+      }
+
+      // Провайдер из каталога Integration Core (~25 сервисов, GET /api/integrations/catalog) —
+      // ключ в запросе на создание ВСЁ ЕЩЁ называется `provider`, но в нижнем регистре (bots/integrations
+      // одинаково принимает enum-провайдеров и свободные providerKey из реестра, см. IntegrationConnectionService.create).
+      const catalogKey = String(a.provider || "").trim().toLowerCase().replace(/[\s.-]+/g, "_");
+      let catalog;
+      try { catalog = await api("/api/integrations/catalog"); } catch { /* офлайн — фолбэк на статическую таблицу ниже */ }
+      if (!Array.isArray(catalog)) {
+        throw new Error(`Неизвестный provider «${a.provider}». Бывают: ${Object.keys(PROVIDER_FIELDS).join(", ")}, GOOGLE_SHEETS, INSTAGRAM (каталог Integration Core сейчас недоступен — офлайн-режим). Каталог: ${CONNECT_PAGE}`);
+      }
+      const entry = catalog.find((p) => String(p?.provider || "").toLowerCase() === catalogKey);
+      if (!entry) {
+        const names = catalog.map((p) => p.provider).filter(Boolean).join(", ");
+        throw new Error(`Неизвестный provider «${a.provider}». Бывают: ${Object.keys(PROVIDER_FIELDS).join(", ")}, GOOGLE_SHEETS, INSTAGRAM, ${names}. Каталог: ${CONNECT_PAGE}`);
+      }
+      if (entry.status === "COMING_SOON" || entry.status === "IN_DEVELOPMENT") {
+        throw new Error(`${entry.name} (${entry.provider}) пока нельзя подключить: статус ${entry.status}. Каталог: ${CONNECT_PAGE}`);
+      }
+      const schema = Array.isArray(entry.configSchema) ? entry.configSchema : [];
       const creds = a.creds && typeof a.creds === "object" ? Object.fromEntries(
         Object.entries(a.creds).filter(([, v]) => v != null && String(v).trim() !== "").map(([k, v]) => [k, String(v).trim()])) : {};
-      const missing = Object.keys(spec.fields).filter((k) => !creds[k]);
+      const requiredFields = schema.filter((f) => !/необязательно|optional/i.test(f?.hint || ""));
+      const missing = requiredFields.map((f) => f.key).filter((k) => !creds[k]);
       if (missing.length && (!a.connectionId || Object.keys(creds).length)) {
         return okResult({
           connected: false,
-          provider,
-          need: Object.fromEntries(missing.map((k) => [k, spec.fields[k]])),
-          instruction: `Для ${spec.name} не хватает полей creds: ${missing.join(", ")}. Попроси их у пользователя и вызови connect_integration ещё раз. Или пусть подключит сам в кабинете: ${CONNECT_PAGE}`,
+          provider: entry.provider,
+          need: Object.fromEntries(schema.filter((f) => missing.includes(f.key)).map((f) => [f.key, f.hint || f.label])),
+          instruction: `Для ${entry.name} не хватает полей creds: ${missing.join(", ")}. Попроси их у пользователя и вызови connect_integration ещё раз. Или пусть подключит сам в кабинете: ${CONNECT_PAGE}`,
         });
       }
-      const title = a.title || spec.name;
+      const title = a.title || entry.name;
       try {
         const saved = a.connectionId
           ? await api(`/api/bots/integrations/${a.connectionId}`, { method: "PUT", body: { title: a.title, creds: Object.keys(creds).length ? creds : undefined } })
-          : await api("/api/bots/integrations", { method: "POST", body: { provider, title, creds } });
-        return okResult({ connected: true, connectionId: saved?.id, ...withoutSecrets(saved), note: "Креды сохранены зашифрованными и обратно не отдаются (только маска hint).", usage: "connectionId ставь в действия сценария (amocrm_send, bitrix24_call, getcourse_send, yametrika_event, оплата ЮKassa) и в site_lead_settings (amoConnectionId или coreDelivery.connectionId). Проверить ключ — integration_test." });
+          : await api("/api/bots/integrations", { method: "POST", body: { provider: entry.provider, title, creds } });
+        return okResult({ connected: true, connectionId: saved?.id, ...withoutSecrets(saved), note: "Креды сохранены зашифрованными и обратно не отдаются (только маска hint).", usage: "connectionId ставь в действия сценария (actions из integration_catalog) и в site_lead_settings (coreDelivery.connectionId). Проверить ключ — integration_test." });
       } catch (e) {
-        if (e.status === 400) throw new Error(`${spec.name} не подключён: ${bodyReason(e.data) || "креды не приняты"}. Проверь поля: ${Object.entries(spec.fields).map(([k, v]) => `${k} — ${v}`).join("; ")}.`);
+        if (e.status === 400) throw new Error(`${entry.name} не подключён: ${bodyReason(e.data) || "креды не приняты"}. Проверь поля: ${schema.map((f) => `${f.key} — ${f.hint || f.label}`).join("; ")}.`);
         throw e;
       }
     }
