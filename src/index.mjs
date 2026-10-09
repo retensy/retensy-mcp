@@ -59,10 +59,8 @@ function saveToken(token) {
 }
 function isAuthed() { return !!(getToken() || getCookie()); }
 
-// ============================================================================
-// Отчёты о неудачах + проверка обновлений
-// ============================================================================
-// ЗАЧЕМ: если клиент пытается сделать что-то, чего сервер не умеет (неизвестный
+// =====================================================================// Отчёты о неудачах + проверка обновлений
+// =====================================================================// ЗАЧЕМ: если клиент пытается сделать что-то, чего сервер не умеет (неизвестный
 // инструмент, отказ публикации, ошибка API) — мы хотим об этом узнать и добавить
 // поддержку. Отчёт уходит на webhook АНОНИМНО и БЕЗ СЕКРЕТОВ.
 //
@@ -264,12 +262,12 @@ function httpError(method, path_, status, data) {
   return err;
 }
 
-async function api(path_, { method = "GET", body } = {}) {
+async function api(path_, { method = "GET", body, rawBody } = {}) {
   if (!isAuthed()) throw new Error(NO_AUTH_HELP);
   const res = await fetch(`${BASE}${path_}`, {
     method,
     headers: authHeaders(),
-    body: body !== undefined ? JSON.stringify(body) : undefined,
+    body: rawBody ?? (body !== undefined ? JSON.stringify(body) : undefined),
   });
   const text = await res.text();
   let data = null;
@@ -443,6 +441,81 @@ function resolveGraphInput(a) {
   if (a.graph) return extractGraph(a.graph);
   return { nodes: a.nodes, edges: a.edges, canvasMeta: a.canvasMeta ?? {}, name: a.name };
 }
+// Сервер хранит id узлов/рёбер как UUID: иначе PUT падал голым HTTP 400 без причины.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function assertGraphIds(g) {
+  const bad = [];
+  for (const n of g.nodes || []) if (!UUID_RE.test(String(n?.id))) bad.push(`узел ${n?.id}`);
+  for (const e of g.edges || []) {
+    for (const k of ["id", "sourceNodeId", "targetNodeId"]) if (!UUID_RE.test(String(e?.[k]))) bad.push(`ребро ${e?.id ?? "?"}.${k}=${e?.[k]}`);
+  }
+  if (bad.length) throw new Error(`id узлов и рёбер должны быть UUID (crypto.randomUUID()). Не UUID: ${bad.slice(0, 10).join(", ")}${bad.length > 10 ? ` и ещё ${bad.length - 10}` : ""}.`);
+}
+// chatId бывает больше 2^53 (виджет, MAX) — принимаем строкой, пропускаем только цифры (и минус у групп).
+function pageQs(a) {
+  const q = [];
+  if (a.page != null) q.push(`page=${encodeURIComponent(a.page)}`);
+  if (a.size != null) q.push(`size=${encodeURIComponent(a.size)}`);
+  return q.length ? `?${q.join("&")}` : "";
+}
+function chatIdArg(v) {
+  const s = String(v ?? "").trim();
+  if (!/^-?\d{1,20}$/.test(s)) throw new Error(`chatId — число (из list_bot_users), получено: ${s || "пусто"}.`);
+  return s;
+}
+function uuidArg(v, label) {
+  const s = String(v ?? "").trim();
+  if (!UUID_RE.test(s)) throw new Error(`${label} — UUID (например, из list_bots), получено: ${s || "пусто"}.`);
+  return s;
+}
+// id из Mongo/строковые ключи: только безопасный сегмент пути, без «/», «..», пробелов.
+function idArg(v, label) {
+  const s = String(v ?? "").trim();
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(s)) throw new Error(`${label} — id из соответствующего списка, получено: ${s || "пусто"}.`);
+  return s;
+}
+function enumArg(v, label, allowed) {
+  const s = String(v ?? "").trim().toUpperCase();
+  if (!allowed.includes(s)) throw new Error(`${label}: ${allowed.join(" | ")}, получено: ${s || "пусто"}.`);
+  return s;
+}
+const LEAD_STATUSES = ["NEW", "IN_PROGRESS", "DONE", "REJECTED"];
+function dateArg(v, label) {
+  const s = String(v ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || Number.isNaN(Date.parse(s))) throw new Error(`${label} — дата ГГГГ-ММ-ДД, получено: ${s || "пусто"}.`);
+  return s;
+}
+const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$|^24:00$/;
+// Поля календаря записи (BookingCalendar): переданные накладываются на base (для PUT — текущий календарь целиком).
+function calendarBody(a, base = {}) {
+  const b = { ...base };
+  if (a.name != null) b.name = String(a.name).trim();
+  if (a.zone != null) b.zone = String(a.zone).trim();
+  if (a.botId !== undefined) b.botId = a.botId === null || a.botId === "" ? null : uuidArg(a.botId, "botId");
+  if (a.slotMinutes != null) {
+    const n = Number(a.slotMinutes);
+    if (!Number.isInteger(n) || n < 5 || n > 1440) throw new Error("slotMinutes — целое от 5 до 1440.");
+    b.slotMinutes = n;
+  }
+  if (a.hours != null) {
+    if (!Array.isArray(a.hours)) throw new Error("hours — массив [{day: 1–7, from: \"HH:mm\", to: \"HH:mm\"}].");
+    a.hours.forEach((h, i) => {
+      if (!Number.isInteger(h?.day) || h.day < 1 || h.day > 7) throw new Error(`hours[${i}].day — от 1 (пн) до 7 (вс).`);
+      if (!HHMM_RE.test(String(h.from)) || !HHMM_RE.test(String(h.to))) throw new Error(`hours[${i}]: from/to — время HH:mm.`);
+    });
+    b.hours = a.hours.map((h) => ({ day: h.day, from: h.from, to: h.to }));
+  }
+  if (a.exceptions != null) {
+    if (!Array.isArray(a.exceptions)) throw new Error("exceptions — массив [{date: \"ГГГГ-ММ-ДД\", from?, to?}].");
+    b.exceptions = a.exceptions.map((e, i) => {
+      const date = dateArg(e?.date, `exceptions[${i}].date`);
+      const closed = !e.from && !e.to;
+      if (!closed && (!HHMM_RE.test(String(e.from)) || !HHMM_RE.test(String(e.to)))) throw new Error(`exceptions[${i}]: from/to — время HH:mm или оба пусты (выходной).`);
+      return closed ? { date } : { date, from: e.from, to: e.to };
+    });
+  }
+  return b;
+}
 // Компактная сводка графа (без объёмных text/cards/buttons) — чтобы не упираться в лимит токенов
 // на больших графах. Узлы: id/type/title/позиция; рёбра: id/from/handle/to.
 function graphSummary(g) {
@@ -451,10 +524,8 @@ function graphSummary(g) {
   return { graphId: g?.id, name: g?.name, status: g?.status, version: g?.version, counts: { nodes: nodes.length, edges: edges.length }, nodes, edges };
 }
 
-// ============================================================================
-// Рассылки
-// ============================================================================
-// Бэкенд на 400 отдаёт только статус (без причины), поэтому правила TgBroadcastController.validateDirectMessage
+// =====================================================================// Рассылки
+// =====================================================================// Бэкенд на 400 отдаёт только статус (без причины), поэтому правила TgBroadcastController.validateDirectMessage
 // повторены здесь — агент получает понятную ошибку до запроса, а не голый «HTTP 400».
 const BC_TYPES = ["TEXT", "PHOTO", "VIDEO", "AUDIO", "FILE", "VOICE", "VIDEONOTE", "GALLERY"];
 const BC_MEDIA = new Set(["PHOTO", "VIDEO", "AUDIO", "FILE", "VOICE", "VIDEONOTE"]);
@@ -543,10 +614,8 @@ function qs(params) {
   return parts.length ? `?${parts.join("&")}` : "";
 }
 
-// ============================================================================
-// Подключения сервисов
-// ============================================================================
-/** IA v2: каталог и подключения — раздел «Интеграции». Старые /bots/connect|integrations остаются в кабинете (Instagram — там). */
+// =====================================================================// Подключения сервисов
+// =====================================================================/** IA v2: каталог и подключения — раздел «Интеграции». Старые /bots/connect|integrations остаются в кабинете (Instagram — там). */
 const CONNECT_PAGE = `${BASE}/integrations`;
 const INTEGRATIONS_PAGE = CONNECT_PAGE;
 const LEGACY_CONNECT_PAGE = `${BASE}/bots/connect`;
@@ -601,7 +670,7 @@ const TOOLS = [
   { name: "update_graph", description: "Залить узлы/рёбра в граф (PUT, сырой replace без бэкапа). Для правок СУЩЕСТВУЮЩЕГО/живого сценария используй edit_graph_live. Активный (PUBLISHED) граф сервер проверяет как публикацию: при ошибках HTTP 422 со всеми code@nodeId, граф НЕ сохранён. Черновик сохраняется без проверок публикации, кроме размера: граф больше 4 МБ → HTTP 422 GRAPH_TOO_LARGE, не сохранён. Принимает graphFile (путь к локальному файлу — НЕ нужно слать граф инлайном, удобно для больших графов), graph-контейнер или nodes/edges.", inputSchema: { type: "object", properties: { graphId: { type: "string" }, graphFile: { type: "string", description: "Путь к локальному JSON графа (контейнер retensy-bot-graph или {nodes,edges}); поддерживается ~" }, graph: { type: "object" }, nodes: { type: "array" }, edges: { type: "array" }, canvasMeta: { type: "object" }, name: { type: "string" } }, required: ["graphId"] } },
   { name: "edit_graph_live", description: "РЕКОМЕНДОВАННЫЙ способ правки СУЩЕСТВУЮЩЕГО (часто живого/опубликованного) сценария: редактирует ТОТ ЖЕ graphId НА МЕСТЕ (id не меняется) и сначала снимает авто-бэкап текущего состояния в один rolling-граф «🔙 Авто-бэкап». НЕ клонирует и НЕ создаёт новый активный граф. Открытые редакторы перечитают граф вживую (external_update), бот применит изменения сразу (читает активный граф заново из БД). Используй ВМЕСТО clone+publish, когда нужно поправить сценарий, который уже открыт/в проде. ВАЖНО: правку активного графа сервер проверяет как публикацию (валидатор, платные блоки, лимит блоков тарифа, платформа) — при ошибках HTTP 422 со всеми code@nodeId, граф НЕ изменён, бот работает на прежней версии. Прогоняй offline validate.mjs и dry_run заранее, чтобы не ловить 422. Живой граф бота — с isActive:true в list_graphs — для бот-сценария (после publish_graph черновика — publishedGraphId, не id черновика); правка черновика до бота не доходит.", inputSchema: { type: "object", properties: { graphId: { type: "string" }, graph: { type: "object" }, nodes: { type: "array" }, edges: { type: "array" }, canvasMeta: { type: "object" }, name: { type: "string" }, graphFile: { type: "string", description: "Путь к локальному JSON графа (вместо инлайн-передачи); поддерживается ~" }, backup: { type: "boolean", description: "Снимать авто-бэкап предыдущего состояния перед правкой (по умолчанию true)." } }, required: ["graphId"] } },
   { name: "patch_graph", description: "Точечная правка БОЛЬШОГО/живого графа без отправки графа целиком: сервер сам берёт граф по graphId, делает строковые замены в его JSON, проверяет валидность и заливает обратно НА МЕСТЕ (с авто-бэкапом). Идеально, когда граф слишком велик, чтобы передавать его целиком через update_graph/edit_graph_live — напр. сменить id канала в условиях SUBSCRIBED, ссылки кнопок, тексты. replacements: [{find, replace}] — заменяются ВСЕ вхождения; делай find максимально специфичным, чтобы не задеть лишнее. preview=true — только показать число совпадений, ничего не сохраняя. Бот применит изменения сразу только у опубликованного графа (читает активный граф заново из БД); патч черновика до бота не доходит. Результат для активного графа сервер проверяет как публикацию: ошибки → HTTP 422 со всеми code@nodeId, граф не изменён.", inputSchema: { type: "object", properties: { graphId: { type: "string" }, replacements: { type: "array", items: { type: "object", properties: { find: { type: "string" }, replace: { type: "string" } }, required: ["find", "replace"] } }, preview: { type: "boolean", description: "true = только отчёт о числе совпадений, без сохранения" }, backup: { type: "boolean", description: "снять авто-бэкап предыдущего состояния перед правкой (по умолчанию true)" } }, required: ["graphId", "replacements"] } },
-  { name: "dry_run", description: "Прогнать сценарий без публикации. kind: command|callback|text.", inputSchema: { type: "object", properties: { graphId: { type: "string" }, kind: { type: "string", enum: ["command", "callback", "text"] }, value: { type: "string" }, fromUsername: { type: "string" }, presetVariables: { type: "object" }, presetTags: { type: "array", items: { type: "string" } } }, required: ["graphId", "kind", "value"] } },
+  { name: "dry_run", description: "Прогнать сценарий без публикации. kind: command|callback|text. Внешние действия (HTTP, CRM, таблицы, письма, ИИ) пропускаются (skipped: dry-run). Статус прогона: OK, FAILED (прерван) или PARTIAL — «завершён с ошибками»: дошёл до конца, но хотя бы одно действие упало (у шага ok:false, error «КОД: …»).", inputSchema: { type: "object", properties: { graphId: { type: "string" }, kind: { type: "string", enum: ["command", "callback", "text"] }, value: { type: "string" }, fromUsername: { type: "string" }, presetVariables: { type: "object" }, presetTags: { type: "array", items: { type: "string" } } }, required: ["graphId", "kind", "value"] } },
   { name: "publish_graph", description: "Опубликовать граф. Вернёт publishedGraphId; при отказе проверок — ошибка HTTP 422 со всеми причинами построчно (code@nodeId: message). Сценарий-вебхук (источник WEBHOOK) этим инструментом не публикуется — HTTP 409, его публикуют в вебе.", inputSchema: { type: "object", properties: { graphId: { type: "string" } }, required: ["graphId"] } },
   { name: "import_funnel", description: "Всё за раз: создать граф, залить узлы/рёбра, (опц.) dry-run /start, опубликовать. Граф можно передать инлайном (graph) или файлом (graphFile).", inputSchema: { type: "object", properties: { botId: { type: "string" }, name: { type: "string" }, graph: { type: "object" }, graphFile: { type: "string", description: "Путь к локальному JSON графа вместо инлайн graph; поддерживается ~" }, dryRun: { type: "boolean" }, publish: { type: "boolean" } }, required: ["botId"] } },
   { name: "list_templates", description: "Список готовых шаблонов воронок (id, имя, описание). Можно стартовать граф из шаблона вместо сборки с нуля.", inputSchema: { type: "object", properties: {} } },
@@ -638,7 +707,7 @@ const TOOLS = [
   { name: "site_rollback", description: "Вернуть прошлую публикацию сайта (POST /api/bots/pages/{siteId}/publish/rollback): revision — номер из истории публикаций (site_get → versions[]). Черновик заменяется этой версией и сразу публикуется. Возвращает publishedRevision и url.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, revision: { type: "number" } }, required: ["siteId", "revision"] } },
   { name: "site_domains", description: "Свои домены сайта (/api/bots/pages/{siteId}/domains). action: list — домены, статусы и dnsTarget (IP для A-записи); add {host, withWww?} — привязать (withWww у корневого домена добавляет www-пару); check {domainId} — перепроверить DNS и сертификат; remove {domainId} — отвязать. Число доменов ограничено тарифом (HTTP 402 с upgradeUrl). Каждое действие возвращает актуальный список.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, action: { type: "string", enum: ["list", "add", "check", "remove"] }, host: { type: "string" }, withWww: { type: "boolean" }, domainId: { type: "string" } }, required: ["siteId", "action"] } },
   { name: "site_lead_settings", description: "Куда доставлять заявки из форм сайта (/api/bots/pages/{siteId}/lead-settings). Без settings — прочитать: {settings, scenarios (вебхук-сценарии), amoConnections, coreConnections: [{id, name, provider}] — подключения для доставки «Интеграция», без кредов}. С settings — сохранить ЦЕЛИКОМ (сначала прочитай и поменяй нужное): {notifyBot: в бот уведомлений из профиля, notifyEmail: письмо на почту аккаунта, webhookUrl?: POST JSON на ваш адрес, scenarioId?: вебхук-сценарий, который запускает заявка, amoConnectionId?: сделка в amoCRM, coreDelivery?: {connectionId: id из coreConnections, kind: действие сервиса из integration_catalog (actions[].kind, например amocrm_send), params?: {поле действия: шаблон}} | null}. Пустые params заполнятся из заявки (имя, телефон, почта, текст); в шаблонах — {{var.name}}, {{var.phone}}, {{var.email}}, {{var.<имя поля>}}, {{var.lead_text}} (текст заявки). Чужое подключение или неизвестный kind — 400. Запуск сценариев по заявке — триггер TRIGGER_SITE_FORM (скилл build-bot-funnel).", inputSchema: { type: "object", properties: { siteId: { type: "string" }, settings: { type: "object", properties: { notifyBot: { type: "boolean" }, notifyEmail: { type: "boolean" }, webhookUrl: { type: "string" }, scenarioId: { type: "string" }, amoConnectionId: { type: "string" }, coreDelivery: { type: ["object", "null"], properties: { connectionId: { type: "string" }, kind: { type: "string" }, params: { type: "object", additionalProperties: { type: "string" } } } } } } }, required: ["siteId"] } },
-  { name: "site_leads", description: "Заявки из форм сайта (GET /api/bots/pages/{siteId}/leads): поля, UTM, статус доставки. page (с 0), size (до 100). Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["siteId"] } },
+  { name: "site_leads", description: "Заявки из форм сайта (GET /api/bots/pages/{siteId}/leads): поля, UTM, статус доставки и обработки. page (с 0), size (до 100), status — фильтр NEW|IN_PROGRESS|DONE|REJECTED. Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, page: { type: "number" }, size: { type: "number" }, status: { type: "string", enum: ["NEW", "IN_PROGRESS", "DONE", "REJECTED"] } }, required: ["siteId"] } },
   { name: "article_list", description: "Список СВОИХ статей блога retensy (GET /api/articles/my): id, slug, title, viewCount, даты. id нужен для article_update, slug — публичный адрес /articles/{slug}. Read-only.", inputSchema: { type: "object", properties: {} } },
   { name: "article_get", description: "Получить статью блога по slug (GET /api/articles/by-slug/{slug}) — публичное чтение, в т.ч. чужие. Возвращает title, content (Markdown), excerpt, coverImage, viewCount.", inputSchema: { type: "object", properties: { slug: { type: "string", description: "slug статьи (часть адреса /articles/{slug})" } }, required: ["slug"] } },
   { name: "article_publish", description: "Опубликовать НОВУЮ статью блога retensy (POST /api/articles). content — Markdown (как README на GitHub: заголовки, списки, таблицы, код, картинки по URL). title необязателен: если не передать, заголовком станет первая строка вида «# Заголовок», и она убирается из текста. Обложку можно задать явно через cover (URL картинки) — иначе берётся первая картинка из текста; excerpt (SEO-описание) тоже можно задать явно, иначе генерируется из текста. Возвращает статью с id и slug + публичный URL.", inputSchema: { type: "object", properties: { title: { type: "string", description: "Заголовок (необязателен, если content начинается с «# ...»)" }, content: { type: "string", description: "Тело статьи в Markdown" }, cover: { type: "string", description: "URL обложки (coverImage/OG). Если не задан — берётся первая картинка из текста." }, excerpt: { type: "string", description: "Краткое SEO-описание (≤160 симв). Если не задан — генерируется из текста." } }, required: ["content"] } },
@@ -658,7 +727,7 @@ const TOOLS = [
   { name: "kb_reindex", description: "Переиндексировать документ-файл базы знаний из сохранённого оригинала (POST /api/bots/kb/{kbId}/docs/{docId}/reindex) — «Повторить» после ошибки. headerRow — необязательно, для табличных файлов: номер строки с шапкой (1..50), если автоопределение ошиблось. Только для источника FILE.", inputSchema: { type: "object", properties: { kbId: { type: "string" }, docId: { type: "string" }, headerRow: { type: "number" } }, required: ["kbId", "docId"] } },
   { name: "agent_unanswered", description: "Вопросы без ответа агента за период (GET /api/bots/agents/{agentId}/unanswered): days — 7|30|90 (по умолчанию 30). Группы вопросов, на которые агент не нашёл ответ в базе знаний — подсказка, что туда добавить. Read-only.", inputSchema: { type: "object", properties: { agentId: { type: "string" }, days: { type: "number", enum: [7, 30, 90] } }, required: ["agentId"] } },
   // ---- Боты ----
-  { name: "create_bot", description: "Подключить бота по токену (POST /api/bots): platform TELEGRAM (токен от @BotFather) или MAX (токен от MasterBot в MAX). Вебхук настраивается сам; name — отображаемое имя (иначе @username). Возвращает бота с id. Число ботов ограничено тарифом — HTTP 402 со ссылкой на смену тарифа. platform INSTAGRAM по токену не подключается (только вход через Facebook в кабинете, сейчас выключен) — инструмент вернёт ссылку на кабинет вместо ошибки.", inputSchema: { type: "object", properties: { platform: { type: "string", enum: ["TELEGRAM", "MAX", "INSTAGRAM"] }, token: { type: "string", description: "Токен бота: 123456789:AA… (Telegram) или токен MAX" }, name: { type: "string" } }, required: ["platform"] } },
+  { name: "create_bot", description: "Подключить бота по токену (POST /api/bots): platform TELEGRAM (токен от @BotFather) или MAX (токен от MasterBot в MAX). Вебхук настраивается сам; name — отображаемое имя (иначе @username). Возвращает бота с id. Число ботов ограничено тарифом — HTTP 402 со ссылкой на смену тарифа. platform WEB — чат-виджет для сайта без токена (POST /api/bots/web): вернёт botId, key и snippet — код вставки на сайт (у существующего виджета — web_widget_snippet). platform INSTAGRAM по токену не подключается (только вход через Facebook в кабинете, сейчас выключен) — инструмент вернёт ссылку на кабинет вместо ошибки.", inputSchema: { type: "object", properties: { platform: { type: "string", enum: ["TELEGRAM", "MAX", "WEB", "INSTAGRAM"] }, token: { type: "string", description: "Токен бота: 123456789:AA… (Telegram) или токен MAX" }, name: { type: "string" } }, required: ["platform"] } },
   { name: "bot_stop", description: "Остановить бота (POST /api/bots/{botId}/stop): снимает вебхук, бот перестаёт отвечать, сценарии и подписчики сохраняются. Запуск обратно — bot_resume.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   { name: "bot_resume", description: "Запустить остановленного бота или бота, приостановленного лимитом тарифа (POST /api/bots/{botId}/resume). Если лимит ботов тарифа исчерпан — HTTP 402 со ссылкой на смену тарифа.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   // ---- Подключения ----
@@ -681,6 +750,35 @@ const TOOLS = [
   { name: "broadcast_drafts", description: "Черновики рассылок (/api/bots/broadcasts/drafts) — те же, что в мастере кабинета. action: list · get {draftId} · create {name?, botIds?, messages?, tagsAll?, tagsNone?, scheduledAt?} · update {draftId, …те же поля — переданные заменяют, остальные остаются} · delete {draftId}. Черновик не проверяется на полноту; отправить — broadcast_send {draftId}. Лимит — 200 черновиков.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "get", "create", "update", "delete"] }, draftId: { type: "string" }, name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, scheduledAt: { type: "string" } }, required: ["action"] } },
   { name: "broadcast_duplicate", description: "Копия как новый черновик «<имя> (копия)»: исходник не меняется, время отправки и статистика не переносятся. broadcastId — прямая рассылка (POST /api/bots/broadcasts/{id}/duplicate: бот, фильтр, сообщения; по сценарию — HTTP 409); draftId — черновик (POST /api/bots/broadcasts/drafts/{id}/duplicate). Дальше broadcast_drafts update / broadcast_send {draftId}.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" }, draftId: { type: "string" } } } },
   // ---- Сайты: библиотека шаблонов ----
+  // ---- Сайт-виджет, база знаний, подписчик ----
+  { name: "web_widget_snippet", description: "Код вставки чат-виджета на сайт (GET /api/bots/web/{botId}/snippet) — для бота с platform WEB (create_bot {platform:\"WEB\"}). Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
+  { name: "kb_list", description: "Базы знаний пользователя (GET /api/bots/kb): id, name, chunkCount. id — knowledgeBaseId для узла AI_REPLY mode:\"agent\". Read-only.", inputSchema: { type: "object", properties: {} } },
+  { name: "kb_create", description: "Создать пустую базу знаний (POST /api/bots/kb, name ≤ 120 символов). Возвращает id. Наполнение — kb_add_qa / kb_add_site; подключение к сценарию — knowledgeBaseId в узле AI_REPLY mode:\"agent\". Повторный вызов создаёт ВТОРУЮ базу — сначала проверь kb_list.", inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
+  { name: "kb_delete_doc", description: "Удалить документ из базы знаний вместе с его фрагментами (DELETE /api/bots/kb/{kbId}/docs/{docId}). Необратимо.", inputSchema: { type: "object", properties: { kbId: { type: "string" }, docId: { type: "string" } }, required: ["kbId", "docId"] } },
+  { name: "bot_user_get", description: "Карточка подписчика (GET /api/bots/{botId}/users/{chatId}): теги, переменные (поля, ответы, ai_summary), блокировка, счётчики. chatId — из list_bot_users. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string", description: "числовой chatId (строкой — без потери точности)" } }, required: ["botId", "chatId"] } },
+  { name: "bot_user_runs", description: "Журнал запусков сценариев подписчика (GET /api/bots/{botId}/users/{chatId}/runs): триггер, статус, шаги с результатом (ветка ИИ-агента, ok/ошибка каждого действия — CRM, уведомление, HTTP). Так проверяют, что сценарий реально сделал нужное. Статус прогона: OK, FAILED (прерван) или PARTIAL — «завершён с ошибками»: дошёл до конца, но хотя бы одно действие упало (у шага ok:false, error «КОД: …»). Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["botId", "chatId"] } },
+  { name: "dialog_messages", description: "Переписка с подписчиком, свежие сверху (GET /api/bots/{botId}/users/{chatId}/messages, page/size). Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["botId", "chatId"] } },
+  { name: "dialog_reply", description: "ОТПРАВИТЬ сообщение подписчику от имени оператора (POST /api/bots/{botId}/users/{chatId}/messages) — как ответ из раздела «Диалоги». Уходит РЕАЛЬНОМУ человеку: только по явной просьбе пользователя. Бот при этом не останавливается.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, text: { type: "string" } }, required: ["botId", "chatId", "text"] } },
+  // ---- Паритет платформы: журнал вызовов, оператор, заявки, виджет, подписчики, бот ----
+  { name: "integration_calls", description: "Журнал вызовов внешних сервисов из сценариев (GET /api/bots/integrations/calls): время, подключение, действие, ok/ошибка, код, попытки, correlationId (= runId прогона). Фильтры: connectionId (из list_integrations), ok (true — только успешные, false — только упавшие), limit (1–200). Так проверяют, что CRM/таблица/HTTP реально получили данные. Read-only. Требует бэкенд feat/battery-completion.", inputSchema: { type: "object", properties: { connectionId: { type: "string" }, ok: { type: "boolean" }, limit: { type: "number" } } } },
+  { name: "dialog_handoff", description: "Передача диалога оператору (POST /api/bots/{botId}/users/{chatId}/handoff {active}): active:true — бот и ИИ молчат, входящие копятся в «Диалогах», отвечает человек (dialog_reply); active:false — «Вернуть боту». Текущее состояние — поле handoff в bot_user_get. Требует бэкенд feat/battery-completion.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, active: { type: "boolean" } }, required: ["botId", "chatId", "active"] } },
+  { name: "site_lead_status", description: "Статус заявки сайта (PATCH /api/bots/pages/{siteId}/leads/{leadId} {status}): NEW → IN_PROGRESS → DONE | REJECTED. leadId — из site_leads. Недопустимый переход → ошибка 409. Требует бэкенд feat/battery-completion.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, leadId: { type: "string" }, status: { type: "string", enum: ["NEW", "IN_PROGRESS", "DONE", "REJECTED"] } }, required: ["siteId", "leadId", "status"] } },
+  { name: "integration_update", description: "Изменить подключение (PUT /api/bots/integrations/{connectionId}): title — новое название; creds — новые ключи доступа (заменяют старые; поля — как в connect_integration для этого провайдера). Передай хотя бы одно.", inputSchema: { type: "object", properties: { connectionId: { type: "string" }, title: { type: "string" }, creds: { type: "object", additionalProperties: { type: "string" } } }, required: ["connectionId"] } },
+  { name: "web_widget_settings", description: "Вид чат-виджета сайта (бот platform WEB). Без settings — прочитать (GET /api/bots/web/{botId}/settings: settings, brandingRemovable, snippet). С settings — изменить (PUT): переданные поля накладываются на текущие, остальные сохраняются; сервер проверяет значения (уходят в разметку чужих сайтов).", inputSchema: { type: "object", properties: { botId: { type: "string" }, settings: { type: "object", description: "Поля настроек виджета для изменения (имена — как в ответе чтения)" } }, required: ["botId"] } },
+  { name: "bot_users_import", description: "Добавить подписчикам метки и поля (POST /api/bots/{botId}/users/import): rows — [{chatId, username?, tags?: [строки], variables?: {ключ: значение}}], до 10 000 строк. Метки ДОБАВЛЯЮТСЯ; переменная пишется, только если у подписчика её ещё нет (существующие не перезаписываются); новый chatId создаёт подписчика (в пределах лимита тарифа). Снять метку или перезаписать поле через API нельзя.", inputSchema: { type: "object", properties: { botId: { type: "string" }, rows: { type: "array", items: { type: "object", properties: { chatId: { type: "string" }, username: { type: "string" }, tags: { type: "array", items: { type: "string" } }, variables: { type: "object" } }, required: ["chatId"] } } }, required: ["botId", "rows"] } },
+  { name: "bot_runs", description: "Журнал прогонов сценариев бота. Без runId — список свежих прогонов (GET /api/bots/{botId}/runs, page/size); с runId — один прогон с шагами (GET /api/bots/runs/{runId}, в т.ч. headless-прогоны вебхук-сценариев и расписаний). По подписчику — bot_user_runs, по сценарию — scenario_runs. Статус прогона: OK, FAILED (прерван) или PARTIAL — «завершён с ошибками»: дошёл до конца, но хотя бы одно действие упало (у шага ok:false, error «КОД: …»). Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, runId: { type: "string" }, page: { type: "number" }, size: { type: "number" } } } },
+  { name: "scenario_runs", description: "Журнал прогонов одного сценария (GET /api/bots/graphs/{graphId}/runs, page/size), включая headless-прогоны без чата — вебхук-сценарии, заявки сайта, TRIGGER_SCHEDULE. Доступ — как к просмотру графа. Шаги прогона — bot_runs {runId}. Статус прогона: OK, FAILED (прерван) или PARTIAL — «завершён с ошибками»: дошёл до конца, но хотя бы одно действие упало (у шага ok:false, error «КОД: …»). Read-only. Требует бэкенд feat/battery-completion.", inputSchema: { type: "object", properties: { graphId: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["graphId"] } },
+  { name: "bot_delete", description: "УДАЛИТЬ бота навсегда (DELETE /api/bots/{botId}) вместе с каналами, сценариями, подписчиками, журналами, рассылками и ссылками. Только владелец. Необратимо: вызывай только по явной просьбе пользователя и с confirm:true. Временно выключить — bot_stop.", inputSchema: { type: "object", properties: { botId: { type: "string" }, confirm: { type: "boolean", description: "true — пользователь явно подтвердил удаление" } }, required: ["botId", "confirm"] } },
+  // ---- Запись на слоты (бронирование) ----
+  { name: "booking_calendar_list", description: "Календари записи пользователя (GET /api/bots/booking/calendars): id, name, zone, slotMinutes, hours, exceptions, botId. id — calendarId для действий сценария booking_slots/booking_book/booking_cancel. Read-only.", inputSchema: { type: "object", properties: {} } },
+  { name: "booking_calendar_get", description: "Календарь записи по id (GET /api/bots/booking/calendars/{calendarId}). Read-only.", inputSchema: { type: "object", properties: { calendarId: { type: "string" } }, required: ["calendarId"] } },
+  { name: "booking_calendar_create", description: "Создать календарь записи (POST /api/bots/booking/calendars): сетка слотов по рабочим часам в зоне календаря, в слоте — одна бронь. Без hours свободных слотов не будет.", inputSchema: { type: "object", properties: { name: { type: "string", description: "Название (до 100 символов)" }, zone: { type: "string", description: "Часовой пояс IANA, по умолчанию Europe/Moscow" }, slotMinutes: { type: "number", description: "Длительность слота, 5–1440 мин (по умолчанию 60)" }, hours: { type: "array", description: "Рабочие окна: day 1=пн…7=вс, from/to \"HH:mm\"; несколько окон в день — перерыв", items: { type: "object", properties: { day: { type: "number" }, from: { type: "string" }, to: { type: "string" } }, required: ["day", "from", "to"] } }, exceptions: { type: "array", description: "Исключения на даты: {date:\"ГГГГ-ММ-ДД\"} — выходной, с from/to — только это окно", items: { type: "object", properties: { date: { type: "string" }, from: { type: "string" }, to: { type: "string" } }, required: ["date"] } }, botId: { type: "string", description: "Необязательно: только для этого бота (иначе — все боты владельца)" } }, required: ["name"] } },
+  { name: "booking_calendar_update", description: "Изменить календарь (PUT /api/bots/booking/calendars/{calendarId}): переданные поля заменяют текущие (hours/exceptions — целиком), остальные сохраняются. Существующие брони не трогаются.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, name: { type: "string", description: "Название (до 100 символов)" }, zone: { type: "string", description: "Часовой пояс IANA, по умолчанию Europe/Moscow" }, slotMinutes: { type: "number", description: "Длительность слота, 5–1440 мин (по умолчанию 60)" }, hours: { type: "array", description: "Рабочие окна: day 1=пн…7=вс, from/to \"HH:mm\"; несколько окон в день — перерыв", items: { type: "object", properties: { day: { type: "number" }, from: { type: "string" }, to: { type: "string" } }, required: ["day", "from", "to"] } }, exceptions: { type: "array", description: "Исключения на даты: {date:\"ГГГГ-ММ-ДД\"} — выходной, с from/to — только это окно", items: { type: "object", properties: { date: { type: "string" }, from: { type: "string" }, to: { type: "string" } }, required: ["date"] } }, botId: { type: "string", description: "Необязательно: только для этого бота (иначе — все боты владельца)" } }, required: ["calendarId"] } },
+  { name: "booking_calendar_delete", description: "УДАЛИТЬ календарь записи (DELETE /api/bots/booking/calendars/{calendarId}). Сценарии с его calendarId перестанут записывать. Только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, confirm: { type: "boolean" } }, required: ["calendarId", "confirm"] } },
+  { name: "booking_slots", description: "Свободные слоты календаря (GET /api/bots/booking/calendars/{calendarId}/slots): [{at — ISO-8601 с зоной, label — «пн 12.10 15:00»}]. from/to — даты ГГГГ-ММ-ДД в зоне календаря (по умолчанию сегодня … +6 дней), limit — 1–500 (по умолчанию 50). Read-only.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, from: { type: "string" }, to: { type: "string" }, limit: { type: "number" } }, required: ["calendarId"] } },
+  { name: "booking_list", description: "Брони календаря от даты from (ГГГГ-ММ-ДД, по умолчанию сегодня), включая отменённые, до 500 (GET /api/bots/booking/calendars/{calendarId}/bookings). Read-only.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, from: { type: "string" } }, required: ["calendarId"] } },
+  { name: "booking_create", description: "Записать вручную на слот (POST /api/bots/booking/calendars/{calendarId}/bookings {slotAt, name, phone}): slotAt — at из booking_slots (ISO-8601 с зоной). Слот занят → понятная ошибка «занят», слота нет в сетке → ошибка 400.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, slotAt: { type: "string" }, name: { type: "string" }, phone: { type: "string" } }, required: ["calendarId", "slotAt"] } },
+  { name: "booking_cancel", description: "Отменить бронь и освободить слот (POST /api/bots/booking/calendars/{calendarId}/bookings/{bookingId}/cancel). Повторная отмена — без ошибки. bookingId — из booking_list.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, bookingId: { type: "string" } }, required: ["calendarId", "bookingId"] } },
   { name: "site_templates", description: "Библиотека шаблонов блоков сайта (GET /api/bots/pages/templates): {categories: [{id, title, description?}], templates: [{id, category, title, description?, blocks: сколько блоков вставится}]}. Вставка — site_edit add_template {container, templateId, after?} (results.id — первый блок, results.ids — все); дальше блоки правятся как обычные. category — фильтр по id категории.", inputSchema: { type: "object", properties: { category: { type: "string" } } } },
 ];
 
@@ -749,6 +847,7 @@ async function handleCall(params) {
     case "update_graph": {
       const src = resolveGraphInput(a);
       if (!Array.isArray(src.nodes) || !Array.isArray(src.edges)) throw new Error("Нужны nodes[] и edges[] (через graphFile, graph или nodes/edges).");
+      assertGraphIds(src);
       const payload = { nodes: src.nodes, edges: src.edges, canvasMeta: src.canvasMeta ?? {} };
       if (a.name ?? src.name) payload.name = a.name ?? src.name;
       return okResult(await api(`/api/bots/graphs/${a.graphId}`, { method: "PUT", body: payload }));
@@ -756,6 +855,7 @@ async function handleCall(params) {
     case "edit_graph_live": {
       const src = resolveGraphInput(a);
       if (!Array.isArray(src.nodes) || !Array.isArray(src.edges)) throw new Error("Нужны nodes[] и edges[] (через graphFile, graph или nodes/edges).");
+      assertGraphIds(src);
       const steps = [];
       let backupGraphId = null;
       if (a.backup !== false) {
@@ -841,6 +941,7 @@ async function handleCall(params) {
     }
     case "import_funnel": {
       const src = a.graphFile ? extractGraph(readGraphFile(a.graphFile)) : extractGraph(a.graph);
+      assertGraphIds(src);
       const steps = [];
       const created = await api(`/api/bots/${a.botId}/graphs`, { method: "POST", body: { name: a.name || src.name || "Воронка" } });
       const graphId = created.id;
@@ -934,6 +1035,7 @@ async function handleCall(params) {
       const qs = [];
       if (a.page != null) qs.push(`page=${encodeURIComponent(a.page)}`);
       if (a.size != null) qs.push(`size=${encodeURIComponent(a.size)}`);
+      if (a.status) qs.push(`status=${enumArg(a.status, "status", LEAD_STATUSES)}`);
       return okResult(await api(`/api/bots/pages/${a.siteId}/leads${qs.length ? `?${qs.join("&")}` : ""}`));
     }
     case "site_rollback": {
@@ -984,6 +1086,13 @@ async function handleCall(params) {
       if (!a.question || !String(a.question).trim()) throw new Error("Передай question.");
       return okResult(await api(`/api/bots/agents/${a.agentId}/test-chat`, { method: "POST", body: { question: a.question, history: a.history } }));
     }
+    // ---- Сайт-виджет, база знаний, подписчик ----
+    case "web_widget_snippet": return okResult(await api(`/api/bots/web/${a.botId}/snippet`));
+    case "kb_list": return okResult(await api("/api/bots/kb"));
+    case "kb_create": {
+      if (!a.name || !String(a.name).trim()) throw new Error("Передай name — название базы знаний.");
+      return okResult(await api("/api/bots/kb", { method: "POST", body: { name: String(a.name).trim() } }));
+    }
     case "kb_docs": return okResult(await api(`/api/bots/kb/${a.kbId}/docs`));
     case "kb_add_qa": {
       if (!Array.isArray(a.pairs) || a.pairs.length === 0) throw new Error("Передай pairs — непустой массив [{question, answer}].");
@@ -1002,11 +1111,155 @@ async function handleCall(params) {
       const qs = a.days != null ? `?days=${encodeURIComponent(a.days)}` : "";
       return okResult(await api(`/api/bots/agents/${a.agentId}/unanswered${qs}`));
     }
+    case "kb_delete_doc": {
+      await api(`/api/bots/kb/${a.kbId}/docs/${a.docId}`, { method: "DELETE" });
+      return okResult(`🗑️ Документ ${a.docId} удалён из базы ${a.kbId}.`);
+    }
+    case "bot_user_get": return okResult(await api(`/api/bots/${a.botId}/users/${chatIdArg(a.chatId)}`));
+    case "bot_user_runs": return okResult(await api(`/api/bots/${a.botId}/users/${chatIdArg(a.chatId)}/runs${pageQs(a)}`));
+    case "dialog_messages": return okResult(await api(`/api/bots/${a.botId}/users/${chatIdArg(a.chatId)}/messages${pageQs(a)}`));
+    case "dialog_reply": {
+      const text = String(a.text ?? "").trim();
+      if (!text) throw new Error("Передай text — текст ответа.");
+      return okResult(await api(`/api/bots/${a.botId}/users/${chatIdArg(a.chatId)}/messages`, { method: "POST", body: { text } }));
+    }
+    // ---- Запись на слоты ----
+    case "booking_calendar_list": return okResult(await api("/api/bots/booking/calendars"));
+    case "booking_calendar_get": return okResult(await api(`/api/bots/booking/calendars/${uuidArg(a.calendarId, "calendarId")}`));
+    case "booking_calendar_create": {
+      const body = calendarBody(a);
+      if (!body.name) throw new Error("Передай name — название календаря.");
+      return okResult(await api("/api/bots/booking/calendars", { method: "POST", body }));
+    }
+    case "booking_calendar_update": {
+      const path_ = `/api/bots/booking/calendars/${uuidArg(a.calendarId, "calendarId")}`;
+      const { calendarId, ...fields } = a;
+      if (!Object.keys(fields).length) throw new Error("Передай хотя бы одно поле: name, zone, slotMinutes, hours, exceptions, botId.");
+      const body = calendarBody(fields, await api(path_)); // PUT заменяет календарь целиком — накладываем на текущий
+      return okResult(await api(path_, { method: "PUT", body }));
+    }
+    case "booking_calendar_delete": {
+      const id = uuidArg(a.calendarId, "calendarId");
+      if (a.confirm !== true) throw new Error("Удаление календаря необратимо. Спроси пользователя и повтори с confirm:true.");
+      await api(`/api/bots/booking/calendars/${id}`, { method: "DELETE" });
+      return okResult(`🗑️ Календарь ${id} удалён.`);
+    }
+    case "booking_slots": {
+      const q = {};
+      if (a.from) q.from = dateArg(a.from, "from");
+      if (a.to) q.to = dateArg(a.to, "to");
+      if (a.limit != null) {
+        const n = Number(a.limit);
+        if (!Number.isInteger(n) || n < 1 || n > 500) throw new Error("limit — целое от 1 до 500.");
+        q.limit = n;
+      }
+      return okResult(await api(`/api/bots/booking/calendars/${uuidArg(a.calendarId, "calendarId")}/slots${qs(q)}`));
+    }
+    case "booking_list": {
+      const q = a.from ? { from: dateArg(a.from, "from") } : {};
+      return okResult(await api(`/api/bots/booking/calendars/${uuidArg(a.calendarId, "calendarId")}/bookings${qs(q)}`));
+    }
+    case "booking_create": {
+      const id = uuidArg(a.calendarId, "calendarId");
+      const slotAt = String(a.slotAt ?? "").trim();
+      if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(slotAt) || Number.isNaN(Date.parse(slotAt))) {
+        throw new Error(`slotAt — ISO-8601 с зоной (at из booking_slots), например 2026-10-12T15:00:00+03:00; получено: ${slotAt || "пусто"}.`);
+      }
+      try {
+        return okResult(await api(`/api/bots/booking/calendars/${id}/bookings`, { method: "POST", body: { slotAt, name: a.name, phone: a.phone } }));
+      } catch (e) {
+        if (e.status === 409) throw new Error(`Слот ${slotAt} уже занят — выбери другой из booking_slots.`);
+        throw e;
+      }
+    }
+    case "booking_cancel": {
+      const id = uuidArg(a.calendarId, "calendarId");
+      const bookingId = uuidArg(a.bookingId, "bookingId");
+      await api(`/api/bots/booking/calendars/${id}/bookings/${bookingId}/cancel`, { method: "POST" });
+      return okResult(`✅ Бронь ${bookingId} отменена, слот свободен.`);
+    }
+    // ---- Паритет платформы ----
+    case "integration_calls": {
+      const q = {};
+      if (a.connectionId != null && a.connectionId !== "") q.connectionId = idArg(a.connectionId, "connectionId");
+      if (a.ok != null) {
+        if (typeof a.ok !== "boolean") throw new Error("ok — true или false.");
+        q.ok = a.ok;
+      }
+      if (a.limit != null) {
+        const n = Number(a.limit);
+        if (!Number.isInteger(n) || n < 1 || n > 200) throw new Error("limit — целое от 1 до 200.");
+        q.limit = n;
+      }
+      return okResult(await api(`/api/bots/integrations/calls${qs(q)}`));
+    }
+    case "dialog_handoff": {
+      if (typeof a.active !== "boolean") throw new Error("active — true (передать оператору) или false (вернуть боту).");
+      const res = await api(`/api/bots/${uuidArg(a.botId, "botId")}/users/${chatIdArg(a.chatId)}/handoff`, { method: "POST", body: { active: a.active } });
+      return okResult(res ?? (a.active ? "✅ Диалог передан оператору: бот молчит." : "✅ Диалог возвращён боту."));
+    }
+    case "site_lead_status": {
+      const status = enumArg(a.status, "status", LEAD_STATUSES);
+      try {
+        return okResult(await api(`/api/bots/pages/${uuidArg(a.siteId, "siteId")}/leads/${uuidArg(a.leadId, "leadId")}`, { method: "PATCH", body: { status } }));
+      } catch (e) {
+        if (e.status === 409) throw new Error(`Недопустимый переход статуса заявки в ${status}: NEW → IN_PROGRESS → DONE | REJECTED.`);
+        throw e;
+      }
+    }
+    case "integration_update": {
+      const body = {};
+      if (a.title != null) {
+        const t = String(a.title).trim();
+        if (!t) throw new Error("title не может быть пустым.");
+        body.title = t;
+      }
+      if (a.creds != null) {
+        if (typeof a.creds !== "object" || Array.isArray(a.creds) || !Object.keys(a.creds).length) throw new Error("creds — непустой объект {поле: значение}.");
+        body.creds = Object.fromEntries(Object.entries(a.creds).map(([k, v]) => [k, String(v)]));
+      }
+      if (!Object.keys(body).length) throw new Error("Передай title и/или creds.");
+      return okResult(await api(`/api/bots/integrations/${idArg(a.connectionId, "connectionId")}`, { method: "PUT", body }));
+    }
+    case "web_widget_settings": {
+      const path_ = `/api/bots/web/${uuidArg(a.botId, "botId")}/settings`;
+      if (a.settings == null) return okResult(await api(path_));
+      if (typeof a.settings !== "object" || Array.isArray(a.settings)) throw new Error("settings — объект с полями настроек.");
+      const cur = await api(path_);
+      const merged = { ...(cur?.settings ?? {}), ...a.settings };
+      return okResult(await api(path_, { method: "PUT", body: merged }));
+    }
+    case "bot_users_import": {
+      if (!Array.isArray(a.rows) || !a.rows.length) throw new Error("Передай rows — непустой массив [{chatId, tags?, variables?}].");
+      if (a.rows.length > 10000) throw new Error("rows — не больше 10 000 строк за вызов.");
+      // chatId бывает > 2^53: в JSON кладём числом прямо из строки, без Number().
+      const rows = a.rows.map((r, i) => {
+        const cid = String(r?.chatId ?? "").trim();
+        if (!/^[1-9]\d{0,18}$/.test(cid)) throw new Error(`rows[${i}].chatId — положительное число, получено: ${cid || "пусто"}.`);
+        if (r.tags != null && !Array.isArray(r.tags)) throw new Error(`rows[${i}].tags — массив строк.`);
+        if (r.variables != null && (typeof r.variables !== "object" || Array.isArray(r.variables))) throw new Error(`rows[${i}].variables — объект.`);
+        return { chatId: `@@CID${cid}@@`, username: r.username, tags: r.tags, variables: r.variables };
+      });
+      const raw = JSON.stringify({ rows }).replace(/"@@CID(\d+)@@"/g, "$1");
+      return okResult(await api(`/api/bots/${uuidArg(a.botId, "botId")}/users/import`, { method: "POST", rawBody: raw }));
+    }
+    case "bot_runs": {
+      if (a.runId) return okResult(await api(`/api/bots/runs/${idArg(a.runId, "runId")}`));
+      return okResult(await api(`/api/bots/${uuidArg(a.botId, "botId")}/runs${pageQs(a)}`));
+    }
+    case "scenario_runs": return okResult(await api(`/api/bots/graphs/${uuidArg(a.graphId, "graphId")}/runs${pageQs(a)}`));
+    case "bot_delete": {
+      const botId = uuidArg(a.botId, "botId");
+      if (a.confirm !== true) throw new Error("Удаление бота необратимо. Спроси пользователя и повтори с confirm:true.");
+      await api(`/api/bots/${botId}`, { method: "DELETE" });
+      return okResult(`🗑️ Бот ${botId} удалён вместе со сценариями и подписчиками.`);
+    }
     // ---- Боты ----
     case "create_bot": {
       const platform = String(a.platform || "").trim().toUpperCase();
       if (platform === "INSTAGRAM") return instagramAnswer();
-      if (platform !== "TELEGRAM" && platform !== "MAX") throw new Error("platform: TELEGRAM | MAX (Instagram подключается только в кабинете).");
+      if (platform === "WEB") return okResult(await api("/api/bots/web", { method: "POST", body: { name: a.name || undefined } }));
+      if (platform !== "TELEGRAM" && platform !== "MAX") throw new Error("platform: TELEGRAM | MAX | WEB (Instagram подключается только в кабинете).");
       const token = String(a.token || "").trim();
       if (!token) {
         return okResult(platform === "MAX"

@@ -97,7 +97,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `setup` | статус авторизации + пошаговая инструкция подключения |
 | `set_token` | сохранить присланный токен `zmcp_…` (без env/рестарта) |
 | `list_bots` | список ботов |
-| `create_bot(platform, token, name?)` | подключить бота Telegram/MAX по токену (Instagram → ссылка на кабинет) |
+| `create_bot(platform, token?, name?)` | подключить бота Telegram/MAX по токену; `WEB` — чат-виджет для сайта без токена → botId, key, snippet (Instagram → ссылка на кабинет) |
+| `web_widget_snippet(botId)` | код вставки чат-виджета на сайт |
 | `bot_stop(botId)` / `bot_resume(botId)` | остановить / запустить бота |
 | `list_graphs(botId)` | графы (сценарии) бота |
 | `list_channels(botId)` | каналы/группы, подключённые к боту (chatId для условия SUBSCRIBED) |
@@ -166,6 +167,28 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `kb_add_text(kbId, title, text)` | добавить источник «Текст/инструкция» |
 | `kb_add_site(kbId, url, schedule?)` | добавить сайт обходом страниц; `schedule`: `NEVER`\|`DAILY`\|`WEEKLY`\|`MONTHLY` |
 | `kb_reindex(kbId, docId, headerRow?)` | переиндексировать файл из оригинала («Повторить»); `headerRow` — для таблиц, если шапка определилась неверно |
+| `kb_list()` / `kb_create(name)` | базы знаний: список / новая (база агента создаётся с ним — `kbId` в `agent_get`) (id → `knowledgeBaseId` узла `AI_REPLY mode:"agent"`) |
+| `kb_delete_doc(kbId, docId)` | удалить документ из базы знаний вместе с фрагментами |
+| `bot_user_get(botId, chatId)` | карточка подписчика: теги, переменные, ai_summary |
+| `bot_user_runs(botId, chatId)` | журнал запусков с шагами — проверка, что сценарий реально выполнил действия (CRM, уведомление, HTTP) |
+| `dialog_messages(botId, chatId)` / `dialog_reply(botId, chatId, text)` | переписка с подписчиком / ответ оператора (уходит реальному человеку) |
+| `dialog_handoff(botId, chatId, active)` | передать диалог оператору (бот и ИИ молчат) / вернуть боту ¹ |
+| `bot_users_import(botId, rows)` | добавить подписчикам метки и новые поля (`rows: [{chatId, tags?, variables?}]`; существующие поля не перезаписываются) |
+| `bot_runs(botId` или `runId)` | журнал прогонов бота / один прогон с шагами (статус `PARTIAL` — «завершён с ошибками») |
+| `scenario_runs(graphId, page?, size?)` | журнал прогонов одного сценария, включая headless (вебхук, заявки сайта, `TRIGGER_SCHEDULE`) ¹ |
+| `bot_delete(botId, confirm:true)` | удалить бота навсегда (только по явной просьбе) |
+| `web_widget_settings(botId, settings?)` | вид чат-виджета: прочитать / изменить (поля накладываются на текущие) |
+| `integration_update(connectionId, title?, creds?)` | переименовать подключение или заменить ключи |
+| `integration_calls(connectionId?, ok?, limit?)` | журнал вызовов внешних сервисов из сценариев (ошибки, попытки, runId) ¹ |
+| `site_lead_status(siteId, leadId, status)` | статус заявки сайта: `NEW`\|`IN_PROGRESS`\|`DONE`\|`REJECTED` (фильтр — `site_leads(status)`) ¹ |
+
+| `booking_calendar_list()` / `booking_calendar_get(calendarId)` | календари записи (id → `calendarId` действий сценария `booking_*`) ¹ |
+| `booking_calendar_create(name, zone?, slotMinutes?, hours?, exceptions?, botId?)` | новый календарь: окна `{day:1–7, from:"HH:mm", to:"HH:mm"}`, исключения `{date, from?, to?}` ¹ |
+| `booking_calendar_update(calendarId, …поля)` / `booking_calendar_delete(calendarId, confirm:true)` | правка (поля накладываются на текущие) / удаление ¹ |
+| `booking_slots(calendarId, from?, to?, limit?)` | свободные слоты `[{at, label}]`, даты ГГГГ-ММ-ДД в зоне календаря ¹ |
+| `booking_list(calendarId, from?)` / `booking_create(calendarId, slotAt, name?, phone?)` / `booking_cancel(calendarId, bookingId)` | брони: список / ручная запись (занятый слот — ошибка «занят») / отмена ¹ |
+
+¹ — нужен бэкенд с веткой `feat/battery-completion` (до деплоя вернёт 404).
 
 ### Рассылки
 

@@ -70,11 +70,25 @@ const ACTION_KINDS = new Set([
   "subscribe", "unsubscribe", "autoflow_add", "autoflow_remove",
   "subscriber_webhook", "external_request", "notify",
   "subscriber_email", "agent_chat", "cancel_payment_subscription", "issue_invoice",
-  "getcourse_send", "getcourse_order", "amocrm_send", "amocrm_update",
+  "getcourse_send", "getcourse_order", "amocrm_send", "amocrm_update", "bitrix24_call",
   "yametrika_event", "gsheets_send", "gsheets_get", "gsheets_update",
   "gsheets_write_cell", "gsheets_read_cell",
   "group_unban", "group_kick", "group_approve", "group_decline",
+  "invite_link_create", "invite_link_revoke", "subscription_extend", "subscription_check",
+  "yookassa_charge_saved",
+  "booking_slots", "booking_book", "booking_cancel", "lead_link_contact",
+  // Integration Core (провайдеры из integration_catalog) — бэкенд узнаёт их через реестр, здесь — известные:
+  "meta_capi_event",
 ]);
+// Смещение времени DELAY UNTIL / SCHEDULE: -24h, -30m, +1d (зеркало FlowTime.OFFSET)
+const OFFSET_RE = /^([+-])?\s*\d{1,6}\s*[smhdw]$/i;
+function checkTimeExtras(c, prefix, who) {
+  if (!blank(c.offset) && !OFFSET_RE.test(String(c.offset).trim())) errors.push(`${prefix}_BAD_OFFSET: ${who} — offset вида -24h, -30m, +1d (единицы s/m/h/d/w).`);
+  if (!blank(c.timezone) && !validZone(String(c.timezone).trim())) errors.push(`${prefix}_BAD_TIMEZONE: ${who} — неизвестный часовой пояс «${c.timezone}».`);
+}
+function validZone(z) {
+  try { new Intl.DateTimeFormat("en", { timeZone: z }); return true; } catch { return false; }
+}
 
 // Telegram-safe HTML — разрешённые теги (эвристика; бэкенд использует jsoup-clean)
 const HTML_OK_TAGS = new Set([
@@ -232,7 +246,11 @@ for (const n of nodes) {
     case "DELAY":
       if (c.kind === "FIXED") { if (!(Number(c.durationSec) > 0) && !(Number(c.duration) > 0)) errors.push(`${who}: FIXED требует durationSec>0 (или duration>0 + unit MINUTES|HOURS|DAYS).`); }
       else if (c.kind === "TOMORROW") { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(c.time || ""))) errors.push(`${who}: TOMORROW требует time = HH:mm.`); }
-      else if (c.kind === "UNTIL") { if (blank(c.isoTimestamp)) errors.push(`${who}: UNTIL требует isoTimestamp (ISO-8601 UTC). isoDate+time рантайм НЕ читает.`); }
+      else if (c.kind === "UNTIL") {
+        if (blank(c.isoTimestamp)) errors.push(`${who}: UNTIL требует isoTimestamp (ISO-8601 или шаблон {{var.x}}). isoDate+time рантайм НЕ читает.`);
+        else if (!String(c.isoTimestamp).includes("{{") && isNaN(Date.parse(c.isoTimestamp))) errors.push(`DELAY_BAD_TIMESTAMP: ${who} — isoTimestamp не ISO-8601 и не шаблон {{var.x}}.`);
+        checkTimeExtras(c, "DELAY", who);
+      }
       else errors.push(`${who}: kind ∈ {FIXED,TOMORROW,UNTIL}.`);
       break;
     case "BRANCH":
@@ -297,8 +315,20 @@ for (const n of nodes) {
       if (!VAR_RE.test(String(c.saveTo || ""))) errors.push(`FORMULA_BAD_SAVE_TO: ${who} — saveTo ∈ [a-z_][a-z0-9_]{0,63}.`);
       break;
     case "SCHEDULE": {
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(String(c.isoDate || "")) || isNaN(Date.parse(c.isoDate))) errors.push(`SCHEDULE_BAD_DATE: ${who} — isoDate = YYYY-MM-DD.`);
-      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(c.time || ""))) errors.push(`SCHEDULE_BAD_TIME: ${who} — time = HH:mm.`);
+      // Зеркало GraphValidator.validateSchedule (G2): YYYY-MM-DD (+ time), ISO-8601 дата-время или шаблон {{var.x}}.
+      const iso = String(c.isoDate ?? "").trim();
+      const template = iso.includes("{{");
+      const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(iso);
+      if (!iso || (!template && isNaN(Date.parse(iso)))) errors.push(`SCHEDULE_BAD_DATE: ${who} — isoDate = YYYY-MM-DD, ISO-8601 дата-время или шаблон {{var.x}}.`);
+      if ((!blank(c.time) || (dateOnly && !template)) && !/^([01]\d|2[0-3]):[0-5]\d$/.test(String(c.time || ""))) errors.push(`SCHEDULE_BAD_TIME: ${who} — time = HH:mm.`);
+      checkTimeExtras(c, "SCHEDULE", who);
+      break;
+    }
+    case "TRIGGER_SCHEDULE": {
+      // Зеркало GraphValidator.validateScheduleTrigger: cron из 5 полей, известная зона.
+      const parts = String(c.cron ?? "").trim().split(/\s+/).filter(Boolean);
+      if (parts.length !== 5) errors.push(`SCHEDULE_TRIGGER_BAD_CRON: ${who} — cron из 5 полей: минута час день месяц день-недели (например «0 9 * * 1-5»).`);
+      if (!blank(c.timezone) && !validZone(String(c.timezone).trim())) errors.push(`SCHEDULE_TRIGGER_BAD_TIMEZONE: ${who} — неизвестный часовой пояс «${c.timezone}».`);
       break;
     }
     case "ACTIONS": {
@@ -316,7 +346,17 @@ for (const n of nodes) {
       }
       c.actions.forEach((a, i) => {
         if (!a || typeof a !== "object") { errors.push(`${who}: действие #${i + 1} — не объект.`); return; }
-        if (!ACTION_KINDS.has(a.kind)) { errors.push(`ACTION_UNKNOWN_KIND: ${who} — неизвестный kind «${a.kind}» (#${i + 1}).`); return; }
+        if (blank(a.kind)) { errors.push(`ACTION_UNKNOWN_KIND: ${who} — у действия #${i + 1} нет kind.`); return; }
+        if (!ACTION_KINDS.has(a.kind)) {
+          // Действия Integration Core (actions[].kind из integration_catalog) бэкенд узнаёт по реестру провайдеров —
+          // оффлайн их не проверить; опечатку поймает publish_graph (ACTION_UNKNOWN_KIND).
+          warns.push(`${who}: kind «${a.kind}» (#${i + 1}) не из встроенного списка — допустим, только если он есть в actions[].kind провайдера в integration_catalog.`);
+          return;
+        }
+        if (["booking_slots", "booking_book"].includes(a.kind) && blank(a.calendarId))
+          errors.push(`ACTION_BOOKING_NO_CALENDAR: ${who} — ${a.kind} требует calendarId (booking_calendar_list).`);
+        if (["booking_slots", "booking_book"].includes(a.kind) && !blank(a.saveTo) && !VAR_RE.test(String(a.saveTo)))
+          errors.push(`ACTION_BAD_KEY: ${who} — ${a.kind}.saveTo ∈ [a-z_][a-z0-9_]{0,63}.`);
         if (["add_tag", "remove_tag", "autoflow_add", "autoflow_remove"].includes(a.kind) && !TAG_RE.test(String(a.tag || "")))
           errors.push(`ACTION_BAD_TAG: ${who} — ${a.kind}.tag ∈ [a-z0-9_-]{1,64}.`);
         if (a.kind === "set_field" && !VAR_RE.test(String(a.key || "")))
