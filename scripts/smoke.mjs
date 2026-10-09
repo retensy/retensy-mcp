@@ -33,7 +33,7 @@ function finish() {
   const ok =
     init?.result?.serverInfo?.name === "retensy-mcp" &&
     Array.isArray(tools) &&
-    tools.length === 61 &&
+    tools.length === 74 &&
     toolNames.includes("list_channels") &&
     toolNames.includes("list_integrations") &&
     toolNames.includes("edit_graph_live") &&
@@ -48,7 +48,9 @@ function finish() {
       "create_bot", "bot_stop", "bot_resume", "connect_integration", "disconnect_integration",
       "integration_catalog", "integration_status", "integration_test", "channel_post",
       "broadcast_list", "broadcast_get", "broadcast_preview", "broadcast_send", "broadcast_cancel",
-      "broadcast_recurring", "broadcast_drafts", "broadcast_duplicate"]
+      "broadcast_recurring", "broadcast_drafts", "broadcast_duplicate",
+      "agent_list", "agent_get", "agent_create", "agent_update", "agent_publish", "agent_health",
+      "agent_test_chat", "kb_docs", "kb_add_qa", "kb_add_text", "kb_add_site", "kb_reindex", "agent_unanswered"]
       .every((n) => toolNames.includes(n));
   child.kill();
   if (!ok) {

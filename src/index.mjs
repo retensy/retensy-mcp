@@ -27,7 +27,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.17.0";
+const VERSION = "0.18.0";
 /** С чего начать пустой сайт (init у /document/ops; на сайте с черновиком игнорируется). */
 const SITE_INITS = ["starter", "blank", "mini-landing"];
 /** Безвредная операция, когда нужен только init: бэкенд не принимает пустой ops[]. */
@@ -643,6 +643,20 @@ const TOOLS = [
   { name: "article_get", description: "Получить статью блога по slug (GET /api/articles/by-slug/{slug}) — публичное чтение, в т.ч. чужие. Возвращает title, content (Markdown), excerpt, coverImage, viewCount.", inputSchema: { type: "object", properties: { slug: { type: "string", description: "slug статьи (часть адреса /articles/{slug})" } }, required: ["slug"] } },
   { name: "article_publish", description: "Опубликовать НОВУЮ статью блога retensy (POST /api/articles). content — Markdown (как README на GitHub: заголовки, списки, таблицы, код, картинки по URL). title необязателен: если не передать, заголовком станет первая строка вида «# Заголовок», и она убирается из текста. Обложку можно задать явно через cover (URL картинки) — иначе берётся первая картинка из текста; excerpt (SEO-описание) тоже можно задать явно, иначе генерируется из текста. Возвращает статью с id и slug + публичный URL.", inputSchema: { type: "object", properties: { title: { type: "string", description: "Заголовок (необязателен, если content начинается с «# ...»)" }, content: { type: "string", description: "Тело статьи в Markdown" }, cover: { type: "string", description: "URL обложки (coverImage/OG). Если не задан — берётся первая картинка из текста." }, excerpt: { type: "string", description: "Краткое SEO-описание (≤160 симв). Если не задан — генерируется из текста." } }, required: ["content"] } },
   { name: "article_update", description: "Обновить СВОЮ статью по id (PUT /api/articles/{id}; id бери из article_list). content — Markdown; title необязателен (как в article_publish, иначе берётся из «# ...»). Только владелец — чужую вернёт 403.", inputSchema: { type: "object", properties: { id: { type: "string", description: "id статьи из article_list" }, title: { type: "string" }, content: { type: "string", description: "Новое тело в Markdown" } }, required: ["id", "content"] } },
+  // ---- ИИ-агенты и база знаний ----
+  { name: "agent_list", description: "Список ИИ-агентов пользователя (GET /api/bots/agents): карточки — id, имя, статус. Read-only.", inputSchema: { type: "object", properties: {} } },
+  { name: "agent_get", description: "ИИ-агент по id (GET /api/bots/agents/{agentId}): настройки (имя, язык, тон, длина/формат ответа, инструкции, запретные/передаточные темы, kbId базы знаний, статус). Чужой агент — 404. Read-only.", inputSchema: { type: "object", properties: { agentId: { type: "string" } }, required: ["agentId"] } },
+  { name: "agent_create", description: "Создать ИИ-агента (POST /api/bots/agents): name, description — необязательны. Вместе с агентом создаётся его база знаний (kbId в ответе) — дальше kb_add_qa/kb_add_text/kb_add_site.", inputSchema: { type: "object", properties: { name: { type: "string" }, description: { type: "string" } } } },
+  { name: "agent_update", description: "Изменить настройки агента (PATCH /api/bots/agents/{agentId}): patch — объект с полями для правки (name, description, language: RU|EN|AUTO, tone: FRIENDLY|NEUTRAL|FORMAL, answerLength: SHORT|MEDIUM|LONG, format: PLAIN|LIST_FRIENDLY, instructions, forbiddenTopics[], handoffTopics[], fallback). Применяется частично — передавай только то, что меняешь.", inputSchema: { type: "object", properties: { agentId: { type: "string" }, patch: { type: "object", description: "Поля агента для частичного обновления" } }, required: ["agentId", "patch"] } },
+  { name: "agent_publish", description: "Опубликовать агента (POST /api/bots/agents/{agentId}/publish): агент начинает отвечать в подключённых сценариях. HTTP 409 CHECKLIST_FAILED с чеклистом, если агент ещё не готов (нет базы знаний, пустые инструкции и т.п.) — агент не меняется.", inputSchema: { type: "object", properties: { agentId: { type: "string" } }, required: ["agentId"] } },
+  { name: "agent_health", description: "Здоровье базы знаний агента (GET /api/bots/agents/{agentId}/health): счётчики документов/фрагментов по запросу, без кэша. Read-only.", inputSchema: { type: "object", properties: { agentId: { type: "string" } }, required: ["agentId"] } },
+  { name: "agent_test_chat", description: "Проверить ответ агента в песочнице без отправки клиенту (POST /api/bots/agents/{agentId}/test-chat): question (1–1000 символов), history — необязательная история диалога [{role: client|agent, text}], до 12 реплик. ТРАТИТ бюджет ИИ, как настоящий ответ — не вызывай массово.", inputSchema: { type: "object", properties: { agentId: { type: "string" }, question: { type: "string" }, history: { type: "array", items: { type: "object", properties: { role: { type: "string", enum: ["client", "agent"] }, text: { type: "string" } } } } }, required: ["agentId", "question"] } },
+  { name: "kb_docs", description: "Документы базы знаний агента (GET /api/bots/kb/{kbId}/docs): источник (FILE/QA/SITE), статус индексации, число фрагментов. Только верхний уровень — у сайта страницы видны счётчиком. Read-only.", inputSchema: { type: "object", properties: { kbId: { type: "string", description: "kbId агента (agent_get)" } }, required: ["kbId"] } },
+  { name: "kb_add_qa", description: "Добавить пары вопрос-ответ в базу знаний (POST /api/bots/kb/{kbId}/docs/qa): pairs — [{question, answer}], до 200 пар за раз (вопрос ≤500 символов, ответ ≤4000). Каждая пара — отдельный фрагмент для поиска.", inputSchema: { type: "object", properties: { kbId: { type: "string" }, pairs: { type: "array", items: { type: "object", properties: { question: { type: "string" }, answer: { type: "string" } }, required: ["question", "answer"] } } }, required: ["kbId", "pairs"] } },
+  { name: "kb_add_text", description: "Добавить источник «Текст/инструкция» в базу знаний (POST /api/bots/kb/{kbId}/docs/text): title (≤120 символов), text (≤100 000 символов). Индексация уходит в фон — документ появится в kb_docs со статусом PENDING → READY.", inputSchema: { type: "object", properties: { kbId: { type: "string" }, title: { type: "string" }, text: { type: "string" } }, required: ["kbId", "title", "text"] } },
+  { name: "kb_add_site", description: "Добавить сайт в базу знаний обходом страниц (POST /api/bots/kb/{kbId}/docs/site): url (http/https, не внутренняя сеть), schedule — расписание повторного обхода: NEVER|DAILY|WEEKLY|MONTHLY (по умолчанию NEVER). Обход уходит в фон; документ появится в kb_docs со статусом PENDING.", inputSchema: { type: "object", properties: { kbId: { type: "string" }, url: { type: "string" }, schedule: { type: "string", enum: ["NEVER", "DAILY", "WEEKLY", "MONTHLY"] } }, required: ["kbId", "url"] } },
+  { name: "kb_reindex", description: "Переиндексировать документ-файл базы знаний из сохранённого оригинала (POST /api/bots/kb/{kbId}/docs/{docId}/reindex) — «Повторить» после ошибки. headerRow — необязательно, для табличных файлов: номер строки с шапкой (1..50), если автоопределение ошиблось. Только для источника FILE.", inputSchema: { type: "object", properties: { kbId: { type: "string" }, docId: { type: "string" }, headerRow: { type: "number" } }, required: ["kbId", "docId"] } },
+  { name: "agent_unanswered", description: "Вопросы без ответа агента за период (GET /api/bots/agents/{agentId}/unanswered): days — 7|30|90 (по умолчанию 30). Группы вопросов, на которые агент не нашёл ответ в базе знаний — подсказка, что туда добавить. Read-only.", inputSchema: { type: "object", properties: { agentId: { type: "string" }, days: { type: "number", enum: [7, 30, 90] } }, required: ["agentId"] } },
   // ---- Боты ----
   { name: "create_bot", description: "Подключить бота по токену (POST /api/bots): platform TELEGRAM (токен от @BotFather) или MAX (токен от MasterBot в MAX). Вебхук настраивается сам; name — отображаемое имя (иначе @username). Возвращает бота с id. Число ботов ограничено тарифом — HTTP 402 со ссылкой на смену тарифа. platform INSTAGRAM по токену не подключается (только вход через Facebook в кабинете, сейчас выключен) — инструмент вернёт ссылку на кабинет вместо ошибки.", inputSchema: { type: "object", properties: { platform: { type: "string", enum: ["TELEGRAM", "MAX", "INSTAGRAM"] }, token: { type: "string", description: "Токен бота: 123456789:AA… (Telegram) или токен MAX" }, name: { type: "string" } }, required: ["platform"] } },
   { name: "bot_stop", description: "Остановить бота (POST /api/bots/{botId}/stop): снимает вебхук, бот перестаёт отвечать, сценарии и подписчики сохраняются. Запуск обратно — bot_resume.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
@@ -956,6 +970,37 @@ async function handleCall(params) {
       if (!a.content || !String(a.content).trim()) throw new Error("Передай content (Markdown).");
       const updated = await api(`/api/articles/${a.id}`, { method: "PUT", body: { title: a.title, content: a.content } });
       return okResult({ ...updated, publicUrl: updated?.slug ? `${BASE}/articles/${updated.slug}` : null });
+    }
+    case "agent_list": return okResult(await api("/api/bots/agents"));
+    case "agent_get": return okResult(await api(`/api/bots/agents/${a.agentId}`));
+    case "agent_create": return okResult(await api("/api/bots/agents", { method: "POST", body: { name: a.name, description: a.description } }));
+    case "agent_update": {
+      if (!a.patch || typeof a.patch !== "object") throw new Error("Передай patch — объект с полями агента для правки.");
+      return okResult(await api(`/api/bots/agents/${a.agentId}`, { method: "PATCH", body: a.patch }));
+    }
+    case "agent_publish": return okResult(await api(`/api/bots/agents/${a.agentId}/publish`, { method: "POST" }));
+    case "agent_health": return okResult(await api(`/api/bots/agents/${a.agentId}/health`));
+    case "agent_test_chat": {
+      if (!a.question || !String(a.question).trim()) throw new Error("Передай question.");
+      return okResult(await api(`/api/bots/agents/${a.agentId}/test-chat`, { method: "POST", body: { question: a.question, history: a.history } }));
+    }
+    case "kb_docs": return okResult(await api(`/api/bots/kb/${a.kbId}/docs`));
+    case "kb_add_qa": {
+      if (!Array.isArray(a.pairs) || a.pairs.length === 0) throw new Error("Передай pairs — непустой массив [{question, answer}].");
+      return okResult(await api(`/api/bots/kb/${a.kbId}/docs/qa`, { method: "POST", body: a.pairs }));
+    }
+    case "kb_add_text": {
+      if (!a.title || !a.text) throw new Error("Передай title и text.");
+      return okResult(await api(`/api/bots/kb/${a.kbId}/docs/text`, { method: "POST", body: { title: a.title, text: a.text } }));
+    }
+    case "kb_add_site": {
+      if (!a.url) throw new Error("Передай url.");
+      return okResult(await api(`/api/bots/kb/${a.kbId}/docs/site`, { method: "POST", body: { url: a.url, schedule: a.schedule } }));
+    }
+    case "kb_reindex": return okResult(await api(`/api/bots/kb/${a.kbId}/docs/${a.docId}/reindex`, { method: "POST", body: { headerRow: a.headerRow } }));
+    case "agent_unanswered": {
+      const qs = a.days != null ? `?days=${encodeURIComponent(a.days)}` : "";
+      return okResult(await api(`/api/bots/agents/${a.agentId}/unanswered${qs}`));
     }
     // ---- Боты ----
     case "create_bot": {
