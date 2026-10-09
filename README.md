@@ -12,6 +12,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 - 📣 **Рассылки**: `broadcast_preview` (размер аудитории), `broadcast_send` (сейчас или по расписанию, сразу по нескольким ботам; сообщения или запуск сценария), `broadcast_list`/`broadcast_get`/`broadcast_cancel`, повторяющиеся (`broadcast_recurring`), черновики (`broadcast_drafts`, `broadcast_duplicate`) + скилл `send-broadcast`.
 - 🔗 **Ссылка вместо отказа**: что нельзя сделать через API (вход через Google/Facebook, оплата тарифа, вход в аккаунт) — инструмент возвращает прямую ссылку и одну строку, что сделать.
 - 📝 **Статьи блога** (тот же токен `zmcp_…`): `article_publish`, `article_update`, `article_list`, `article_get` — публикация статей в Markdown (как README на GitHub) в раздел **/articles**.
+- 🧠 **ИИ-агенты и база знаний**: `agent_list`/`agent_get`/`agent_create`/`agent_update`/`agent_publish`/`agent_health`/`agent_test_chat`/`agent_unanswered`, `kb_docs`/`kb_add_qa`/`kb_add_text`/`kb_add_site`/`kb_reindex` — настройка ИИ-агента и его базы знаний (раздел «ИИ-агенты»).
 - 📎 **Медиа**: `upload_file` грузит фото/видео/документы в библиотеку **/bots/files** (до 50 МБ) и возвращает публичный URL — его вставляешь в медиа-карточку сценария.
 - 🌐 **Сайты из блоков** (раздел «Страницы»): создание, правка операциями (блоки, Zero-блок со свободной вёрсткой, код блока, папки страниц, дизайны, шаблоны из библиотеки), публикация и откат, свои домены, заявки из форм и куда их доставлять — инструменты `site_*` + скилл `build-site`.
 - 🧠 **Скилл `build-bot-funnel`**: учит агента собирать корректный граф (типы узлов, ветки, кнопки, задержки) и проверять его перед публикацией. Поддерживает Telegram, MAX и Instagram.
@@ -151,6 +152,19 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `article_get(slug)` | статья по slug (Markdown content, excerpt, обложка) |
 | `article_publish(content, title?, cover?, excerpt?)` | новая статья (Markdown; title из `# ...`, если не задан; обложка из `cover`-URL или 1-й картинки → OG; `excerpt` явно или авто) → id, slug, URL |
 | `article_update(id, content, title?)` | обновить свою статью по id |
+| `agent_list()` | список ИИ-агентов (id, имя, статус) |
+| `agent_get(agentId)` | настройки агента: язык, тон, длина/формат ответа, инструкции, темы, `kbId` базы знаний, статус |
+| `agent_create(name?, description?)` | создать агента; вместе с ним создаётся база знаний (`kbId` в ответе) |
+| `agent_update(agentId, patch)` | частично изменить настройки (`patch` — только меняемые поля: `tone`, `language`, `instructions` и т.п.) |
+| `agent_publish(agentId)` | опубликовать; 409 `CHECKLIST_FAILED`, если агент не готов |
+| `agent_health(agentId)` | счётчики документов/фрагментов базы знаний |
+| `agent_test_chat(agentId, question, history?)` | проверить ответ в песочнице (**тратит бюджет ИИ** — не вызывай массово) |
+| `agent_unanswered(agentId, days?)` | вопросы без ответа за период (7\|30\|90, по умолчанию 30) |
+| `kb_docs(kbId)` | документы базы знаний агента (источник, статус, фрагменты) |
+| `kb_add_qa(kbId, pairs)` | добавить пары вопрос-ответ (`pairs: [{question, answer}]`, до 200 за раз) |
+| `kb_add_text(kbId, title, text)` | добавить источник «Текст/инструкция» |
+| `kb_add_site(kbId, url, schedule?)` | добавить сайт обходом страниц; `schedule`: `NEVER`\|`DAILY`\|`WEEKLY`\|`MONTHLY` |
+| `kb_reindex(kbId, docId, headerRow?)` | переиндексировать файл из оригинала («Повторить»); `headerRow` — для таблиц, если шапка определилась неверно |
 
 ### Рассылки
 
