@@ -179,7 +179,13 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `web_widget_settings(botId, settings?)` | вид чат-виджета: прочитать / изменить (поля накладываются на текущие) |
 | `integration_update(connectionId, title?, creds?)` | переименовать подключение или заменить ключи |
 | `integration_calls(connectionId?, ok?, limit?)` | журнал вызовов внешних сервисов из сценариев (ошибки, попытки, runId) ¹ |
-| `site_lead_status(siteId, leadId, status)` | статус заявки сайта: `NEW`\|`IN_PROGRESS`\|`DONE`\|`REJECTED` ¹ |
+| `site_lead_status(siteId, leadId, status)` | статус заявки сайта: `NEW`\|`IN_PROGRESS`\|`DONE`\|`REJECTED` (фильтр — `site_leads(status)`) ¹ |
+
+| `booking_calendar_list()` / `booking_calendar_get(calendarId)` | календари записи (id → `calendarId` действий сценария `booking_*`) ¹ |
+| `booking_calendar_create(name, zone?, slotMinutes?, hours?, exceptions?, botId?)` | новый календарь: окна `{day:1–7, from:"HH:mm", to:"HH:mm"}`, исключения `{date, from?, to?}` ¹ |
+| `booking_calendar_update(calendarId, …поля)` / `booking_calendar_delete(calendarId, confirm:true)` | правка (поля накладываются на текущие) / удаление ¹ |
+| `booking_slots(calendarId, from?, to?, limit?)` | свободные слоты `[{at, label}]`, даты ГГГГ-ММ-ДД в зоне календаря ¹ |
+| `booking_list(calendarId, from?)` / `booking_create(calendarId, slotAt, name?, phone?)` / `booking_cancel(calendarId, bookingId)` | брони: список / ручная запись (занятый слот — ошибка «занят») / отмена ¹ |
 
 ¹ — нужен бэкенд с веткой `feat/battery-completion` (до деплоя вернёт 404).
 

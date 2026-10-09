@@ -23,8 +23,13 @@ const srv = http.createServer((req, res) => {
   req.on("end", () => {
     let body = null; try { body = raw ? JSON.parse(raw) : null; } catch { body = raw; }
     seen.push({ method: req.method, url: req.url, body, raw });
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(req.url.endsWith("/settings") && req.method === "GET" ? { settings: { color: "#000", title: "Чат" } } : { ok: true, id: "x1" }));
+    const json = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+    if (req.method === "GET" && req.url.endsWith("/settings")) return json(200, { settings: { color: "#000", title: "Чат" } });
+    if (req.method === "GET" && /\/booking\/calendars\/[0-9a-f-]{36}$/.test(req.url)) {
+      return json(200, { id: "cal", name: "Клиника", zone: "Europe/Moscow", slotMinutes: 30, hours: [{ day: 1, from: "09:00", to: "18:00" }], exceptions: [] });
+    }
+    if (req.method === "POST" && req.url.endsWith("/bookings") && body?.slotAt?.startsWith("2026-10-12T16")) return json(409, { error: "CONFLICT: слот уже занят" });
+    json(200, { ok: true, id: "x1" });
   });
 });
 await new Promise((r) => srv.listen(0, "127.0.0.1", r));
@@ -71,9 +76,46 @@ check("dialog_handoff → POST {active:true}, chatId без округления
 check("dialog_handoff без active — ошибка", isErr(await call("dialog_handoff", { botId: B, chatId: CHAT })));
 check("dialog_handoff botId не UUID — ошибка", isErr(await call("dialog_handoff", { botId: "b1", chatId: CHAT, active: false })) && none("/api/bots/b1/"));
 
-await call("site_lead_status", { siteId: "s1", leadId: "l1", status: "in_progress" });
-check("site_lead_status → PATCH {status} в верхнем регистре", req("PATCH", "/api/bots/pages/s1/leads/l1")?.body?.status === "IN_PROGRESS");
-check("site_lead_status неизвестный статус — ошибка", isErr(await call("site_lead_status", { siteId: "s1", leadId: "l1", status: "WON" })));
+const S = "22222222-2222-4333-8444-555555555555", L = "33333333-2222-4333-8444-555555555555";
+await call("site_lead_status", { siteId: S, leadId: L, status: "in_progress" });
+check("site_lead_status → PATCH {status} в верхнем регистре", req("PATCH", `/api/bots/pages/${S}/leads/${L}`)?.body?.status === "IN_PROGRESS");
+check("site_lead_status неизвестный статус — ошибка", isErr(await call("site_lead_status", { siteId: S, leadId: L, status: "WON" })));
+await call("site_leads", { siteId: S, status: "done" });
+check("site_leads status → ?status=DONE", !!req("GET", `/api/bots/pages/${S}/leads?status=DONE`));
+
+const C = "44444444-2222-4333-8444-555555555555", K = "55555555-2222-4333-8444-555555555555";
+const calPath = `/api/bots/booking/calendars/${C}`;
+await call("booking_calendar_list", {});
+check("booking_calendar_list → GET", !!req("GET", "/api/bots/booking/calendars"));
+await call("booking_calendar_get", { calendarId: C });
+check("booking_calendar_get → GET по id", !!req("GET", calPath));
+check("booking_calendar_get не UUID — ошибка до запроса", isErr(await call("booking_calendar_get", { calendarId: "../x" })) && none("../x"));
+await call("booking_calendar_create", { name: " Клиника ", slotMinutes: 30, hours: [{ day: 1, from: "09:00", to: "13:00" }, { day: 1, from: "14:00", to: "18:00" }], exceptions: [{ date: "2026-12-31" }] });
+const cc = req("POST", "/api/bots/booking/calendars")?.body;
+check("booking_calendar_create → POST с окнами и выходным", cc?.name === "Клиника" && cc?.hours?.length === 2 && cc?.exceptions?.[0]?.date === "2026-12-31" && !("from" in cc.exceptions[0]));
+check("booking_calendar_create без name — ошибка", isErr(await call("booking_calendar_create", { slotMinutes: 30 })));
+check("booking_calendar_create day=8 — ошибка", isErr(await call("booking_calendar_create", { name: "x", hours: [{ day: 8, from: "09:00", to: "10:00" }] })));
+check("booking_calendar_create время 9:00 — ошибка", isErr(await call("booking_calendar_create", { name: "x", hours: [{ day: 1, from: "9:00", to: "10:00" }] })));
+check("booking_calendar_create slotMinutes=1 — ошибка", isErr(await call("booking_calendar_create", { name: "x", slotMinutes: 1 })));
+await call("booking_calendar_update", { calendarId: C, slotMinutes: 45 });
+const cu = req("PUT", calPath)?.body;
+check("booking_calendar_update → PUT: новое поле + прежние hours/zone", cu?.slotMinutes === 45 && cu?.hours?.length === 1 && cu?.zone === "Europe/Moscow" && cu?.name === "Клиника");
+check("booking_calendar_update без полей — ошибка", isErr(await call("booking_calendar_update", { calendarId: C })));
+check("booking_calendar_delete без confirm — ошибка", isErr(await call("booking_calendar_delete", { calendarId: C })) && !req("DELETE", calPath));
+await call("booking_calendar_delete", { calendarId: C, confirm: true });
+check("booking_calendar_delete confirm → DELETE", !!req("DELETE", calPath));
+await call("booking_slots", { calendarId: C, from: "2026-10-12", to: "2026-10-14", limit: 10 });
+check("booking_slots → GET ?from&to&limit", !!req("GET", `${calPath}/slots?from=2026-10-12&to=2026-10-14&limit=10`));
+check("booking_slots кривая дата — ошибка", isErr(await call("booking_slots", { calendarId: C, from: "12.10.2026" })));
+await call("booking_list", { calendarId: C, from: "2026-10-01" });
+check("booking_list → GET ?from", !!req("GET", `${calPath}/bookings?from=2026-10-01`));
+await call("booking_create", { calendarId: C, slotAt: "2026-10-12T15:00:00+03:00", name: "Анна", phone: "+79990000000" });
+check("booking_create → POST {slotAt,name,phone}", req("POST", `${calPath}/bookings`)?.body?.phone === "+79990000000");
+const taken = await call("booking_create", { calendarId: C, slotAt: "2026-10-12T16:00:00+03:00" });
+check("booking_create 409 → «уже занят»", isErr(taken) && /занят/.test(textOf(taken)));
+check("booking_create slotAt без зоны — ошибка", isErr(await call("booking_create", { calendarId: C, slotAt: "2026-10-12T15:00" })));
+await call("booking_cancel", { calendarId: C, bookingId: K });
+check("booking_cancel → POST cancel", !!req("POST", `${calPath}/bookings/${K}/cancel`));
 
 await call("integration_update", { connectionId: "c_1", title: " CRM ", creds: { apiKey: 123 } });
 const upd = req("PUT", "/api/bots/integrations/c_1")?.body;

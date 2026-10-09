@@ -1,6 +1,6 @@
 # retensy-mcp ↔ платформа: паритет и доступ PAT
 
-Состояние на 09.10.2026, ветка `bc/f-mcp` (от `feat/battery-completion`, 90 инструментов).
+Состояние на 09.10.2026, ветка `bc/f-mcp` (от `feat/battery-completion`, 99 инструментов).
 Источник фич платформы — контроллеры `backend/src/main/java/org/skiddgoddamn/controller/**` (retensy-bots
 `feat/battery-completion`), доступ токена — `security/PatAuthFilter.java`.
 
@@ -33,19 +33,19 @@ PAT, инструмента нет; **PAT** — путь закрыт для т�
 | ИИ-агенты: CRUD, публикация, здоровье, песочница, неотвеченные | AiAgentController | `agent_list`, `agent_get`, `agent_create`, `agent_update`, `agent_publish`, `agent_health`, `agent_test_chat`, `agent_unanswered` | есть |
 | ИИ-агенты: удаление, снятие с публикации, чек-лист, авто-проверки, аналитика, инсайты | `DELETE`, `/unpublish`, `/checklist`, `/checks*`, `/analytics`, `/insights` | — | нет |
 | Сайты: CRUD, документ, публикация, откат, ассеты, схема, шаблоны, домены | SitePageController | `site_list`, `site_create`, `site_get`, `site_edit`, `site_schema`, `site_templates`, `site_publish`, `site_rollback`, `site_upload_asset`, `site_domains` | есть |
-| Заявки сайта: список, настройки | `GET /pages/{id}/leads`, `GET/PUT /lead-settings` (SiteLeadController) | `site_leads`, `site_lead_settings` | есть |
-| Заявки сайта: статус NEW/IN_PROGRESS/DONE/REJECTED | `PATCH /api/bots/pages/{siteId}/leads/{leadId}` — путь предварительный | `site_lead_status` (новый) | ждёт бэкенд (агент D, путь уточнить) |
+| Заявки сайта: список (фильтр `?status=`), настройки | `GET /pages/{id}/leads`, `GET/PUT /lead-settings` (SiteLeadController) | `site_leads` (с `status`), `site_lead_settings` | есть |
+| Заявки сайта: статус NEW/IN_PROGRESS/DONE/REJECTED | `PATCH /api/bots/pages/{siteId}/leads/{leadId}` (409 — недопустимый переход) | `site_lead_status` (новый) | ждёт бэкенд (путь сверен с SiteLeadController) |
 | Заявки сайта: прочитано, удаление, CSV | `POST /leads/read`, `DELETE /leads/{id}`, `GET /leads.csv` | — | нет |
 | Подписчики: список, карточка | `GET /{botId}/users`, `/users/{chatId}` (TgBotUserController) | `list_bot_users`, `bot_user_get` | есть |
 | Подписчики: метки и поля | `POST /{botId}/users/import` (добавляет метки, пишет только новые переменные) | `bot_users_import` (новый) | частично: снять метку / перезаписать поле — нет в платформе |
 | Подписчики: удаление, неактивные, экспорт, сброс сессии | `POST /users/delete`, `/delete-inactive`, `GET /users/export`, `DELETE /{botId}/sessions/{chatId}` | — | нет |
 | Диалоги: переписка, ответ оператора | `GET/POST /{botId}/users/{chatId}/messages` | `dialog_messages`, `dialog_reply` | есть |
-| Передача оператору (handoff) | `POST /api/bots/{botId}/users/{chatId}/handoff {active}` (контракт 1.3) | `dialog_handoff` (новый) | ждёт бэкенд (агент C) |
+| Передача оператору (handoff) | `POST /api/bots/{botId}/users/{chatId}/handoff {active}` (DialogReplyController; 409 `chat_busy`, 404 `chat_not_found`) | `dialog_handoff` (новый) | ждёт бэкенд (путь сверен) |
 | Интеграции: каталог, статус, проверка | `/api/integrations/catalog`, `/{id}/status`, `/{id}/test` (точные пути в `isIntegrationCorePath`) | `integration_catalog`, `integration_status`, `integration_test` | есть |
 | Интеграции: список, подключение, удаление, ingress-URL | `/api/bots/integrations/**` (алиас IntegrationConnectionController) | `list_integrations`, `connect_integration`, `disconnect_integration`, `integration_ingress_url` | есть |
 | Интеграции: правка названия/ключей | `PUT /api/bots/integrations/{id}` | `integration_update` (новый) | есть |
 | Интеграции: Google-аккаунты | `/api/bots/google/auth-url`, `/identities` | внутри `connect_integration` (GOOGLE_SHEETS) | частично (отвязка аккаунта — нет) |
-| Журнал вызовов интеграций | `GET /api/bots/integrations/calls?connectionId=&ok=&limit=` (контракт 1.2) | `integration_calls` (новый) | ждёт бэкенд (агент B) |
+| Журнал вызовов интеграций | `GET /api/bots/integrations/calls?connectionId=&ok=&limit=` (IntegrationConnectionController, ветка bc/b-actions) | `integration_calls` (новый) | ждёт бэкенд (путь и параметры сверены с bc/b-actions) |
 | Прогоны/журналы: по подписчику | `GET /{botId}/users/{chatId}/runs` | `bot_user_runs` | есть |
 | Прогоны/журналы: по боту, один прогон | `GET /api/bots/{botId}/runs`, `/api/bots/runs/{runId}` | `bot_runs` (новый) | есть |
 | Расписания: повторяющиеся рассылки | `/api/bots/broadcasts/recurring` | `broadcast_recurring` | есть |
@@ -55,16 +55,12 @@ PAT, инструмента нет; **PAT** — путь закрыт для т�
 | Стартовые ссылки | `GET/POST /{botId}/links`, `DELETE /links/{id}` | `list_links` | частично (создать/удалить — нет) |
 | Файлы (медиа) | `/api/bots/media` | `upload_file`, `list_files`, `delete_file` | есть |
 | Статьи блога | `/api/articles/**` | `article_list`, `article_get`, `article_publish`, `article_update` | есть |
-| Бронирование: календари, слоты, брони, отмена | контракт 1.5, пути — агент D | планируются `booking_calendar_list/create/update`, `booking_slots`, `booking_list`, `booking_cancel` | ждёт бэкенд (пути не переданы) |
+| Бронирование: календари, слоты, брони, отмена | `/api/bots/booking/calendars[/{id}[/slots\|/bookings[/{bookingId}/cancel]]]` (BookingController) | `booking_calendar_list`, `booking_calendar_get`, `booking_calendar_create`, `booking_calendar_update`, `booking_calendar_delete`, `booking_slots`, `booking_list`, `booking_create`, `booking_cancel` | ждёт бэкенд (пути сверены) |
 | Платежи: приём оплат в сценарии | узлы графа + подключения касс (`connect_integration`), входящие — `/api/yookassa/owner/{id}` | графовые инструменты, `connect_integration` | есть (через граф) |
 | Платежи: тариф и баланс конструктора | BotBuilderSubscriptionController (`/api/bots/plans`, `/subscription`, `/billing/topup`) | — (402 отдаёт ссылку на страницу тарифа) | нет, и не нужно: оплата — только в кабинете |
 | «Требует внимания» (счётчики) | `GET /api/bots/attention` | — | нет |
 | Отчёт MCP | `POST /api/mcp/report` | телеметрия сервера | есть |
 | Instagram (growth), legacy-вебхуки `/api/webhooks`, дашборды `/api/dashboard`, `/api/projects` | — | — | вне продукта ботов / не PAT |
-
-Шаблон для бронирования (когда агент D отдаст пути): `idArg`/`uuidArg` для id, ISO-8601 с зоной для времени
-(контракт 1.4, проверка `!Number.isNaN(Date.parse(x))` + наличие смещения), `enumArg` для статусов, мок-тест по
-образцу `scripts/parity-tools.test.mjs`, пометка «Требует бэкенд feat/battery-completion» в описании.
 
 ## 2. G10: доступ PAT к вебхук-сценариям
 
@@ -131,14 +127,17 @@ PAT, инструмента нет; **PAT** — путь закрыт для т�
 
 | Инструмент | Путь | Статус бэкенда |
 |---|---|---|
-| `integration_calls` | `GET /api/bots/integrations/calls?connectionId=&ok=&limit=` | требует бэкенд feat/battery-completion (агент B) |
-| `dialog_handoff` | `POST /api/bots/{botId}/users/{chatId}/handoff {active}` | требует бэкенд feat/battery-completion (агент C) |
-| `site_lead_status` | `PATCH /api/bots/pages/{siteId}/leads/{leadId} {status}` | требует бэкенд feat/battery-completion (агент D), **путь сверить** |
+| `integration_calls` | `GET /api/bots/integrations/calls?connectionId=&ok=&limit=` | требует бэкенд feat/battery-completion (сверено с bc/b-actions) |
+| `dialog_handoff` | `POST /api/bots/{botId}/users/{chatId}/handoff {active}` | требует бэкенд feat/battery-completion (сверено) |
+| `site_lead_status` | `PATCH /api/bots/pages/{siteId}/leads/{leadId} {status}` | требует бэкенд feat/battery-completion (сверено) |
 | `integration_update` | `PUT /api/bots/integrations/{id}` | есть в проде |
 | `web_widget_settings` | `GET/PUT /api/bots/web/{botId}/settings` | есть в проде |
 | `bot_users_import` | `POST /api/bots/{botId}/users/import` | есть в проде |
 | `bot_runs` | `GET /api/bots/{botId}/runs`, `GET /api/bots/runs/{runId}` | есть в проде |
 | `bot_delete` | `DELETE /api/bots/{botId}` | есть в проде |
+| `booking_calendar_list/get/create/update/delete` | `GET/POST /api/bots/booking/calendars`, `GET/PUT/DELETE /{id}` (PUT — целиком, MCP накладывает поля на текущий) | требует бэкенд feat/battery-completion |
+| `booking_slots`, `booking_list` | `GET /{id}/slots?from&to&limit`, `GET /{id}/bookings?from` | требует бэкенд feat/battery-completion |
+| `booking_create`, `booking_cancel` | `POST /{id}/bookings {slotAt,name,phone}` (409 — занят), `POST /{id}/bookings/{bookingId}/cancel` | требует бэкенд feat/battery-completion |
 
 Плюс из PR #8: `web_widget_snippet`, `kb_list`, `kb_create`, `kb_delete_doc`, `bot_user_get`, `bot_user_runs`,
 `dialog_messages`, `dialog_reply`, `create_bot` WEB, проверка UUID в `update_graph`/`edit_graph_live`/`import_funnel`.
