@@ -172,6 +172,16 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `bot_user_get(botId, chatId)` | карточка подписчика: теги, переменные, ai_summary |
 | `bot_user_runs(botId, chatId)` | журнал запусков с шагами — проверка, что сценарий реально выполнил действия (CRM, уведомление, HTTP) |
 | `dialog_messages(botId, chatId)` / `dialog_reply(botId, chatId, text)` | переписка с подписчиком / ответ оператора (уходит реальному человеку) |
+| `dialog_handoff(botId, chatId, active)` | передать диалог оператору (бот и ИИ молчат) / вернуть боту ¹ |
+| `bot_users_import(botId, rows)` | добавить подписчикам метки и новые поля (`rows: [{chatId, tags?, variables?}]`; существующие поля не перезаписываются) |
+| `bot_runs(botId` или `runId)` | журнал прогонов бота / один прогон с шагами |
+| `bot_delete(botId, confirm:true)` | удалить бота навсегда (только по явной просьбе) |
+| `web_widget_settings(botId, settings?)` | вид чат-виджета: прочитать / изменить (поля накладываются на текущие) |
+| `integration_update(connectionId, title?, creds?)` | переименовать подключение или заменить ключи |
+| `integration_calls(connectionId?, ok?, limit?)` | журнал вызовов внешних сервисов из сценариев (ошибки, попытки, runId) ¹ |
+| `site_lead_status(siteId, leadId, status)` | статус заявки сайта: `NEW`\|`IN_PROGRESS`\|`DONE`\|`REJECTED` ¹ |
+
+¹ — нужен бэкенд с веткой `feat/battery-completion` (до деплоя вернёт 404).
 
 ### Рассылки
 

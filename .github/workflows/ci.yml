@@ -65,3 +65,7 @@ jobs:
         run: node scripts/ai-agents.test.mjs
         env:
           RETENSY_MCP_AUTOUPDATE: "0"
+      - name: Platform parity tools test
+        run: node scripts/parity-tools.test.mjs
+        env:
+          RETENSY_MCP_AUTOUPDATE: "0"
