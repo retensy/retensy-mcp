@@ -27,7 +27,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.15.2";
+const VERSION = "0.16.0";
 /** С чего начать пустой сайт (init у /document/ops; на сайте с черновиком игнорируется). */
 const SITE_INITS = ["starter", "blank", "mini-landing"];
 /** Безвредная операция, когда нужен только init: бэкенд не принимает пустой ops[]. */
