@@ -96,7 +96,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `setup` | статус авторизации + пошаговая инструкция подключения |
 | `set_token` | сохранить присланный токен `zmcp_…` (без env/рестарта) |
 | `list_bots` | список ботов |
-| `create_bot(platform, token, name?)` | подключить бота Telegram/MAX по токену (Instagram → ссылка на кабинет) |
+| `create_bot(platform, token?, name?)` | подключить бота Telegram/MAX по токену; `WEB` — чат-виджет для сайта без токена → botId, key, snippet (Instagram → ссылка на кабинет) |
+| `web_widget_snippet(botId)` | код вставки чат-виджета на сайт |
 | `bot_stop(botId)` / `bot_resume(botId)` | остановить / запустить бота |
 | `list_graphs(botId)` | графы (сценарии) бота |
 | `list_channels(botId)` | каналы/группы, подключённые к боту (chatId для условия SUBSCRIBED) |
@@ -151,6 +152,11 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `article_get(slug)` | статья по slug (Markdown content, excerpt, обложка) |
 | `article_publish(content, title?, cover?, excerpt?)` | новая статья (Markdown; title из `# ...`, если не задан; обложка из `cover`-URL или 1-й картинки → OG; `excerpt` явно или авто) → id, slug, URL |
 | `article_update(id, content, title?)` | обновить свою статью по id |
+| `kb_list()` / `kb_create(name)` | базы знаний ИИ-агента: список / новая (id → `knowledgeBaseId` узла `AI_REPLY mode:"agent"`) |
+| `kb_docs(kbId)` / `kb_add_qa(kbId, pairs)` / `kb_add_site(kbId, url, schedule?)` / `kb_delete_doc(kbId, docId)` | наполнение базы знаний: пары вопрос-ответ, обход сайта, удаление документа |
+| `bot_user_get(botId, chatId)` | карточка подписчика: теги, переменные, ai_summary |
+| `bot_user_runs(botId, chatId)` | журнал запусков с шагами — проверка, что сценарий реально выполнил действия (CRM, уведомление, HTTP) |
+| `dialog_messages(botId, chatId)` / `dialog_reply(botId, chatId, text)` | переписка с подписчиком / ответ оператора (уходит реальному человеку) |
 
 ### Рассылки
 

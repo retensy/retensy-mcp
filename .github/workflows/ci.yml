@@ -56,3 +56,8 @@ jobs:
         run: node scripts/site-init.test.mjs
         env:
           RETENSY_MCP_AUTOUPDATE: "0"
+      # Виджет, база знаний, подписчик/диалог, UUID-проверка графа (тест-батарея).
+      - name: Battery tools test
+        run: node scripts/battery-tools.test.mjs
+        env:
+          RETENSY_MCP_AUTOUPDATE: "0"
