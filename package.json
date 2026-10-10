@@ -21,7 +21,7 @@
   "scripts": {
     "start": "node src/index.mjs",
     "check": "node --check src/index.mjs",
-    "test": "node scripts/smoke.mjs && node scripts/telemetry.test.mjs && node scripts/live-edit-422.test.mjs && node scripts/broadcast-connect.test.mjs && node scripts/integration-core.test.mjs && node scripts/site-init.test.mjs && node scripts/ai-agents.test.mjs && node scripts/battery-tools.test.mjs && node scripts/parity-tools.test.mjs && node scripts/parity-2.test.mjs && node scripts/validate-graph.test.mjs",
+    "test": "node scripts/smoke.mjs && node scripts/telemetry.test.mjs && node scripts/live-edit-422.test.mjs && node scripts/broadcast-connect.test.mjs && node scripts/integration-core.test.mjs && node scripts/site-init.test.mjs && node scripts/ai-agents.test.mjs && node scripts/battery-tools.test.mjs && node scripts/parity-tools.test.mjs && node scripts/parity-2.test.mjs && node scripts/validate-graph.test.mjs && node scripts/call-scenario.test.mjs",
     "validate": "node skills/build-bot-funnel/validate.mjs"
   },
   "engines": {
