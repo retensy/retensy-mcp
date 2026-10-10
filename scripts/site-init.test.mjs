@@ -19,6 +19,12 @@ const srv = http.createServer((req, res) => {
   req.on("data", (c) => { raw += c; });
   req.on("end", () => {
     seen.push({ method: req.method, url: req.url, body: raw ? JSON.parse(raw) : null });
+    if (req.method === "POST" && req.url === "/api/bots/pages" && raw.includes("Лимит")) {
+      res.writeHead(402, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Тариф «Бесплатный» даёт 1 сайт. Удалите ненужный сайт или повысьте тариф: https://bots.retensy.com/bots/subscription",
+        upgradeUrl: "https://bots.retensy.com/bots/subscription" }));
+      return;
+    }
     res.writeHead(200, { "Content-Type": "application/json" });
     if (req.method === "POST" && req.url === "/api/bots/pages") res.end(JSON.stringify({ id: "s-new", title: "Лендинг" }));
     else res.end(JSON.stringify({ revision: 1, results: [{ op: "set_settings" }] }));
@@ -53,10 +59,13 @@ const r3 = await call(3, "site_edit", { siteId: "s3" });
 const n3 = seen.length;
 const r4 = await call(4, "site_create", { title: "Лендинг", template: "mini-landing" });
 const r5 = await call(5, "site_create", { title: "Сайт" });
+const n5 = seen.length;
+const r6 = await call(6, "site_create", { title: "Лимит", template: "mini-landing" });
 child.kill();
 srv.close();
 try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* windows lock */ }
 
+const text = (r) => r?.result?.content?.map((c) => c.text).join(" ") ?? "";
 const ops = (url) => seen.find((s) => s.url === url)?.body;
 const NOOP = JSON.stringify([{ op: "set_settings", settings: {} }]);
 const after4 = seen.slice(n3);
@@ -69,7 +78,10 @@ const checks = [
   ["site_create template: POST /pages", after4[0]?.method === "POST" && after4[0]?.url === "/api/bots/pages" && after4[0]?.body?.mode === "BLOCKS"],
   ["site_create template: ops с init=mini-landing", after4[1]?.url === "/api/bots/pages/s-new/document/ops" && after4[1]?.body?.init === "mini-landing" && JSON.stringify(after4[1]?.body?.ops) === NOOP],
   ["site_create template: успех", r4 && r4.result?.isError !== true],
-  ["site_create без template: только POST /pages", r5 && after4.length === 3],
+  ["site_create без template: только POST /pages", r5 && n5 - n3 === 3],
+  ["site_create сверх лимита сайтов: ошибка 402", r6?.result?.isError === true && /HTTP 402/.test(text(r6))],
+  ["site_create сверх лимита: причина и ссылка на тариф", text(r6).includes("даёт 1 сайт") && text(r6).includes("https://bots.retensy.com/bots/subscription")],
+  ["site_create сверх лимита: черновик не создаётся", seen.length === n5 + 1],
 ];
 let failed = 0;
 for (const [name, ok] of checks) {
