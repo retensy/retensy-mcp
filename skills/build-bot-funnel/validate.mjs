@@ -77,6 +77,7 @@ const ACTION_KINDS = new Set([
   "invite_link_create", "invite_link_revoke", "subscription_extend", "subscription_check",
   "yookassa_charge_saved",
   "booking_slots", "booking_book", "booking_cancel", "lead_link_contact", "sla_check",
+  "call_scenario",
   // Integration Core (провайдеры из integration_catalog) — бэкенд узнаёт их через реестр, здесь — известные:
   "meta_capi_event",
 ]);
@@ -392,6 +393,21 @@ for (const n of nodes) {
           });
           if (a.timeoutMs != null && (Number(a.timeoutMs) < 500 || Number(a.timeoutMs) > 30000))
             warns.push(`${who}: timeoutMs ${a.timeoutMs} будет прижат к диапазону 500…30000 мс.`);
+        }
+        if (a.kind === "call_scenario") {
+          // Зеркало GraphValidator.validateScenarioCalls. Владение целью (сценарий этого же бота) проверит publish_graph.
+          if (i !== c.actions.length - 1)
+            errors.push(`CALL_SCENARIO_NOT_LAST: ${who} — переход в сценарий должен быть последним действием в блоке.`);
+          if (a.mode != null && String(a.mode) !== "goto")
+            errors.push(`CALL_SCENARIO_BAD_MODE: ${who} — поддерживается только mode «goto» (перейти).`);
+          (Array.isArray(a.variables) ? a.variables : []).forEach((v, j) => {
+            if (!VAR_RE.test(String(v?.key ?? "")))
+              errors.push(`ACTION_BAD_KEY: ${who} — call_scenario.variables[${j}].key ∈ [a-z_][a-z0-9_]{0,63}.`);
+          });
+          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(a.graphId ?? "").trim()))
+            errors.push(`CALL_SCENARIO_NO_TARGET: ${who} — нужен graphId сценария этого же бота (list_graphs).`);
+          else if (g.id && String(a.graphId).trim() === String(g.id))
+            errors.push(`CALL_SCENARIO_SELF: ${who} — сценарий не может переходить сам в себя.`);
         }
         if (a.kind === "gsheets_send" && (!a.googleEmail || !a.spreadsheetId || !Array.isArray(a.cells) || a.cells.length === 0))
           errors.push(`ACTION_GSHEETS_INCOMPLETE: ${who} — gsheets_send требует googleEmail + spreadsheetId + непустой cells[] (Google-аккаунт подключается в вебе /bots, не через MCP).`);
