@@ -172,23 +172,29 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `bot_user_get(botId, chatId)` | карточка подписчика: теги, переменные, ai_summary |
 | `bot_user_runs(botId, chatId)` | журнал запусков с шагами — проверка, что сценарий реально выполнил действия (CRM, уведомление, HTTP) |
 | `dialog_messages(botId, chatId)` / `dialog_reply(botId, chatId, text)` | переписка с подписчиком / ответ оператора (уходит реальному человеку) |
-| `dialog_handoff(botId, chatId, active)` | передать диалог оператору (бот и ИИ молчат) / вернуть боту ¹ |
+| `dialog_handoff(botId, chatId, active)` | передать диалог оператору (бот и ИИ молчат) / вернуть боту |
 | `bot_users_import(botId, rows)` | добавить подписчикам метки и новые поля (`rows: [{chatId, tags?, variables?}]`; существующие поля не перезаписываются) |
 | `bot_runs(botId` или `runId)` | журнал прогонов бота / один прогон с шагами (статус `PARTIAL` — «завершён с ошибками») |
-| `scenario_runs(graphId, page?, size?)` | журнал прогонов одного сценария, включая headless (вебхук, заявки сайта, `TRIGGER_SCHEDULE`) ¹ |
+| `scenario_runs(graphId, page?, size?)` | журнал прогонов одного сценария, включая headless (вебхук, заявки сайта, `TRIGGER_SCHEDULE`) |
 | `bot_delete(botId, confirm:true)` | удалить бота навсегда (только по явной просьбе) |
 | `web_widget_settings(botId, settings?)` | вид чат-виджета: прочитать / изменить (поля накладываются на текущие) |
 | `integration_update(connectionId, title?, creds?)` | переименовать подключение или заменить ключи |
-| `integration_calls(connectionId?, ok?, limit?)` | журнал вызовов внешних сервисов из сценариев (ошибки, попытки, runId) ¹ |
-| `site_lead_status(siteId, leadId, status)` | статус заявки сайта: `NEW`\|`IN_PROGRESS`\|`DONE`\|`REJECTED` (фильтр — `site_leads(status)`) ¹ |
-
-| `booking_calendar_list()` / `booking_calendar_get(calendarId)` | календари записи (id → `calendarId` действий сценария `booking_*`) ¹ |
-| `booking_calendar_create(name, zone?, slotMinutes?, hours?, exceptions?, botId?)` | новый календарь: окна `{day:1–7, from:"HH:mm", to:"HH:mm"}`, исключения `{date, from?, to?}` ¹ |
-| `booking_calendar_update(calendarId, …поля)` / `booking_calendar_delete(calendarId, confirm:true)` | правка (поля накладываются на текущие) / удаление ¹ |
-| `booking_slots(calendarId, from?, to?, limit?)` | свободные слоты `[{at, label}]`, даты ГГГГ-ММ-ДД в зоне календаря ¹ |
-| `booking_list(calendarId, from?)` / `booking_create(calendarId, slotAt, name?, phone?)` / `booking_cancel(calendarId, bookingId)` | брони: список / ручная запись (занятый слот — ошибка «занят») / отмена ¹ |
-
-¹ — нужен бэкенд с веткой `feat/battery-completion` (до деплоя вернёт 404).
+| `integration_calls(connectionId?, ok?, limit?)` | журнал вызовов внешних сервисов из сценариев (ошибки, попытки, runId) |
+| `site_lead_status(siteId, leadId, status)` | статус заявки сайта: `NEW`\|`IN_PROGRESS`\|`DONE`\|`REJECTED` (фильтр — `site_leads(status)`) |
+| `bot_rename(botId, name)` / `bot_change_token(botId, token)` | переименовать бота (пустое имя — `@username`) / сменить токен после перевыпуска |
+| `bot_channel_list(botId)` / `bot_channel_add(botId, token, name?)` / `bot_channel_delete(botId, channelId, confirm:true)` | дополнительные Telegram-боты (мультиканальность); каналы/группы для постинга — `list_channels` |
+| `link_create(botId, name?, targetNodeId?)` / `link_delete(linkId, confirm:true)` | стартовая ссылка (диплинк на узел) / удаление; список — `list_links` |
+| `utm_sources(botId)` / `ab_results(graphId, branchNodeId, period?)` | UTM-источники подписчиков / итоги A/B-развилки (`period`: `24h`, `7d`, `30d`) |
+| `kb_delete(kbId, confirm:true)` | удалить базу знаний целиком (база агента — только вместе с агентом) |
+| `agent_unpublish(agentId)` / `agent_delete(agentId, confirm:true)` | снять агента с публикации / удалить (409 `AGENT_IN_USE`, пока подключён к сценариям) |
+| `site_leads_mark_read(siteId)` / `site_lead_delete(siteId, leadId, confirm:true)` / `site_leads_export(siteId, savePath?)` | заявки сайта: всё прочитано / удалить заявку / CSV |
+| `bot_users_export(botId, format?, savePath?)` | выгрузка подписчиков `csv`\|`json` (с `savePath` — в файл) |
+| `bot_user_reset(botId, chatId, confirm:true)` | сбросить сессию подписчика: позиция, метки, переменные (для повторного теста воронки) |
+| `booking_calendar_list()` / `booking_calendar_get(calendarId)` | календари записи (id → `calendarId` действий сценария `booking_*`) |
+| `booking_calendar_create(name, zone?, slotMinutes?, hours?, exceptions?, botId?)` | новый календарь: окна `{day:1–7, from:"HH:mm", to:"HH:mm"}`, исключения `{date, from?, to?}` |
+| `booking_calendar_update(calendarId, …поля)` / `booking_calendar_delete(calendarId, confirm:true)` | правка (поля накладываются на текущие) / удаление |
+| `booking_slots(calendarId, from?, to?, limit?)` | свободные слоты `[{at, label}]`, даты ГГГГ-ММ-ДД в зоне календаря |
+| `booking_list(calendarId, from?)` / `booking_create(calendarId, slotAt, name?, phone?)` / `booking_cancel(calendarId, bookingId)` | брони: список / ручная запись (занятый слот — ошибка «занят») / отмена |
 
 ### Рассылки
 

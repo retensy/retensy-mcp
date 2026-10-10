@@ -614,6 +614,16 @@ function qs(params) {
   return parts.length ? `?${parts.join("&")}` : "";
 }
 
+// Выгрузка (CSV/JSON): с savePath — в локальный файл (большие выгрузки не тащим в контекст), без — текстом.
+function exportResult(data, savePath) {
+  const text = data == null ? "" : typeof data === "string" ? data : JSON.stringify(data, null, 2);
+  if (!savePath) return okResult(text || "Пусто: выгружать нечего.");
+  const abs = path.resolve(String(savePath).replace(/^~(?=$|[/\\])/, os.homedir()));
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, text);
+  return okResult({ saved: abs, bytes: Buffer.byteLength(text) });
+}
+
 // =====================================================================// Подключения сервисов
 // =====================================================================/** IA v2: каталог и подключения — раздел «Интеграции». Старые /bots/connect|integrations остаются в кабинете (Instagram — там). */
 const CONNECT_PAGE = `${BASE}/integrations`;
@@ -760,14 +770,14 @@ const TOOLS = [
   { name: "dialog_messages", description: "Переписка с подписчиком, свежие сверху (GET /api/bots/{botId}/users/{chatId}/messages, page/size). Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["botId", "chatId"] } },
   { name: "dialog_reply", description: "ОТПРАВИТЬ сообщение подписчику от имени оператора (POST /api/bots/{botId}/users/{chatId}/messages) — как ответ из раздела «Диалоги». Уходит РЕАЛЬНОМУ человеку: только по явной просьбе пользователя. Бот при этом не останавливается.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, text: { type: "string" } }, required: ["botId", "chatId", "text"] } },
   // ---- Паритет платформы: журнал вызовов, оператор, заявки, виджет, подписчики, бот ----
-  { name: "integration_calls", description: "Журнал вызовов внешних сервисов из сценариев (GET /api/bots/integrations/calls): время, подключение, действие, ok/ошибка, код, попытки, correlationId (= runId прогона). Фильтры: connectionId (из list_integrations), ok (true — только успешные, false — только упавшие), limit (1–200). Так проверяют, что CRM/таблица/HTTP реально получили данные. Read-only. Требует бэкенд feat/battery-completion.", inputSchema: { type: "object", properties: { connectionId: { type: "string" }, ok: { type: "boolean" }, limit: { type: "number" } } } },
-  { name: "dialog_handoff", description: "Передача диалога оператору (POST /api/bots/{botId}/users/{chatId}/handoff {active}): active:true — бот и ИИ молчат, входящие копятся в «Диалогах», отвечает человек (dialog_reply); active:false — «Вернуть боту». Текущее состояние — поле handoff в bot_user_get. Требует бэкенд feat/battery-completion.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, active: { type: "boolean" } }, required: ["botId", "chatId", "active"] } },
-  { name: "site_lead_status", description: "Статус заявки сайта (PATCH /api/bots/pages/{siteId}/leads/{leadId} {status}): NEW → IN_PROGRESS → DONE | REJECTED. leadId — из site_leads. Недопустимый переход → ошибка 409. Требует бэкенд feat/battery-completion.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, leadId: { type: "string" }, status: { type: "string", enum: ["NEW", "IN_PROGRESS", "DONE", "REJECTED"] } }, required: ["siteId", "leadId", "status"] } },
+  { name: "integration_calls", description: "Журнал вызовов внешних сервисов из сценариев (GET /api/bots/integrations/calls): время, подключение, действие, ok/ошибка, код, попытки, correlationId (= runId прогона). Фильтры: connectionId (из list_integrations), ok (true — только успешные, false — только упавшие), limit (1–200). Так проверяют, что CRM/таблица/HTTP реально получили данные. Read-only.", inputSchema: { type: "object", properties: { connectionId: { type: "string" }, ok: { type: "boolean" }, limit: { type: "number" } } } },
+  { name: "dialog_handoff", description: "Передача диалога оператору (POST /api/bots/{botId}/users/{chatId}/handoff {active}): active:true — бот и ИИ молчат, входящие копятся в «Диалогах», отвечает человек (dialog_reply); active:false — «Вернуть боту». Текущее состояние — поле handoff в bot_user_get.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, active: { type: "boolean" } }, required: ["botId", "chatId", "active"] } },
+  { name: "site_lead_status", description: "Статус заявки сайта (PATCH /api/bots/pages/{siteId}/leads/{leadId} {status}): NEW → IN_PROGRESS → DONE | REJECTED. leadId — из site_leads. Недопустимый переход → ошибка 409.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, leadId: { type: "string" }, status: { type: "string", enum: ["NEW", "IN_PROGRESS", "DONE", "REJECTED"] } }, required: ["siteId", "leadId", "status"] } },
   { name: "integration_update", description: "Изменить подключение (PUT /api/bots/integrations/{connectionId}): title — новое название; creds — новые ключи доступа (заменяют старые; поля — как в connect_integration для этого провайдера). Передай хотя бы одно.", inputSchema: { type: "object", properties: { connectionId: { type: "string" }, title: { type: "string" }, creds: { type: "object", additionalProperties: { type: "string" } } }, required: ["connectionId"] } },
   { name: "web_widget_settings", description: "Вид чат-виджета сайта (бот platform WEB). Без settings — прочитать (GET /api/bots/web/{botId}/settings: settings, brandingRemovable, snippet). С settings — изменить (PUT): переданные поля накладываются на текущие, остальные сохраняются; сервер проверяет значения (уходят в разметку чужих сайтов).", inputSchema: { type: "object", properties: { botId: { type: "string" }, settings: { type: "object", description: "Поля настроек виджета для изменения (имена — как в ответе чтения)" } }, required: ["botId"] } },
   { name: "bot_users_import", description: "Добавить подписчикам метки и поля (POST /api/bots/{botId}/users/import): rows — [{chatId, username?, tags?: [строки], variables?: {ключ: значение}}], до 10 000 строк. Метки ДОБАВЛЯЮТСЯ; переменная пишется, только если у подписчика её ещё нет (существующие не перезаписываются); новый chatId создаёт подписчика (в пределах лимита тарифа). Снять метку или перезаписать поле через API нельзя.", inputSchema: { type: "object", properties: { botId: { type: "string" }, rows: { type: "array", items: { type: "object", properties: { chatId: { type: "string" }, username: { type: "string" }, tags: { type: "array", items: { type: "string" } }, variables: { type: "object" } }, required: ["chatId"] } } }, required: ["botId", "rows"] } },
   { name: "bot_runs", description: "Журнал прогонов сценариев бота. Без runId — список свежих прогонов (GET /api/bots/{botId}/runs, page/size); с runId — один прогон с шагами (GET /api/bots/runs/{runId}, в т.ч. headless-прогоны вебхук-сценариев и расписаний). По подписчику — bot_user_runs, по сценарию — scenario_runs. Статус прогона: OK, FAILED (прерван) или PARTIAL — «завершён с ошибками»: дошёл до конца, но хотя бы одно действие упало (у шага ok:false, error «КОД: …»). Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, runId: { type: "string" }, page: { type: "number" }, size: { type: "number" } } } },
-  { name: "scenario_runs", description: "Журнал прогонов одного сценария (GET /api/bots/graphs/{graphId}/runs, page/size), включая headless-прогоны без чата — вебхук-сценарии, заявки сайта, TRIGGER_SCHEDULE. Доступ — как к просмотру графа. Шаги прогона — bot_runs {runId}. Статус прогона: OK, FAILED (прерван) или PARTIAL — «завершён с ошибками»: дошёл до конца, но хотя бы одно действие упало (у шага ok:false, error «КОД: …»). Read-only. Требует бэкенд feat/battery-completion.", inputSchema: { type: "object", properties: { graphId: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["graphId"] } },
+  { name: "scenario_runs", description: "Журнал прогонов одного сценария (GET /api/bots/graphs/{graphId}/runs, page/size), включая headless-прогоны без чата — вебхук-сценарии, заявки сайта, TRIGGER_SCHEDULE. Доступ — как к просмотру графа. Шаги прогона — bot_runs {runId}. Статус прогона: OK, FAILED (прерван) или PARTIAL — «завершён с ошибками»: дошёл до конца, но хотя бы одно действие упало (у шага ok:false, error «КОД: …»). Read-only.", inputSchema: { type: "object", properties: { graphId: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["graphId"] } },
   { name: "bot_delete", description: "УДАЛИТЬ бота навсегда (DELETE /api/bots/{botId}) вместе с каналами, сценариями, подписчиками, журналами, рассылками и ссылками. Только владелец. Необратимо: вызывай только по явной просьбе пользователя и с confirm:true. Временно выключить — bot_stop.", inputSchema: { type: "object", properties: { botId: { type: "string" }, confirm: { type: "boolean", description: "true — пользователь явно подтвердил удаление" } }, required: ["botId", "confirm"] } },
   // ---- Запись на слоты (бронирование) ----
   { name: "booking_calendar_list", description: "Календари записи пользователя (GET /api/bots/booking/calendars): id, name, zone, slotMinutes, hours, exceptions, botId. id — calendarId для действий сценария booking_slots/booking_book/booking_cancel. Read-only.", inputSchema: { type: "object", properties: {} } },
@@ -780,6 +790,24 @@ const TOOLS = [
   { name: "booking_create", description: "Записать вручную на слот (POST /api/bots/booking/calendars/{calendarId}/bookings {slotAt, name, phone}): slotAt — at из booking_slots (ISO-8601 с зоной). Слот занят → понятная ошибка «занят», слота нет в сетке → ошибка 400.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, slotAt: { type: "string" }, name: { type: "string" }, phone: { type: "string" } }, required: ["calendarId", "slotAt"] } },
   { name: "booking_cancel", description: "Отменить бронь и освободить слот (POST /api/bots/booking/calendars/{calendarId}/bookings/{bookingId}/cancel). Повторная отмена — без ошибки. bookingId — из booking_list.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, bookingId: { type: "string" } }, required: ["calendarId", "bookingId"] } },
   { name: "site_templates", description: "Библиотека шаблонов блоков сайта (GET /api/bots/pages/templates): {categories: [{id, title, description?}], templates: [{id, category, title, description?, blocks: сколько блоков вставится}]}. Вставка — site_edit add_template {container, templateId, after?} (results.id — первый блок, results.ids — все); дальше блоки правятся как обычные. category — фильтр по id категории.", inputSchema: { type: "object", properties: { category: { type: "string" } } } },
+  // ---- Паритет платформы, часть 2: бот, база, агент, заявки, подписчики, каналы, ссылки, аналитика ----
+  { name: "bot_rename", description: "Переименовать бота (PATCH /api/bots/{botId} {name}): отображаемое имя в кабинете, до 250 символов. Пустое name сбрасывает имя на @username. Имя в самом Telegram/MAX не меняется.", inputSchema: { type: "object", properties: { botId: { type: "string" }, name: { type: "string" } }, required: ["botId", "name"] } },
+  { name: "bot_change_token", description: "Сменить токен бота (POST /api/bots/{botId}/token {token}): сервер проверяет токен и перезапускает приём сообщений; сценарии, подписчики и ссылки остаются. Нужен, если токен перевыпущен в @BotFather (/revoke) или MAX. Неверный или чужой токен → ошибка с причиной. Владелец или ADMIN.", inputSchema: { type: "object", properties: { botId: { type: "string" }, token: { type: "string", description: "Новый токен бота" } }, required: ["botId", "token"] } },
+  { name: "bot_channel_list", description: "Дополнительные Telegram-боты (мультиканальность) этого бота (GET /api/bots/{botId}/channels): id, username, name, active. Это НЕ каналы/группы для постинга — те в list_channels. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
+  { name: "bot_channel_add", description: "Добавить к боту ещё одного Telegram-бота как канал (POST /api/bots/{botId}/channels {token, name?}): он отвечает теми же сценариями. Токен проверяется в Telegram; токен, уже подключённый где-то ещё, не принимается.", inputSchema: { type: "object", properties: { botId: { type: "string" }, token: { type: "string" }, name: { type: "string" } }, required: ["botId", "token"] } },
+  { name: "bot_channel_delete", description: "Отключить дополнительного Telegram-бота от бота (DELETE /api/bots/{botId}/channels/{channelId}). channelId — из bot_channel_list. Только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { botId: { type: "string" }, channelId: { type: "string" }, confirm: { type: "boolean" } }, required: ["botId", "channelId", "confirm"] } },
+  { name: "link_create", description: "Создать стартовую ссылку бота (POST /api/bots/{botId}/links {name, targetNodeId?}): code для t.me/<бот>?start=<code>, счётчик стартов. targetNodeId — узел сценария, на который ведёт диплинк; для одного узла повторный вызов вернёт существующую ссылку.", inputSchema: { type: "object", properties: { botId: { type: "string" }, name: { type: "string" }, targetNodeId: { type: "string" } }, required: ["botId"] } },
+  { name: "link_delete", description: "Удалить стартовую ссылку (DELETE /api/bots/links/{linkId}); id — из list_links. Разосланные ссылки перестанут считаться. Только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { linkId: { type: "string" }, confirm: { type: "boolean" } }, required: ["linkId", "confirm"] } },
+  { name: "utm_sources", description: "UTM-источники подписчиков бота (GET /api/bots/{botId}/utm-sources): по каким меткам utm_* люди входили в сценарии и сколько их. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
+  { name: "ab_results", description: "Результаты A/B-теста (GET /api/bots/graphs/{graphId}/ab-results?branchNodeId&period): статистика по вариантам узла-развилки. branchNodeId — id узла A/B в графе; period — «24h», «7d», «30d» (по умолчанию 7d). Read-only.", inputSchema: { type: "object", properties: { graphId: { type: "string" }, branchNodeId: { type: "string" }, period: { type: "string" } }, required: ["graphId", "branchNodeId"] } },
+  { name: "kb_delete", description: "УДАЛИТЬ базу знаний целиком со всеми документами (DELETE /api/bots/kb/{kbId}). База ИИ-агента так не удаляется (ошибка KB_OWNED_BY_AGENT) — удаляй агента. Необратимо: только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { kbId: { type: "string" }, confirm: { type: "boolean" } }, required: ["kbId", "confirm"] } },
+  { name: "agent_unpublish", description: "Снять ИИ-агента с публикации (POST /api/bots/agents/{agentId}/unpublish): агент возвращается в черновик и перестаёт отвечать. В ответе — agent и сценарии, которые сейчас на нём работают (их стоит проверить).", inputSchema: { type: "object", properties: { agentId: { type: "string" } }, required: ["agentId"] } },
+  { name: "agent_delete", description: "УДАЛИТЬ ИИ-агента (DELETE /api/bots/agents/{agentId}). Пока агент или его база подключены к сценариям — ошибка AGENT_IN_USE со списком сценариев: сначала отключи его там. Необратимо: только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { agentId: { type: "string" }, confirm: { type: "boolean" } }, required: ["agentId", "confirm"] } },
+  { name: "site_leads_mark_read", description: "Отметить все заявки сайта прочитанными (POST /api/bots/pages/{siteId}/leads/read): обнуляет счётчик unread из site_leads. Статусы обработки не меняются (это site_lead_status).", inputSchema: { type: "object", properties: { siteId: { type: "string" } }, required: ["siteId"] } },
+  { name: "site_lead_delete", description: "УДАЛИТЬ заявку сайта (DELETE /api/bots/pages/{siteId}/leads/{leadId}); leadId — из site_leads. Необратимо: только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, leadId: { type: "string" }, confirm: { type: "boolean" } }, required: ["siteId", "leadId", "confirm"] } },
+  { name: "site_leads_export", description: "Все заявки сайта в CSV (GET /api/bots/pages/{siteId}/leads.csv). savePath — сохранить в локальный файл и вернуть путь (для больших выгрузок); без него CSV возвращается текстом. Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, savePath: { type: "string" } }, required: ["siteId"] } },
+  { name: "bot_users_export", description: "Выгрузка всех подписчиков бота (GET /api/bots/{botId}/users/export?format=csv|json): chatId, имя, метки, переменные. savePath — сохранить в локальный файл и вернуть путь; без него данные возвращаются текстом. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, format: { type: "string", enum: ["csv", "json"] }, savePath: { type: "string" } }, required: ["botId"] } },
+  { name: "bot_user_reset", description: "Сбросить сессию подписчика (DELETE /api/bots/{botId}/sessions/{chatId}): стираются его позиция в сценарии, метки и переменные, и он пропадает из list_bot_users; при следующем сообщении начнёт как новый. Для повторного прохождения воронки при тесте. Необратимо: только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, confirm: { type: "boolean" } }, required: ["botId", "chatId", "confirm"] } },
 ];
 
 async function handleCall(params) {
@@ -1253,6 +1281,114 @@ async function handleCall(params) {
       if (a.confirm !== true) throw new Error("Удаление бота необратимо. Спроси пользователя и повтори с confirm:true.");
       await api(`/api/bots/${botId}`, { method: "DELETE" });
       return okResult(`🗑️ Бот ${botId} удалён вместе со сценариями и подписчиками.`);
+    }
+    // ---- Паритет платформы, часть 2 ----
+    case "bot_rename": {
+      if (typeof a.name !== "string") throw new Error("name — строка (пустая сбрасывает имя на @username).");
+      return okResult(await api(`/api/bots/${uuidArg(a.botId, "botId")}`, { method: "PATCH", body: { name: a.name } }));
+    }
+    case "bot_change_token": {
+      const botId = uuidArg(a.botId, "botId");
+      const token = String(a.token ?? "").trim();
+      if (!token) throw new Error("Передай token — новый токен бота.");
+      try {
+        return okResult(await api(`/api/bots/${botId}/token`, { method: "POST", body: { token } }));
+      } catch (e) {
+        // 400 — строка-причина (неверный токен, уже подключён к другому боту); сам токен в ошибку не кладём.
+        if (e.status === 400) throw new Error(`Токен не принят: ${typeof e.data === "string" && e.data ? e.data : "проверь токен"}.`);
+        throw e;
+      }
+    }
+    case "bot_channel_list": return okResult(await api(`/api/bots/${uuidArg(a.botId, "botId")}/channels`));
+    case "bot_channel_add": {
+      const botId = uuidArg(a.botId, "botId");
+      const token = String(a.token ?? "").trim();
+      if (!token) throw new Error("Передай token — токен дополнительного Telegram-бота.");
+      try {
+        return okResult(await api(`/api/bots/${botId}/channels`, { method: "POST", body: { token, name: a.name || undefined } }));
+      } catch (e) {
+        if (e.status === 400) throw new Error(`Канал не добавлен: ${typeof e.data === "string" && e.data ? e.data : "токен не принят"}.`);
+        throw e;
+      }
+    }
+    case "bot_channel_delete": {
+      const botId = uuidArg(a.botId, "botId");
+      const channelId = uuidArg(a.channelId, "channelId");
+      if (a.confirm !== true) throw new Error("Отключение канала необратимо. Спроси пользователя и повтори с confirm:true.");
+      await api(`/api/bots/${botId}/channels/${channelId}`, { method: "DELETE" });
+      return okResult(`🗑️ Канал ${channelId} отключён от бота ${botId}.`);
+    }
+    case "link_create": {
+      const body = { name: a.name || undefined };
+      if (a.targetNodeId) body.targetNodeId = uuidArg(a.targetNodeId, "targetNodeId");
+      return okResult(await api(`/api/bots/${uuidArg(a.botId, "botId")}/links`, { method: "POST", body }));
+    }
+    case "link_delete": {
+      const linkId = uuidArg(a.linkId, "linkId");
+      if (a.confirm !== true) throw new Error("Удаление ссылки необратимо. Спроси пользователя и повтори с confirm:true.");
+      await api(`/api/bots/links/${linkId}`, { method: "DELETE" });
+      return okResult(`🗑️ Ссылка ${linkId} удалена.`);
+    }
+    case "utm_sources": return okResult(await api(`/api/bots/${uuidArg(a.botId, "botId")}/utm-sources`));
+    case "ab_results": {
+      const q = { branchNodeId: uuidArg(a.branchNodeId, "branchNodeId") };
+      if (a.period != null && a.period !== "") {
+        const p = String(a.period).trim();
+        if (!/^\d{1,4}[hd]$/.test(p)) throw new Error(`period — число с h или d (24h, 7d, 30d), получено: ${p}.`);
+        q.period = p;
+      }
+      return okResult(await api(`/api/bots/graphs/${uuidArg(a.graphId, "graphId")}/ab-results${qs(q)}`));
+    }
+    case "kb_delete": {
+      const kbId = idArg(a.kbId, "kbId");
+      if (a.confirm !== true) throw new Error("Удаление базы знаний необратимо. Спроси пользователя и повтори с confirm:true.");
+      try {
+        await api(`/api/bots/kb/${kbId}`, { method: "DELETE" });
+      } catch (e) {
+        if (e.status === 409) throw new Error("Это база ИИ-агента (KB_OWNED_BY_AGENT): отдельно не удаляется — удали агента (agent_delete).");
+        throw e;
+      }
+      return okResult(`🗑️ База знаний ${kbId} удалена со всеми документами.`);
+    }
+    case "agent_unpublish": return okResult(await api(`/api/bots/agents/${idArg(a.agentId, "agentId")}/unpublish`, { method: "POST" }));
+    case "agent_delete": {
+      const agentId = idArg(a.agentId, "agentId");
+      if (a.confirm !== true) throw new Error("Удаление агента необратимо. Спроси пользователя и повтори с confirm:true.");
+      try {
+        await api(`/api/bots/agents/${agentId}`, { method: "DELETE" });
+      } catch (e) {
+        if (e.status === 409) {
+          const refs = Array.isArray(e.data?.scenarios) ? e.data.scenarios.map((s) => s?.graphName || s?.graphId).filter(Boolean) : [];
+          throw new Error(`Агент подключён к сценариям (AGENT_IN_USE)${refs.length ? `: ${refs.join(", ")}` : ""}. Сначала отключи его в них.`);
+        }
+        throw e;
+      }
+      return okResult(`🗑️ Агент ${agentId} удалён.`);
+    }
+    case "site_leads_mark_read": {
+      const siteId = uuidArg(a.siteId, "siteId");
+      await api(`/api/bots/pages/${siteId}/leads/read`, { method: "POST" });
+      return okResult(`✅ Все заявки сайта ${siteId} отмечены прочитанными.`);
+    }
+    case "site_lead_delete": {
+      const siteId = uuidArg(a.siteId, "siteId");
+      const leadId = uuidArg(a.leadId, "leadId");
+      if (a.confirm !== true) throw new Error("Удаление заявки необратимо. Спроси пользователя и повтори с confirm:true.");
+      await api(`/api/bots/pages/${siteId}/leads/${leadId}`, { method: "DELETE" });
+      return okResult(`🗑️ Заявка ${leadId} удалена.`);
+    }
+    case "site_leads_export": return exportResult(await api(`/api/bots/pages/${uuidArg(a.siteId, "siteId")}/leads.csv`), a.savePath);
+    case "bot_users_export": {
+      const format = String(a.format || "csv").trim().toLowerCase();
+      if (format !== "csv" && format !== "json") throw new Error(`format: csv | json, получено: ${format}.`);
+      return exportResult(await api(`/api/bots/${uuidArg(a.botId, "botId")}/users/export?format=${format}`), a.savePath);
+    }
+    case "bot_user_reset": {
+      const botId = uuidArg(a.botId, "botId");
+      const chatId = chatIdArg(a.chatId);
+      if (a.confirm !== true) throw new Error("Сброс сессии стирает метки и переменные подписчика. Спроси пользователя и повтори с confirm:true.");
+      await api(`/api/bots/${botId}/sessions/${chatId}`, { method: "DELETE" });
+      return okResult(`♻️ Сессия подписчика ${chatId} сброшена: при следующем сообщении он начнёт как новый.`);
     }
     // ---- Боты ----
     case "create_bot": {
