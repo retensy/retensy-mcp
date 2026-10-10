@@ -130,8 +130,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `graph_analytics(graphId)` | прохождение сценария по узлам (где отваливается воронка) |
 | `list_bot_users(botId)` | подписчики/лиды бота (постранично, поиск `query`) |
 | `list_links(botId)` | стартовые трекинговые ссылки бота с UTM |
-| `site_list()` | сайты пользователя (id, mode, url, publishedRevision) |
-| `site_create(title, slug?, template?)` | новый сайт из блоков → `id`; `template` (`starter`/`blank`/`mini-landing`) — сразу черновик из шаблона |
+| `site_list()` | сайты пользователя (id, mode, url, publishedRevision, status — `BLOCKED` у заблокированных модерацией, blockedReason) |
+| `site_create(title, slug?, template?)` | новый сайт из блоков → `id`; `template` (`starter`/`blank`/`mini-landing`) — сразу черновик из шаблона; число сайтов ограничено тарифом — сверх лимита HTTP 402 с причиной и ссылкой на смену тарифа |
 | `site_get(siteId, saveToFile?)` | модель сайта (`revision`, `draft`, `versions[]` публикаций) |
 | `site_schema()` | JSON Schema модели и операций — читать перед правкой |
 | `site_edit(siteId, ops[]?, revision?, init?)` | правка операциями (`init`: `starter`/`blank`/`mini-landing`; только `init` — черновик из шаблона), всё или ничего: страницы и папки, блоки, Zero-элементы, код блока (`get/set/add_block_code`), дизайны и их кадры, шаблоны (`add_template`), тема, попапы |
