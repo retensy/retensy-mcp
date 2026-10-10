@@ -76,7 +76,7 @@ const ACTION_KINDS = new Set([
   "group_unban", "group_kick", "group_approve", "group_decline",
   "invite_link_create", "invite_link_revoke", "subscription_extend", "subscription_check",
   "yookassa_charge_saved",
-  "booking_slots", "booking_book", "booking_cancel", "lead_link_contact",
+  "booking_slots", "booking_book", "booking_cancel", "lead_link_contact", "sla_check",
   // Integration Core (провайдеры из integration_catalog) — бэкенд узнаёт их через реестр, здесь — известные:
   "meta_capi_event",
 ]);
