@@ -81,8 +81,10 @@ const ACTION_KINDS = new Set([
   // Integration Core (провайдеры из integration_catalog) — бэкенд узнаёт их через реестр, здесь — известные:
   "meta_capi_event",
 ]);
-// Зеркало FlowExecutor.EMAIL_PATTERN (валидация send_email/subscriber_email на бэке).
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Зеркало FlowExecutor.EMAIL_PATTERN (валидация send_email на бэке, fix-раунд 1): без `,;<>()"` —
+// иначе "a@b.c,admin@evil.com" проходил бы матч целиком (запятая попадала во вторую часть домена),
+// хотя send_email — ровно один получатель, не список.
+const EMAIL_RE = /^[^\s@,;<>()"]+@[^\s@,;<>()"]+\.[^\s@,;<>()"]+$/;
 // Смещение времени DELAY UNTIL / SCHEDULE: -24h, -30m, +1d (зеркало FlowTime.OFFSET)
 const OFFSET_RE = /^([+-])?\s*\d{1,6}\s*[smhdw]$/i;
 function checkTimeExtras(c, prefix, who) {
