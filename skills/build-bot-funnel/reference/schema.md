@@ -81,7 +81,7 @@
     `{{body.<ключ>}}`, ключи и примеры — в `inbound.events[].vars` того же события каталога.
     amoCRM шлёт пачку сущностей одним запросом (`leads[add][0..n]`, `leads[status]`, `contacts[add]`) — сценарий
     запускается по КАЖДОЙ сущности отдельно (порядок: сделки добавлены → смена этапа → контакты), не только по первой.
-    `event: "<key>"` с `paymentSucceeded:true` (кассы ЮKassa/CloudPayments/Robokassa/Т-Банк/Prodamus) помимо
+    `event: "<key>"` с `paymentSucceeded:true` (кассы ЮKassa/CloudPayments/Robokassa/Т-Банк/Prodamus/bePaid) помимо
     этого же `{{body.<ключ>}}`-прогона ЕЩЁ запускает узел «Оплата прошла» ваших графов — headless (без чата)
     либо в чате подписчика, если платёжную ссылку выдавало действие `*_link`/`issue_invoice` с привязкой
     к нему. Тестовый/demo-платёж (`test_mode`/`demo_mode` в переменных) прогоняет только обычный вебхук —
