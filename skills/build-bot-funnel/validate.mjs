@@ -401,12 +401,13 @@ for (const n of nodes) {
           if (a.mode != null && String(a.mode) !== "goto")
             errors.push(`CALL_SCENARIO_BAD_MODE: ${who} — поддерживается только mode «goto» (перейти).`);
           (Array.isArray(a.variables) ? a.variables : []).forEach((v, j) => {
-            if (!VAR_RE.test(String(v?.key ?? "")))
-              errors.push(`ACTION_BAD_KEY: ${who} — call_scenario.variables[${j}].key ∈ [a-z_][a-z0-9_]{0,63}.`);
+            const key = String(v?.key ?? "");
+            if (!VAR_RE.test(key) || key.startsWith("_"))
+              errors.push(`ACTION_BAD_KEY: ${who} — call_scenario.variables[${j}].key ∈ [a-z][a-z0-9_]{0,63} (служебные _* нельзя).`);
           });
           if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(a.graphId ?? "").trim()))
             errors.push(`CALL_SCENARIO_NO_TARGET: ${who} — нужен graphId сценария этого же бота (list_graphs).`);
-          else if (g.id && String(a.graphId).trim() === String(g.id))
+          else if (g.id && String(a.graphId).trim().toLowerCase() === String(g.id).trim().toLowerCase())
             errors.push(`CALL_SCENARIO_SELF: ${who} — сценарий не может переходить сам в себя.`);
         }
         if (a.kind === "gsheets_send" && (!a.googleEmail || !a.spreadsheetId || !Array.isArray(a.cells) || a.cells.length === 0))

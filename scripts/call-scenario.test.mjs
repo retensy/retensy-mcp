@@ -39,8 +39,10 @@ const cases = [
   ["CALL_SCENARIO_BAD_MODE", run([{ kind: "call_scenario", graphId: target, mode: "call" }])],
   ["ACTION_BAD_KEY", run([{ kind: "call_scenario", graphId: target, variables: [{ key: "Bad Key", value: "1" }] }])],
   ["CALL_SCENARIO_SELF", run([{ kind: "call_scenario", graphId: target }], target)],
+  ["CALL_SCENARIO_SELF (регистр)", run([{ kind: "call_scenario", graphId: target.toUpperCase() }], target)],
+  ["ACTION_BAD_KEY (служебная _*)", run([{ kind: "call_scenario", graphId: target, variables: [{ key: "_payment_nonce", value: "1" }] }])],
 ];
-for (const [code, r] of cases) check(`${code} — exit 1 и код в выводе`, r.code === 1 && r.out.includes(code));
+for (const [code, r] of cases) check(`${code} — exit 1 и код в выводе`, r.code === 1 && r.out.includes(code.split(" ")[0]));
 
 fs.rmSync(dir, { recursive: true, force: true });
 if (failed) { console.error(`call-scenario: провалов ${failed}`); process.exit(1); }
