@@ -42,6 +42,7 @@ const acts = node("ACTIONS", { actions: [
   { kind: "meta_capi_event", connectionId: "c2", eventName: "Purchase" },
   { kind: "agent_chat" },
   { kind: "bitrix24_call", connectionId: "c3", b24method: "crm.lead.add" },
+  { kind: "send_email", email: "{{var.email}}", subject: "Тема", text: "Текст", replyTo: "owner@retensy.com" },
 ] });
 const delay = node("DELAY", { kind: "UNTIL", isoTimestamp: "{{var.slot_at}}", offset: "-24h", timezone: "Europe/Moscow" });
 const sched = node("SCHEDULE", { isoDate: "{{var.slot_at}}", offset: "-30m" });
@@ -55,14 +56,21 @@ check("kind Integration Core не из списка — предупрежден
 
 // --- плохой граф ---
 const badTrig = node("TRIGGER_SCHEDULE", { cron: "0 9 * *", timezone: "Mars/Olympus" });
-const badActs = node("ACTIONS", { actions: [{ kind: "booking_book" }, { kind: "booking_slots", calendarId: CAL, saveTo: "Bad-Var" }] });
+const badActs = node("ACTIONS", { actions: [{ kind: "booking_book" }, { kind: "booking_slots", calendarId: CAL, saveTo: "Bad-Var" },
+  { kind: "send_email", email: "not-an-email", text: "" }] });
 const badDelay = node("DELAY", { kind: "UNTIL", isoTimestamp: "{{var.slot_at}}", offset: "minus a day" });
 const badSched = node("SCHEDULE", { isoDate: "2026-10-12" });
 const bad = run([badTrig, badActs, badDelay, badSched], [edge(badTrig, badActs), edge(badActs, badDelay), edge(badDelay, badSched)]);
 check("плохой граф — exit 1", bad.code === 1);
-for (const code of ["SCHEDULE_TRIGGER_BAD_CRON", "SCHEDULE_TRIGGER_BAD_TIMEZONE", "ACTION_BOOKING_NO_CALENDAR", "ACTION_BAD_KEY", "DELAY_BAD_OFFSET", "SCHEDULE_BAD_TIME"]) {
+for (const code of ["SCHEDULE_TRIGGER_BAD_CRON", "SCHEDULE_TRIGGER_BAD_TIMEZONE", "ACTION_BOOKING_NO_CALENDAR", "ACTION_BAD_KEY", "DELAY_BAD_OFFSET", "SCHEDULE_BAD_TIME",
+  "ACTION_SEND_EMAIL_BAD_EMAIL", "ACTION_SEND_EMAIL_NO_TEXT"]) {
   check(`плохой граф — ${code}`, bad.out.includes(code));
 }
+
+// fix-раунд 1, Minor: запятая/несколько адресов не должны проходить как один получатель
+const commaActs = node("ACTIONS", { actions: [{ kind: "send_email", email: "a@b.c,admin@evil.com", text: "Текст" }] });
+const comma = run([trig, commaActs], [edge(trig, commaActs)]);
+check("send_email: запятая в адресе — ACTION_SEND_EMAIL_BAD_EMAIL", comma.out.includes("ACTION_SEND_EMAIL_BAD_EMAIL"));
 
 fs.rmSync(dir, { recursive: true, force: true });
 if (failed) { console.error(`validate-graph: провалов ${failed}`); process.exit(1); }

@@ -77,9 +77,14 @@ const ACTION_KINDS = new Set([
   "invite_link_create", "invite_link_revoke", "subscription_extend", "subscription_check",
   "yookassa_charge_saved",
   "booking_slots", "booking_book", "booking_cancel", "lead_link_contact", "sla_check",
+  "send_email",
   // Integration Core (провайдеры из integration_catalog) — бэкенд узнаёт их через реестр, здесь — известные:
   "meta_capi_event",
 ]);
+// Зеркало FlowExecutor.EMAIL_PATTERN (валидация send_email на бэке, fix-раунд 1): без `,;<>()"` —
+// иначе "a@b.c,admin@evil.com" проходил бы матч целиком (запятая попадала во вторую часть домена),
+// хотя send_email — ровно один получатель, не список.
+const EMAIL_RE = /^[^\s@,;<>()"]+@[^\s@,;<>()"]+\.[^\s@,;<>()"]+$/;
 // Смещение времени DELAY UNTIL / SCHEDULE: -24h, -30m, +1d (зеркало FlowTime.OFFSET)
 const OFFSET_RE = /^([+-])?\s*\d{1,6}\s*[smhdw]$/i;
 function checkTimeExtras(c, prefix, who) {
@@ -395,6 +400,15 @@ for (const n of nodes) {
         }
         if (a.kind === "gsheets_send" && (!a.googleEmail || !a.spreadsheetId || !Array.isArray(a.cells) || a.cells.length === 0))
           errors.push(`ACTION_GSHEETS_INCOMPLETE: ${who} — gsheets_send требует googleEmail + spreadsheetId + непустой cells[] (Google-аккаунт подключается в вебе /bots, не через MCP).`);
+        if (a.kind === "send_email") {
+          // «Отправить письмо» (TASK-4): один получатель — email не массив, список адресов сюда не идёт.
+          if (blank(a.email)) errors.push(`ACTION_SEND_EMAIL_NO_RECIPIENT: ${who} — send_email требует email (адрес или {{var.*}}).`);
+          else if (!String(a.email).includes("{{") && !EMAIL_RE.test(String(a.email).trim()))
+            errors.push(`ACTION_SEND_EMAIL_BAD_EMAIL: ${who} — email «${a.email}» не похож на адрес.`);
+          if (blank(a.text)) errors.push(`ACTION_SEND_EMAIL_NO_TEXT: ${who} — send_email требует text (текст письма).`);
+          if (!blank(a.replyTo) && !String(a.replyTo).includes("{{") && !EMAIL_RE.test(String(a.replyTo).trim()))
+            errors.push(`ACTION_SEND_EMAIL_BAD_REPLYTO: ${who} — replyTo «${a.replyTo}» не похож на адрес.`);
+        }
       });
       break;
     }
