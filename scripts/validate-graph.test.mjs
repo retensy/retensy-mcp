@@ -67,6 +67,11 @@ for (const code of ["SCHEDULE_TRIGGER_BAD_CRON", "SCHEDULE_TRIGGER_BAD_TIMEZONE"
   check(`плохой граф — ${code}`, bad.out.includes(code));
 }
 
+// fix-раунд 1, Minor: запятая/несколько адресов не должны проходить как один получатель
+const commaActs = node("ACTIONS", { actions: [{ kind: "send_email", email: "a@b.c,admin@evil.com", text: "Текст" }] });
+const comma = run([trig, commaActs], [edge(trig, commaActs)]);
+check("send_email: запятая в адресе — ACTION_SEND_EMAIL_BAD_EMAIL", comma.out.includes("ACTION_SEND_EMAIL_BAD_EMAIL"));
+
 fs.rmSync(dir, { recursive: true, force: true });
 if (failed) { console.error(`validate-graph: провалов ${failed}`); process.exit(1); }
 console.log("validate-graph OK");
