@@ -9,10 +9,15 @@ on:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    # Self-hosted раннер на ПК владельца (метка `pc`). Теги пушат только участники с правом записи.
+    # npm provenance на self-hosted раннерах не поддерживается — публикация без --provenance.
+    if: github.repository == 'retensy/retensy-mcp'
+    runs-on: [self-hosted, pc]
+    defaults:
+      run:
+        shell: cmd
     permissions:
       contents: read
-      id-token: write # для npm provenance
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,7 +26,9 @@ jobs:
           registry-url: "https://registry.npmjs.org"
       - name: Smoke test
         run: node scripts/smoke.mjs
+        env:
+          RETENSY_MCP_AUTOUPDATE: "0"
       - name: Publish
-        run: npm publish --provenance --access public
+        run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
