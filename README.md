@@ -10,7 +10,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 - 🤖 **Сценарии ботов**: `list_bots`, `list_graphs`, `list_channels`, `get_graph`, `create_graph`, `update_graph`, `edit_graph_live`, `patch_graph`, `dry_run`, `publish_graph`, `import_funnel`, `list_templates`, `create_graph_from_template`, `clone_graph`, `copy_graph`, `rename_graph`, `set_active_graph`, `delete_graph`, `upload_file`, `list_files`, `delete_file`, `graph_analytics`, `list_bot_users`, `list_links` (+ `setup`/`set_token`).
 - 🔌 **Боты и сервисы**: `create_bot` (Telegram/MAX по токену), `bot_stop`/`bot_resume`, `connect_integration`/`disconnect_integration` (amoCRM, Битрикс24, GetCourse, Я.Метрика, ЮKassa; Google Таблицы — ссылкой на вход Google; креды хранятся зашифрованными и не возвращаются), `integration_catalog`/`integration_status`/`integration_test` (каталог Integration Core и живая проверка подключения), `integration_ingress_url` (URL ингресса «Внешних событий» — Tilda, JivoSite, WooCommerce, amoCRM, Битрикс24, GetCourse, CloudPayments, Robokassa, Т-Банк, Prodamus — для `TRIGGER_WEBHOOK`), `channel_post` (пост в канал Telegram/MAX).
 - 📣 **Рассылки**: `broadcast_preview` (размер аудитории), `broadcast_send` (сейчас или по расписанию, сразу по нескольким ботам; сообщения или запуск сценария), `broadcast_list`/`broadcast_get`/`broadcast_cancel`, повторяющиеся (`broadcast_recurring`), черновики (`broadcast_drafts`, `broadcast_duplicate`) + скилл `send-broadcast`.
-- 🔗 **Ссылка вместо отказа**: что нельзя сделать через API (вход через Google/Facebook, оплата тарифа, вход в аккаунт) — инструмент возвращает прямую ссылку и одну строку, что сделать.
+- 🔗 **Ссылка вместо отказа**: что нельзя сделать через API (вход через Google/Instagram, оплата тарифа, вход в аккаунт) — инструмент возвращает прямую ссылку и одну строку, что сделать.
 - 📝 **Статьи блога** (тот же токен `zmcp_…`): `article_publish`, `article_update`, `article_list`, `article_get` — публикация статей в Markdown (как README на GitHub) в раздел **/articles**.
 - 🧠 **ИИ-агенты и база знаний**: `agent_list`/`agent_get`/`agent_create`/`agent_update`/`agent_publish`/`agent_health`/`agent_test_chat`/`agent_unanswered`, `kb_docs`/`kb_add_qa`/`kb_add_text`/`kb_add_site`/`kb_reindex` — настройка ИИ-агента и его базы знаний (раздел «ИИ-агенты»).
 - 📎 **Медиа**: `upload_file` грузит фото/видео/документы в библиотеку **/bots/files** (до 50 МБ) и возвращает публичный URL — его вставляешь в медиа-карточку сценария.
@@ -24,7 +24,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 |---|---|---|---|
 | **Telegram** | Токен бота (BotFather) → `create_bot` | `/start`, команды, callback, текст, рассылки | Полный функционал |
 | **MAX** | Токен бота (MasterBot в MAX) → `create_bot` | Команды, callback, текст | Без SUBSCRIBED/reply-клавиатур (мягкие предупреждения) |
-| **Instagram** | Вход через Facebook (OAuth) в кабинете `/bots/instagram` (без токена) — нужен Instagram-аккаунт Business или Creator, привязанный к странице Facebook | Комментарий/Direct/Ответ на историю/Упоминание | Ограниченный набор узлов; DELAY ≤ 24ч; ASK_QUESTION только TEXT/EMAIL/PHONE/NUMBER/CONTACT (CONTACT = ручной ввод номера); без рассылок |
+| **Instagram** | Вход через Instagram (OAuth) в кабинете `/bots/instagram` (без токена) — нужен Instagram-аккаунт Business или Creator | Комментарий/Direct/Ответ на историю/Упоминание | Ограниченный набор узлов; DELAY ≤ 24ч; ASK_QUESTION только TEXT/EMAIL/PHONE/NUMBER/CONTACT (CONTACT = ручной ввод номера); без рассылок |
 
 ---
 
@@ -97,13 +97,13 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `setup` | статус авторизации + пошаговая инструкция подключения |
 | `set_token` | сохранить присланный токен `zmcp_…` (без env/рестарта) |
 | `list_bots` | список ботов |
-| `create_bot(platform, token?, name?)` | подключить бота Telegram/MAX по токену; `WEB` — чат-виджет для сайта без токена → botId, key, snippet (Instagram → ссылка на кабинет `/bots/instagram`, вход через Facebook) |
+| `create_bot(platform, token?, name?)` | подключить бота Telegram/MAX по токену; `WEB` — чат-виджет для сайта без токена → botId, key, snippet (Instagram → ссылка на кабинет `/bots/instagram`, вход через Instagram) |
 | `web_widget_snippet(botId)` | код вставки чат-виджета на сайт |
 | `bot_stop(botId)` / `bot_resume(botId)` | остановить / запустить бота |
 | `list_graphs(botId)` | графы (сценарии) бота |
 | `list_channels(botId)` | каналы/группы, подключённые к боту (chatId для условия SUBSCRIBED) |
 | `list_integrations()` | подключённые сервисы (amoCRM, Битрикс24, GetCourse, Я.Метрика, ЮKassa): `id` = `connectionId` для действий сценария |
-| `connect_integration(provider, creds?, title?, connectionId?)` | подключить/обновить сервис; без кредов — какие поля нужны; Google Таблицы → ссылка входа Google, Instagram → ссылка на кабинет `/bots/instagram` (вход через Facebook) |
+| `connect_integration(provider, creds?, title?, connectionId?)` | подключить/обновить сервис; без кредов — какие поля нужны; Google Таблицы → ссылка входа Google, Instagram → ссылка на кабинет `/bots/instagram` (вход через Instagram) |
 | `disconnect_integration(connectionId)` | удалить подключение |
 | `integration_catalog()` | каталог Integration Core: поля подключения (`configSchema`) и действия (`actions[].kind`) сервисов |
 | `integration_status(connectionId)` | статус подключения: `OK` / `NEEDS_REAUTH` / `ERROR` / `UNKNOWN`, последняя проверка и ошибка |
@@ -230,7 +230,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 |---|---|
 | нет токена / токен отозван | `/bots/mcp-tokens` — создать токен и прислать агенту |
 | Google Таблицы (`connect_integration`) | одноразовая ссылка согласия Google (OAuth) |
-| Instagram (`create_bot`, `connect_integration`) | `/bots/instagram` — подключается входом через Facebook (OAuth); нужен Instagram-аккаунт Business/Creator, привязанный к странице Facebook |
+| Instagram (`create_bot`, `connect_integration`) | `/bots/instagram` — подключается входом через Instagram (OAuth); нужен Instagram-аккаунт Business/Creator |
 | лимит тарифа, рассылки на бесплатном (HTTP 402) | `upgradeUrl` из ответа или `/bots/subscription` |
 | свой домен сайта | DNS у регистратора: A-запись на `dnsTarget` из `site_domains` |
 
