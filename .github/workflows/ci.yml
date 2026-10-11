@@ -6,9 +6,15 @@ on:
   pull_request:
     branches: [master, main]
 
+# Раннер — self-hosted на ПК владельца (метка `pc`, Windows): облачные раннеры GitHub не запускаются
+# из-за биллинга аккаунта. Репозиторий публичный, поэтому PR из форков на ПК НЕ запускаются (условие if).
 jobs:
   test:
-    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, pc]
+    defaults:
+      run:
+        shell: cmd
     strategy:
       fail-fast: false
       matrix:
@@ -19,14 +25,7 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
       - name: Syntax check
-        run: |
-          node --check src/index.mjs
-          node --check scripts/smoke.mjs
-          node --check scripts/telemetry.test.mjs
-          node --check scripts/live-edit-422.test.mjs
-          node --check scripts/broadcast-connect.test.mjs
-          node --check scripts/integration-core.test.mjs
-          node --check skills/build-bot-funnel/validate.mjs
+        run: node --check src/index.mjs && node --check scripts/smoke.mjs && node --check scripts/telemetry.test.mjs && node --check scripts/live-edit-422.test.mjs && node --check scripts/broadcast-connect.test.mjs && node --check scripts/integration-core.test.mjs && node --check skills/build-bot-funnel/validate.mjs
       - name: Smoke test (MCP stdio)
         run: node scripts/smoke.mjs
         env:
