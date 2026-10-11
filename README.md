@@ -24,7 +24,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 |---|---|---|---|
 | **Telegram** | Токен бота (BotFather) → `create_bot` | `/start`, команды, callback, текст, рассылки | Полный функционал |
 | **MAX** | Токен бота (MasterBot в MAX) → `create_bot` | Команды, callback, текст | Без SUBSCRIBED/reply-клавиатур (мягкие предупреждения) |
-| **Instagram** ⏸ | OAuth в `/bots/instagram` (без токена) — **сейчас выключен в сервисе** (подключение новых IG-ботов скрыто, флаг `instagram.enabled`) | Комментарий/Direct/Ответ на историю/Упоминание | Ограниченный набор узлов; DELAY ≤ 24ч; ASK_QUESTION только TEXT/EMAIL/PHONE/NUMBER/CONTACT (CONTACT = ручной ввод номера); без рассылок |
+| **Instagram** | Вход через Facebook (OAuth) в кабинете `/bots/instagram` (без токена) — нужен Instagram-аккаунт Business или Creator, привязанный к странице Facebook | Комментарий/Direct/Ответ на историю/Упоминание | Ограниченный набор узлов; DELAY ≤ 24ч; ASK_QUESTION только TEXT/EMAIL/PHONE/NUMBER/CONTACT (CONTACT = ручной ввод номера); без рассылок |
 
 ---
 
@@ -97,13 +97,13 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `setup` | статус авторизации + пошаговая инструкция подключения |
 | `set_token` | сохранить присланный токен `zmcp_…` (без env/рестарта) |
 | `list_bots` | список ботов |
-| `create_bot(platform, token?, name?)` | подключить бота Telegram/MAX по токену; `WEB` — чат-виджет для сайта без токена → botId, key, snippet (Instagram → ссылка на кабинет) |
+| `create_bot(platform, token?, name?)` | подключить бота Telegram/MAX по токену; `WEB` — чат-виджет для сайта без токена → botId, key, snippet (Instagram → ссылка на кабинет `/bots/instagram`, вход через Facebook) |
 | `web_widget_snippet(botId)` | код вставки чат-виджета на сайт |
 | `bot_stop(botId)` / `bot_resume(botId)` | остановить / запустить бота |
 | `list_graphs(botId)` | графы (сценарии) бота |
 | `list_channels(botId)` | каналы/группы, подключённые к боту (chatId для условия SUBSCRIBED) |
 | `list_integrations()` | подключённые сервисы (amoCRM, Битрикс24, GetCourse, Я.Метрика, ЮKassa): `id` = `connectionId` для действий сценария |
-| `connect_integration(provider, creds?, title?, connectionId?)` | подключить/обновить сервис; без кредов — какие поля нужны; Google Таблицы → ссылка входа Google, Instagram → ссылка на кабинет |
+| `connect_integration(provider, creds?, title?, connectionId?)` | подключить/обновить сервис; без кредов — какие поля нужны; Google Таблицы → ссылка входа Google, Instagram → ссылка на кабинет `/bots/instagram` (вход через Facebook) |
 | `disconnect_integration(connectionId)` | удалить подключение |
 | `integration_catalog()` | каталог Integration Core: поля подключения (`configSchema`) и действия (`actions[].kind`) сервисов |
 | `integration_status(connectionId)` | статус подключения: `OK` / `NEEDS_REAUTH` / `ERROR` / `UNKNOWN`, последняя проверка и ошибка |
@@ -230,7 +230,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 |---|---|
 | нет токена / токен отозван | `/bots/mcp-tokens` — создать токен и прислать агенту |
 | Google Таблицы (`connect_integration`) | одноразовая ссылка согласия Google (OAuth) |
-| Instagram (`create_bot`, `connect_integration`) | `/bots/connect` — подключается входом через Facebook; сейчас выключен в сервисе |
+| Instagram (`create_bot`, `connect_integration`) | `/bots/instagram` — подключается входом через Facebook (OAuth); нужен Instagram-аккаунт Business/Creator, привязанный к странице Facebook |
 | лимит тарифа, рассылки на бесплатном (HTTP 402) | `upgradeUrl` из ответа или `/bots/subscription` |
 | свой домен сайта | DNS у регистратора: A-запись на `dnsTarget` из `site_domains` |
 
