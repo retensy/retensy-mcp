@@ -7,6 +7,47 @@
 
 MCP-сервер (+ скилл для Claude Code) для **сборки и публикации воронок/автоматизаций ботов (Telegram, MAX и Instagram)** в сервисе [retensy `/bots`](https://bots.retensy.com/bots): из текстового описания → валидный граф сценария → заливка и публикация через API.
 
+---
+
+## Быстрый старт
+
+1. **Получи токен.** Залогинься на https://bots.retensy.com → открой `/bots/mcp-tokens` → создай токен → скопируй секрет `zmcp_...` (показывается один раз).
+2. **Подключи у своего клиента** (env-переменные везде одни и те же: `RETENSY_BASE_URL`, `RETENSY_MCP_TOKEN`):
+
+   **Claude Desktop** — добавь в `claude_desktop_config.json`:
+   ```json
+   {
+     "mcpServers": {
+       "retensy-mcp": {
+         "command": "npx",
+         "args": ["-y", "@retensy/mcp@latest"],
+         "env": {
+           "RETENSY_BASE_URL": "https://bots.retensy.com",
+           "RETENSY_MCP_TOKEN": "zmcp_ваш_токен"
+         }
+       }
+     }
+   }
+   ```
+
+   **Claude Code** — одной командой:
+   ```bash
+   claude mcp add retensy-mcp -e RETENSY_BASE_URL=https://bots.retensy.com -e RETENSY_MCP_TOKEN=zmcp_ваш_токен -- npx -y @retensy/mcp@latest
+   ```
+   Или как плагин (подтянет и скиллы, см. [«Вариант A» ниже](#вариант-a--как-плагин-claude-code-рекомендуется)):
+   ```text
+   /plugin marketplace add retensy/retensy-mcp
+   /plugin install retensy-mcp@retensy
+   ```
+
+   **Cursor** — Settings → MCP → Add new MCP Server (или `.cursor/mcp.json` в проекте) — тот же JSON-объект, что и для Claude Desktop выше (`mcpServers.retensy-mcp` с `command`/`args`/`env`).
+
+3. **Собери первую воронку.** Опиши сценарий словами агенту — он сам соберёт граф и опубликует (см. [«Использование»](#использование)), либо перенеси готовую воронку из другого сервиса — см. [«Перенос воронки из другого конструктора»](#перенос-воронки-из-другого-конструктора) ниже.
+
+Проверить подключение в любом клиенте: спроси агента «настрой подключение» — вызовет `setup` и подскажет, если что-то не так.
+
+---
+
 - 🤖 **Сценарии ботов**: `list_bots`, `list_graphs`, `list_channels`, `get_graph`, `create_graph`, `update_graph`, `edit_graph_live`, `patch_graph`, `dry_run`, `publish_graph`, `import_funnel`, `list_templates`, `create_graph_from_template`, `clone_graph`, `copy_graph`, `rename_graph`, `set_active_graph`, `delete_graph`, `upload_file`, `list_files`, `delete_file`, `graph_analytics`, `list_bot_users`, `list_links` (+ `setup`/`set_token`).
 - 🔌 **Боты и сервисы**: `create_bot` (Telegram/MAX по токену), `bot_stop`/`bot_resume`, `connect_integration`/`disconnect_integration` (amoCRM, Битрикс24, GetCourse, Я.Метрика, ЮKassa; Google Таблицы — ссылкой на вход Google; креды хранятся зашифрованными и не возвращаются), `integration_catalog`/`integration_status`/`integration_test` (каталог Integration Core и живая проверка подключения), `integration_ingress_url` (URL ингресса «Внешних событий» — Tilda, JivoSite, WooCommerce, amoCRM, Битрикс24, GetCourse, CloudPayments, Robokassa, Т-Банк, Prodamus — для `TRIGGER_WEBHOOK`), `channel_post` (пост в канал Telegram/MAX).
 - 📣 **Рассылки**: `broadcast_preview` (размер аудитории), `broadcast_send` (сейчас или по расписанию, сразу по нескольким ботам; сообщения или запуск сценария; полный фильтр аудитории `audienceFilter`, дедуп `dedup` и распределённый запуск `stagger` по ботам), `broadcast_list`/`broadcast_get`/`broadcast_cancel`, повторяющиеся (`broadcast_recurring`), черновики (`broadcast_drafts`, `broadcast_duplicate`), мульти-бот группы (`broadcast_group` — preview/list/get/pause/resume/cancel) + скилл `send-broadcast`.
@@ -20,6 +61,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 - 📎 **Медиа**: `upload_file` грузит фото/видео/документы в библиотеку **/bots/files** (до 50 МБ) и возвращает публичный URL — его вставляешь в медиа-карточку сценария.
 - 🌐 **Сайты из блоков** (раздел «Страницы»): создание, правка операциями (блоки, Zero-блок со свободной вёрсткой, код блока, папки страниц, дизайны, шаблоны из библиотеки), публикация и откат, свои домены, заявки из форм и куда их доставлять — инструменты `site_*` + скилл `build-site`.
 - 🧠 **Скилл `build-bot-funnel`**: учит агента собирать корректный граф (типы узлов, ветки, кнопки, задержки) и проверять его перед публикацией. Поддерживает Telegram, MAX и Instagram.
+- 🔁 **Скилл `rebuild-funnel-from-builder`**: переносит воронку из другого конструктора (BotHelp, SaleBot, Senler, Leadteh, Smartsender, ManyChat, PuzzleBot и др.) по export JSON/тексту, скриншотам или пересказу — в граф Retensy, новым черновиком, без перезаписи текущего сценария. См. [«Перенос воронки из другого конструктора»](#перенос-воронки-из-другого-конструктора).
 - 📦 **Без зависимостей** — чистый Node ≥18, ставится и запускается сразу.
 
 ### Поддерживаемые платформы
@@ -41,7 +83,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 /plugin install retensy-mcp@retensy
 ```
 
-Подтянутся MCP-сервер и скиллы `build-bot-funnel`, `build-site`, `send-broadcast`. Проверить: `/mcp` и `/plugin`.
+Подтянутся MCP-сервер и скиллы `build-bot-funnel`, `rebuild-funnel-from-builder`, `build-site`, `send-broadcast`. Проверить: `/mcp` и `/plugin`.
 
 ### Вариант B — как обычный MCP-сервер (Claude Code / Cursor / Windsurf / любой MCP-клиент)
 
@@ -282,6 +324,20 @@ node skills/build-bot-funnel/validate.mjs path/to/import.json --platform=INSTAGR
 # MAX-бот
 node skills/build-bot-funnel/validate.mjs path/to/import.json --platform=MAX
 ```
+
+---
+
+## Перенос воронки из другого конструктора
+
+Есть готовая воронка в BotHelp, SaleBot, Senler, Leadteh, Smartsender, ManyChat, PuzzleBot или
+любом другом сервисе — скилл [`rebuild-funnel-from-builder`](skills/rebuild-funnel-from-builder/SKILL.md)
+учит агента перенести её в Retensy: разобрать export JSON/текст/скриншоты/пересказ → построить
+инвентарь блоков → сопоставить с реальными типами узлов Retensy (таблица в
+[reference/mapping.md](skills/rebuild-funnel-from-builder/reference/mapping.md)) → прямо спросить
+про то, что не мапится, вместо того чтобы выдумывать замену → собрать граф → проверить
+`validate.mjs`/`dry_run` → залить **новым** черновиком (никогда не поверх текущего сценария) →
+опубликовать только после явного подтверждения. Перенос самих подписчиков (не графа) — отдельно,
+через `migration_presets`/`migration_preview`/`migration_commit` (CSV).
 
 ---
 
