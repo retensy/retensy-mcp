@@ -9,7 +9,11 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 
 - 🤖 **Сценарии ботов**: `list_bots`, `list_graphs`, `list_channels`, `get_graph`, `create_graph`, `update_graph`, `edit_graph_live`, `patch_graph`, `dry_run`, `publish_graph`, `import_funnel`, `list_templates`, `create_graph_from_template`, `clone_graph`, `copy_graph`, `rename_graph`, `set_active_graph`, `delete_graph`, `upload_file`, `list_files`, `delete_file`, `graph_analytics`, `list_bot_users`, `list_links` (+ `setup`/`set_token`).
 - 🔌 **Боты и сервисы**: `create_bot` (Telegram/MAX по токену), `bot_stop`/`bot_resume`, `connect_integration`/`disconnect_integration` (amoCRM, Битрикс24, GetCourse, Я.Метрика, ЮKassa; Google Таблицы — ссылкой на вход Google; креды хранятся зашифрованными и не возвращаются), `integration_catalog`/`integration_status`/`integration_test` (каталог Integration Core и живая проверка подключения), `integration_ingress_url` (URL ингресса «Внешних событий» — Tilda, JivoSite, WooCommerce, amoCRM, Битрикс24, GetCourse, CloudPayments, Robokassa, Т-Банк, Prodamus — для `TRIGGER_WEBHOOK`), `channel_post` (пост в канал Telegram/MAX).
-- 📣 **Рассылки**: `broadcast_preview` (размер аудитории), `broadcast_send` (сейчас или по расписанию, сразу по нескольким ботам; сообщения или запуск сценария), `broadcast_list`/`broadcast_get`/`broadcast_cancel`, повторяющиеся (`broadcast_recurring`), черновики (`broadcast_drafts`, `broadcast_duplicate`) + скилл `send-broadcast`.
+- 📣 **Рассылки**: `broadcast_preview` (размер аудитории), `broadcast_send` (сейчас или по расписанию, сразу по нескольким ботам; сообщения или запуск сценария; полный фильтр аудитории `audienceFilter`, дедуп `dedup` и распределённый запуск `stagger` по ботам), `broadcast_list`/`broadcast_get`/`broadcast_cancel`, повторяющиеся (`broadcast_recurring`), черновики (`broadcast_drafts`, `broadcast_duplicate`), мульти-бот группы (`broadcast_group` — preview/list/get/pause/resume/cancel) + скилл `send-broadcast`.
+- 👥 **Аудитория подписчиков**: `audience_search`/`audience_fields` — кросс-бот поиск и фильтр (теги, даты, статус, условия по переменным), `audience_tag_edit`/`audience_variable_edit` — массовое редактирование тегов/переменных, `audience_export` — потоковая выгрузка выборки в CSV/XLSX, `dialog_search` — поиск по «Диалогам» (включая текст сообщений).
+- 📤 **Миграция подписчиков** из других конструкторов: `migration_presets`/`migration_preview`/`migration_commit` — generic CSV column-mapper для BotHelp/SaleBot/Senler/Leadteh/Smartsender/ManyChat (переносятся только подписчики — ни один из них не публикует документированный формат экспорта воронки).
+- 📅 **Запись на слоты**: `booking_calendar_*` (буферы до/после брони, горизонт записи, типы встреч своей длительности, форма клиента, публичная страница `/book/<slug>`), `booking_confirm`/`booking_reject` — ручное подтверждение брони (`confirmationMode:"MANUAL"`).
+- 📰 **Публикации и VK**: `publications_usage` — месячная квота (общая для Telegram/MAX/Instagram/VK), `vk_status`/`vk_connect`/`vk_disconnect`/`vk_post` — подключение VK-сообщества токеном и публикация на стену.
 - 🔗 **Ссылка вместо отказа**: что нельзя сделать через API (вход через Google/Instagram, оплата тарифа, вход в аккаунт) — инструмент возвращает прямую ссылку и одну строку, что сделать.
 - 📝 **Статьи блога** (тот же токен `zmcp_…`): `article_publish`, `article_update`, `article_list`, `article_get` — публикация статей в Markdown (как README на GitHub) в раздел **/articles**.
 - 🧠 **ИИ-агенты и база знаний**: `agent_list`/`agent_get`/`agent_create`/`agent_update`/`agent_publish`/`agent_health`/`agent_test_chat`/`agent_unanswered`, `kb_docs`/`kb_add_qa`/`kb_add_text`/`kb_add_site`/`kb_reindex` — настройка ИИ-агента и его базы знаний (раздел «ИИ-агенты»).
@@ -145,11 +149,12 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `broadcast_list(botId?, group?, page?, size?)` | рассылки + счётчики разделов (черновики/запланированные/отправленные/повторы) |
 | `broadcast_get(broadcastId)` | рассылка целиком: статус, счётчики, сообщения, причины ошибок |
 | `broadcast_preview(botIds, tagsAll?, tagsNone?)` | сколько подписчиков получат рассылку |
-| `broadcast_send(name, botIds, messages \| graphId, tagsAll?, tagsNone?, scheduledAt?, draftId?)` | отправить сейчас / запланировать; по нескольким ботам; или запуск сценария |
-| `broadcast_cancel(broadcastId)` | отменить запланированную/идущую |
-| `broadcast_recurring(action, …)` | повторяющиеся рассылки: list / create (DAILY·MONTHLY·YEARLY) / stop |
+| `broadcast_send(name, botIds, messages \| graphId, tagsAll?/tagsNone? или audienceFilter?, scheduledAt?, draftId?, dedup?, stagger?)` | отправить сейчас / запланировать; по нескольким ботам; или запуск сценария; `dedup`/`stagger` → мульти-бот группа (`broadcast_group`) вместо прямых рассылок |
+| `broadcast_cancel(broadcastId)` | отменить запланированную/идущую (для группы — `broadcast_group action:"cancel"`) |
+| `broadcast_recurring(action, …)` | повторяющиеся рассылки: list / create (DAILY·MONTHLY·YEARLY, те же `audienceFilter`/`dedup`/`stagger`) / stop |
 | `broadcast_drafts(action, …)` | черновики: list / get / create / update / delete |
 | `broadcast_duplicate(broadcastId` или `draftId)` | копия рассылки или черновика — новый черновик «… (копия)» |
+| `broadcast_group(action, …)` | мульти-бот группа с дедупом/распределённым запуском: `preview` (read-only оценка) / `list` / `get` / `pause` / `resume` / `cancel` (каскадом на уже запущенные боты) |
 | `article_list()` | свои статьи блога (id, slug, title, просмотры) |
 | `article_get(slug)` | статья по slug (Markdown content, excerpt, обложка) |
 | `article_publish(content, title?, cover?, excerpt?)` | новая статья (Markdown; title из `# ...`, если не задан; обложка из `cover`-URL или 1-й картинки → OG; `excerpt` явно или авто) → id, slug, URL |
@@ -194,7 +199,19 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `booking_calendar_create(name, zone?, slotMinutes?, hours?, exceptions?, botId?)` | новый календарь: окна `{day:1–7, from:"HH:mm", to:"HH:mm"}`, исключения `{date, from?, to?}` |
 | `booking_calendar_update(calendarId, …поля)` / `booking_calendar_delete(calendarId, confirm:true)` | правка (поля накладываются на текущие) / удаление |
 | `booking_slots(calendarId, from?, to?, limit?)` | свободные слоты `[{at, label}]`, даты ГГГГ-ММ-ДД в зоне календаря |
-| `booking_list(calendarId, from?)` / `booking_create(calendarId, slotAt, name?, phone?)` / `booking_cancel(calendarId, bookingId)` | брони: список / ручная запись (занятый слот — ошибка «занят») / отмена |
+| `booking_list(calendarId, from?, pendingOnly?)` / `booking_create(calendarId, slotAt, name?, phone?, email?, comment?, customAnswers?, meetingTypeId?)` / `booking_cancel(calendarId, bookingId)` | брони: список (или только ждущие подтверждения) / ручная запись (занятый слот — ошибка «занят») / отмена |
+| `booking_confirm(calendarId, bookingId)` / `booking_reject(calendarId, bookingId)` | подтвердить/отклонить бронь при `confirmationMode:"MANUAL"` (прочие поля календаря: `breaks`, `meetingTypes`, буферы, `horizonDays`, `intakeFields`, `notifyOwner`, `slug`+`enabled` — публичная ссылка `/book/<slug>` — в `booking_calendar_create`/`_update`) |
+| `audience_fields(botId, search?, limit?)` | ключи переменных (с выведенным типом) и теги бота — для построителя фильтра |
+| `audience_search(botId?, botIds?, filter?, q?, sort?, dir?, page?, size?)` | фильтр+сортировка подписчиков: один бот или кросс-бот (без `botId`); `filter` — полный `AudienceFilter` (теги any/all/none, диапазоны дат, `blocked`, `variableConditions`) |
+| `audience_tag_edit(botId, chatIds, add?, remove?)` / `audience_variable_edit(botId, chatIds, set?, unset?)` | массово добавить/снять теги / установить/снять переменные у выбранных подписчиков |
+| `audience_export(botId?, botIds?, filter?, q?, format, savePath?)` | потоковая выгрузка ТЕКУЩЕЙ отфильтрованной выборки, `csv`\|`xlsx` (xlsx требует `savePath` — бинарный формат), потолок 100000 строк |
+| `dialog_search(q, limit?)` | кросс-бот поиск по «Диалогам» — имя/username/id/текст сообщения |
+| `publications_usage(botId)` | месячная квота публикаций владельца (общая для Telegram/MAX/Instagram/VK) |
+| `vk_status()` / `vk_connect(communityId, accessToken)` / `vk_disconnect(accountId)` | подключённые VK-сообщества / подключить токеном сообщества (проверяется живым вызовом VK) / отключить |
+| `vk_post(accountId, text?, mediaUrl?)` | пост на стену VK (только текст/фото — без видео), списывает ту же квоту публикаций |
+| `migration_presets()` | каталог источников миграции подписчиков (BotHelp/SaleBot/Senler/Leadteh/Smartsender/ManyChat/универсальный CSV) |
+| `migration_preview(botId, path, platform, mapping?)` | пробный прогон CSV (ничего не пишет): без `mapping` — определение заголовков/подсказка сопоставления, с `mapping` — полный dry-run (новые/существующие, превышение лимита) |
+| `migration_commit(botId, path, platform, mapping)` | реальный импорт подписчиков тем же `mapping`, что подтвердил `migration_preview` |
 
 ### Рассылки
 

@@ -27,7 +27,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.21.2";
+const VERSION = "0.22.0";
 /** С чего начать пустой сайт (init у /document/ops; на сайте с черновиком игнорируется). */
 const SITE_INITS = ["starter", "blank", "mini-landing"];
 /** Безвредная операция, когда нужен только init: бэкенд не принимает пустой ops[]. */
@@ -414,6 +414,53 @@ async function uploadSiteAsset(siteId, { filePath, url }) {
   return { asset: `assets/${safe}`, sizeBytes: bytes.length };
 }
 
+// POST с бинарным (не JSON) ответом — audience_export format=xlsx (zip/binary; res.text() испортил бы байты UTF-8-декодом).
+// Ошибки — тот же разбор, что у api(), код не шарим напрямую (api() не отдаёт сырые байты при res.ok).
+async function apiBinaryPost(path_, body) {
+  if (!isAuthed()) throw new Error(NO_AUTH_HELP);
+  const res = await fetch(`${BASE}${path_}`, { method: "POST", headers: authHeaders(), body: JSON.stringify(body) });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+    if (res.status === 401) throw new Error(`Доступ отклонён (HTTP 401). Токен невалиден/отозван — создай новый на ${TOKENS_PAGE}.`);
+    if (res.status === 403) throw new Error(`Доступ отклонён (HTTP 403)${bodyReason(data) ? `: ${bodyReason(data)}` : ""}.`);
+    if (res.status === 402) throw paymentError(data);
+    throw httpError("POST", path_, res.status, data);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+function saveBinary(buf, savePath) {
+  const abs = path.resolve(String(savePath).replace(/^~(?=$|[/\\])/, os.homedir()));
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, buf);
+  return okResult({ saved: abs, bytes: buf.length });
+}
+// Миграция подписчиков (multipart: file + platform + mapping?) — свой fetch, как у uploadMedia/uploadSiteAsset:
+// api() ставит Content-Type:application/json, multipart сам задаёт boundary через FormData.
+async function migrationMultipart(path_, { filePath, platform, mapping }) {
+  if (!isAuthed()) throw new Error(NO_AUTH_HELP);
+  if (!filePath) throw new Error("Передай path — локальный CSV-файл.");
+  const abs = path.resolve(String(filePath).replace(/^~(?=$|[/\\])/, os.homedir()));
+  let bytes;
+  try { bytes = fs.readFileSync(abs); } catch { throw new Error(`Файл не найден: ${abs}`); }
+  const headers = {};
+  const token = getToken(); const cookie = getCookie();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  else if (cookie) headers.Cookie = cookie;
+  const fd = new FormData();
+  fd.append("file", new Blob([bytes], { type: "text/csv" }), path.basename(abs));
+  fd.append("platform", platform);
+  if (mapping != null) fd.append("mapping", typeof mapping === "string" ? mapping : JSON.stringify(mapping));
+  const res = await fetch(`${BASE}${path_}`, { method: "POST", headers, body: fd });
+  const text = await res.text();
+  let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) throw new Error(`Доступ отклонён (HTTP ${res.status}). Токен невалиден/отозван — создай новый на ${TOKENS_PAGE}.`);
+    throw httpError("POST", path_, res.status, data);
+  }
+  return data;
+}
+
 const okResult = (obj) => ({ content: [{ type: "text", text: typeof obj === "string" ? obj : JSON.stringify(obj, null, 2) }] });
 const errResult = (e) => ({ isError: true, content: [{ type: "text", text: "❌ " + (e?.message || String(e)) }] });
 
@@ -486,6 +533,15 @@ function dateArg(v, label) {
   return s;
 }
 const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$|^24:00$/;
+// hours и breaks (BookingCalendar) — одна и та же форма {day: 1–7, from: "HH:mm", to: "HH:mm"}.
+function weekHoursArg(list, label) {
+  if (!Array.isArray(list)) throw new Error(`${label} — массив [{day: 1–7, from: "HH:mm", to: "HH:mm"}].`);
+  list.forEach((h, i) => {
+    if (!Number.isInteger(h?.day) || h.day < 1 || h.day > 7) throw new Error(`${label}[${i}].day — от 1 (пн) до 7 (вс).`);
+    if (!HHMM_RE.test(String(h.from)) || !HHMM_RE.test(String(h.to))) throw new Error(`${label}[${i}]: from/to — время HH:mm.`);
+  });
+  return list.map((h) => ({ day: h.day, from: h.from, to: h.to }));
+}
 // Поля календаря записи (BookingCalendar): переданные накладываются на base (для PUT — текущий календарь целиком).
 function calendarBody(a, base = {}) {
   const b = { ...base };
@@ -497,14 +553,7 @@ function calendarBody(a, base = {}) {
     if (!Number.isInteger(n) || n < 5 || n > 1440) throw new Error("slotMinutes — целое от 5 до 1440.");
     b.slotMinutes = n;
   }
-  if (a.hours != null) {
-    if (!Array.isArray(a.hours)) throw new Error("hours — массив [{day: 1–7, from: \"HH:mm\", to: \"HH:mm\"}].");
-    a.hours.forEach((h, i) => {
-      if (!Number.isInteger(h?.day) || h.day < 1 || h.day > 7) throw new Error(`hours[${i}].day — от 1 (пн) до 7 (вс).`);
-      if (!HHMM_RE.test(String(h.from)) || !HHMM_RE.test(String(h.to))) throw new Error(`hours[${i}]: from/to — время HH:mm.`);
-    });
-    b.hours = a.hours.map((h) => ({ day: h.day, from: h.from, to: h.to }));
-  }
+  if (a.hours != null) b.hours = weekHoursArg(a.hours, "hours");
   if (a.exceptions != null) {
     if (!Array.isArray(a.exceptions)) throw new Error("exceptions — массив [{date: \"ГГГГ-ММ-ДД\", from?, to?}].");
     b.exceptions = a.exceptions.map((e, i) => {
@@ -513,6 +562,60 @@ function calendarBody(a, base = {}) {
       if (!closed && (!HHMM_RE.test(String(e.from)) || !HHMM_RE.test(String(e.to)))) throw new Error(`exceptions[${i}]: from/to — время HH:mm или оба пусты (выходной).`);
       return closed ? { date } : { date, from: e.from, to: e.to };
     });
+  }
+  // ---- Поля из wave/audit-1014 (booking follow-up): буферы/горизонт/типы встреч/форма клиента/подтверждение/публичная ссылка ----
+  if (a.description !== undefined) {
+    const d = a.description === null ? "" : String(a.description).trim();
+    if (d.length > 500) throw new Error("description — до 500 символов.");
+    b.description = d;
+  }
+  if (a.breaks != null) b.breaks = weekHoursArg(a.breaks, "breaks");
+  if (a.meetingTypes != null) {
+    if (!Array.isArray(a.meetingTypes)) throw new Error("meetingTypes — массив [{id?, name, durationMinutes: 5–1440}].");
+    b.meetingTypes = a.meetingTypes.map((m, i) => {
+      const name = String(m?.name ?? "").trim();
+      if (!name) throw new Error(`meetingTypes[${i}].name обязателен.`);
+      const dur = Number(m?.durationMinutes);
+      if (!Number.isInteger(dur) || dur < 5 || dur > 1440) throw new Error(`meetingTypes[${i}].durationMinutes — целое от 5 до 1440.`);
+      const id = m?.id ? uuidArg(m.id, `meetingTypes[${i}].id`) : crypto.randomUUID();
+      return { id, name, durationMinutes: dur };
+    });
+  }
+  const intRange = (v, label, lo, hi) => {
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < lo || n > hi) throw new Error(`${label} — целое от ${lo} до ${hi}.`);
+    return n;
+  };
+  if (a.bufferBeforeMinutes != null) b.bufferBeforeMinutes = intRange(a.bufferBeforeMinutes, "bufferBeforeMinutes", 0, 240);
+  if (a.bufferAfterMinutes != null) b.bufferAfterMinutes = intRange(a.bufferAfterMinutes, "bufferAfterMinutes", 0, 240);
+  if (a.minNoticeMinutes != null) b.minNoticeMinutes = intRange(a.minNoticeMinutes, "minNoticeMinutes", 0, 10080);
+  if (a.horizonDays != null) b.horizonDays = intRange(a.horizonDays, "horizonDays", 1, 366);
+  if (a.intakeFields != null) {
+    if (!Array.isArray(a.intakeFields)) throw new Error("intakeFields — массив [{key, label, type: text|phone|email|textarea, required?}].");
+    const IF_TYPES = ["text", "phone", "email", "textarea"];
+    b.intakeFields = a.intakeFields.map((f, i) => {
+      const key = String(f?.key ?? "").trim();
+      if (!/^[A-Za-z0-9_]{1,64}$/.test(key)) throw new Error(`intakeFields[${i}].key — латиница/цифры/_, получено: ${key || "пусто"}.`);
+      const type = String(f?.type ?? "text").trim().toLowerCase();
+      if (!IF_TYPES.includes(type)) throw new Error(`intakeFields[${i}].type: ${IF_TYPES.join(" | ")}.`);
+      return { key, label: String(f?.label ?? key).trim(), type, required: f?.required === true };
+    });
+  }
+  if (a.confirmationMode != null) b.confirmationMode = enumArg(a.confirmationMode, "confirmationMode", ["AUTO", "MANUAL"]);
+  if (a.pendingHoldHours != null) b.pendingHoldHours = intRange(a.pendingHoldHours, "pendingHoldHours", 1, 720);
+  if (a.notifyOwner != null) {
+    if (typeof a.notifyOwner !== "boolean") throw new Error("notifyOwner — true или false.");
+    b.notifyOwner = a.notifyOwner;
+  }
+  if (a.slug !== undefined) {
+    const s = a.slug === null ? null : String(a.slug).trim().toLowerCase();
+    if (s && !/^[a-z0-9]([a-z0-9-]{1,58}[a-z0-9])?$/.test(s)) throw new Error("slug — 3–60 символов: латиница/цифры/дефис, не начинается и не кончается дефисом.");
+    b.slug = s || null;
+  }
+  if (a.enabled != null) {
+    if (typeof a.enabled !== "boolean") throw new Error("enabled — true или false.");
+    if (a.enabled && !(b.slug || base.slug)) throw new Error("enabled:true требует slug (задай его тем же вызовом или раньше).");
+    b.enabled = a.enabled;
   }
   return b;
 }
@@ -593,6 +696,33 @@ function toInstant(v, field) {
   return d.toISOString();
 }
 
+// feature broadcast-dispatch: дедуп + распределённый запуск по ботам (BroadcastGroup). Оба необязательны;
+// бэкенд сам провалидирует форму целиком — здесь только базовые проверки до запроса.
+function staggerArg(v) {
+  if (v == null) return undefined;
+  if (typeof v !== "object" || Array.isArray(v)) throw new Error("stagger — объект {startAt?, timezone?, intervalMinutes?, botOrder?, maxPerInterval?}.");
+  const out = {};
+  if (v.startAt != null) out.startAt = toInstant(v.startAt, "stagger.startAt");
+  if (v.timezone != null) out.timezone = String(v.timezone);
+  const interval = v.intervalMinutes == null ? 0 : Number(v.intervalMinutes);
+  if (!Number.isInteger(interval) || interval < 0) throw new Error("stagger.intervalMinutes — целое ≥ 0.");
+  out.intervalMinutes = interval;
+  if (v.botOrder != null) out.botOrder = enumArg(v.botOrder, "stagger.botOrder", ["AS_LISTED", "SIZE_ASC", "SIZE_DESC"]);
+  if (v.maxPerInterval != null) {
+    const n = Number(v.maxPerInterval);
+    if (!Number.isInteger(n) || n < 1) throw new Error("stagger.maxPerInterval — целое положительное.");
+    out.maxPerInterval = n;
+  }
+  return out;
+}
+// AudienceFilter (feature audience) передаётся как есть — полную форму и валидацию держит бэкенд;
+// если задан, tagsAll/tagsNone того же вызова игнорируются (как в контракте AudienceFilter).
+function audienceFilterArg(v) {
+  if (v == null) return undefined;
+  if (typeof v !== "object" || Array.isArray(v)) throw new Error("audienceFilter — объект (tagsAll/tagsAny/tagsNone, subscribedFrom/To, lastActivityFrom/To, blocked, variableConditions, conditionsCombinator).");
+  return v;
+}
+
 /** У Instagram-ботов рассылок нет (окно 24 ч Meta) — отказываем до запроса. */
 async function assertBroadcastBots(botIds) {
   if (!botIds.length) throw new Error("Передай botIds — id ботов (list_bots), по которым рассылать.");
@@ -664,6 +794,51 @@ function instagramAnswer() {
   return linkResult("Instagram: подключение через вход Instagram (OAuth) в кабинете", INSTAGRAM_CONNECT_PAGE,
     "Instagram-аккаунт нельзя подключить по API или токену: только через кнопку «Подключить Instagram» в кабинете (/bots/instagram) — она откроет вход через Instagram. Нужен Instagram-аккаунт типа Business или Creator (обычный личный профиль не подойдёт). Открой ссылку и пройди вход — после этого аккаунт появится в list_bots.");
 }
+
+// Доп. поля BookingCalendar (wave/audit-1014: буферы, горизонт, типы встреч, форма клиента,
+// подтверждение, публичная ссылка) — общие между booking_calendar_create и booking_calendar_update.
+const BOOKING_CAL_EXTRA_PROPS = {
+  description: { type: "string", description: "До 500 символов." },
+  breaks: { type: "array", description: "Повторяющиеся перерывы (обед и т.п.), та же форма, что hours — вычитаются из рабочих окон этого дня недели", items: { type: "object", properties: { day: { type: "number" }, from: { type: "string" }, to: { type: "string" } }, required: ["day", "from", "to"] } },
+  meetingTypes: { type: "array", description: "Типы встреч своей длительности; пусто — «простой» режим (slotMinutes)", items: { type: "object", properties: { id: { type: "string", description: "id существующего типа — изменить его; без id — создать новый" }, name: { type: "string" }, durationMinutes: { type: "number", description: "5–1440" } }, required: ["name", "durationMinutes"] } },
+  bufferBeforeMinutes: { type: "number", description: "Буфер до брони, 0–240 мин (по умолчанию 0)" },
+  bufferAfterMinutes: { type: "number", description: "Буфер после брони, 0–240 мин (по умолчанию 0)" },
+  minNoticeMinutes: { type: "number", description: "Не раньше чем через N минут от «сейчас», 0–10080 (по умолчанию 0)" },
+  horizonDays: { type: "number", description: "Горизонт записи в днях от сегодня, 1–366 (по умолчанию 62)" },
+  intakeFields: { type: "array", description: "Поля формы клиента (описательно — не ограничивает, что принимает booking_create/публичная форма)", items: { type: "object", properties: { key: { type: "string", description: "латиница/цифры/_" }, label: { type: "string" }, type: { type: "string", enum: ["text", "phone", "email", "textarea"] }, required: { type: "boolean" } }, required: ["key", "label", "type"] } },
+  confirmationMode: { type: "string", enum: ["AUTO", "MANUAL"], description: "AUTO — бронь сразу активна (по умолчанию); MANUAL — ждёт booking_confirm/booking_reject" },
+  pendingHoldHours: { type: "number", description: "MANUAL: сколько часов неподтверждённая бронь держит слот, 1–720 (по умолчанию 24)" },
+  notifyOwner: { type: "boolean", description: "Уведомлять владельца о новой брони (по умолчанию true)" },
+  slug: { type: ["string", "null"], description: "Публичная ссылка /book/<slug>: 3–60 символов, латиница/цифры/дефис, глобально уникален; null — убрать" },
+  enabled: { type: "boolean", description: "Включить публичную страницу записи (требует slug)" },
+};
+
+// AudienceFilter (feature audience) и StaggerConfig (feature broadcast-dispatch) — общие JSON Schema куски
+// для нескольких инструментов (audience_search/audience_export/broadcast_send/broadcast_recurring/broadcast_group).
+const AUDIENCE_FILTER_SCHEMA = { type: "object", description: "Полный фильтр аудитории: теги any/all/none, диапазоны дат, статус, условия по переменным (вместо/вместе с tagsAll/tagsNone верхнего уровня — если задан, они игнорируются).", properties: {
+  tagsAll: { type: "array", items: { type: "string" }, description: "Есть ВСЕ эти теги" },
+  tagsAny: { type: "array", items: { type: "string" }, description: "Есть ХОТЯ БЫ ОДИН из этих тегов" },
+  tagsNone: { type: "array", items: { type: "string" }, description: "Нет НИ ОДНОГО из этих тегов" },
+  subscribedFrom: { type: "string", description: "ISO — дата подписки от (старые сессии без даты не попадут под фильтр)" },
+  subscribedTo: { type: "string" },
+  lastActivityFrom: { type: "string", description: "ISO — последняя активность от" },
+  lastActivityTo: { type: "string" },
+  blocked: { type: ["boolean", "null"], description: "true — заблокировал бота, false — активен, null/не задано — любой" },
+  variableConditions: { type: "array", items: { type: "object", properties: {
+    key: { type: "string" }, type: { type: "string", enum: ["TEXT", "NUMBER", "DATE", "BOOL"] },
+    op: { type: "string", enum: ["EQ", "NEQ", "CONTAINS", "GT", "LT", "BETWEEN", "BEFORE", "AFTER", "IS", "EMPTY", "NOT_EMPTY"] },
+    valueText: { type: "string" }, valueNumber: { type: "number" }, valueNumber2: { type: "number" },
+    valueDate: { type: "string" }, valueDate2: { type: "string" }, valueBool: { type: "boolean" },
+  }, required: ["key", "op"] } },
+  conditionsCombinator: { type: "string", enum: ["AND", "OR"], description: "Как сочетать variableConditions между собой (остальное — всегда AND)" },
+} };
+const STAGGER_SCHEMA = { type: "object", description: "«Распределить отправку по ботам»: когда и с каким интервалом запускать каждого следующего. Не задано — все боты стартуют вместе (на первом тике планировщика, если включён dedup).", properties: {
+  startAt: { type: "string", description: "Момент запуска первого бота по dispatch-порядку, ISO 8601 (без пояса — московское)" },
+  timezone: { type: "string", description: "IANA-зона — только для отображения расписания" },
+  intervalMinutes: { type: "number", description: "Пауза между стартами соседних ботов/порций, минуты, ≥ 0 (0 — все сразу)" },
+  botOrder: { type: "string", enum: ["AS_LISTED", "SIZE_ASC", "SIZE_DESC"], description: "Порядок запуска ботов (по умолчанию AS_LISTED — как в botIds)" },
+  maxPerInterval: { type: "number", description: "Потолок получателей на один запуск бота — сверх него уходит следующей порцией (waveIndex+1) тем же интервалом позже; никто не теряется" },
+} };
 
 const TOOLS = [
   { name: "setup", description: "Показать статус авторизации и пошаговую инструкцию подключения. Вызывай первым, если пользователь не знает, что делать, или при ошибке доступа. Токен (zmcp_...) определяет АККАУНТ, а не один проект: доступ к каждому боту/сайту — это твоя текущая роль в нём (владелец или приглашённый соредактор), и она проверяется заново при каждом вызове.", inputSchema: { type: "object", properties: {} } },
@@ -755,11 +930,14 @@ const TOOLS = [
     "text — Telegram-HTML: <b> <i> <u> <s> <code> <pre> <blockquote> <tg-spoiler> <a href=\"https://…\">, перенос строки — \\n (не <br>); прочее экранируется. buttons — до 8 URL-кнопок [{text, url}] (callback-кнопок в рассылке нет). Можно строкой — это TEXT. Медиа — сначала upload_file, потом его url. " +
     "По сценарию (graphId): POST /api/bots/{botId}/broadcasts — один botId, сценарий самого бота, entryNodeId? — с какого узла начать. " +
     "draftId — отправить черновик (поля черновика, переданные аргументы их перекрывают); после отправки черновик удаляется. " +
-    "scheduledAt — ISO 8601 (без пояса — московское время); пусто — сразу. Немедленная резервирует квоту получателей тарифа, отложенная считает аудиторию в момент отправки. Рассылки только на платном тарифе — HTTP 402 со ссылкой. У Instagram-ботов рассылок нет. Возвращает {broadcastIds, totalAudience}.", inputSchema: { type: "object", properties: { name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, scheduledAt: { type: "string", description: "ISO 8601, напр. 2026-10-06T10:00:00+03:00; пусто — сразу" }, graphId: { type: "string", description: "рассылка запуском сценария бота вместо сообщений" }, entryNodeId: { type: "string" }, draftId: { type: "string" } } } },
-  { name: "broadcast_cancel", description: "Отменить рассылку (POST /api/bots/broadcasts/{id}/cancel): запланированная не уйдёт, идущая остановится (статус CANCELLING → CANCELLED). Уже завершённую отменить нельзя — HTTP 409.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" } }, required: ["broadcastId"] } },
-  { name: "broadcast_recurring", description: "Повторяющиеся рассылки (/api/bots/broadcasts/recurring). action: list — правила (активные и остановленные); create {name, botIds[], messages[], tagsAll?, tagsNone?, recurrence: DAILY|MONTHLY|YEARLY, firstRunAt} — сообщения как в broadcast_send, firstRunAt — первый запуск в будущем (ISO 8601, без пояса — московское), дальше в то же время суток/число (Москва); stop {ruleId} — остановить правило (уже отправленные прогоны не трогаются). Нужен платный тариф (402 со ссылкой).", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "create", "stop"] }, ruleId: { type: "string" }, name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, recurrence: { type: "string", enum: ["DAILY", "MONTHLY", "YEARLY"] }, firstRunAt: { type: "string" } }, required: ["action"] } },
+    "scheduledAt — ISO 8601 (без пояса — московское время); пусто — сразу. Немедленная резервирует квоту получателей тарифа, отложенная считает аудиторию в момент отправки. Рассылки только на платном тарифе — HTTP 402 со ссылкой. У Instagram-ботов рассылок нет. " +
+    "audienceFilter — полный фильтр аудитории вместо tagsAll/tagsNone (см. свойство ниже; если задан, tagsAll/tagsNone игнорируются). dedup:true — «отправить каждому человеку только один раз» среди нескольких botIds (ключ — platform+userId/chatId приватного чата; человек уходит ПЕРВОМУ боту по порядку botIds, где у него активная сессия). stagger — «распределить по ботам» (см. свойство ниже). Любое из dedup/stagger → ответ вместо {broadcastIds, totalAudience} отдаёт {group:{id, status, perBot[]...}, isGroup:true} — статус/прогресс дальше смотри broadcast_group {action:\"get\", groupId}. Без них — как раньше: {broadcastIds, totalAudience}.",
+    inputSchema: { type: "object", properties: { name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, audienceFilter: AUDIENCE_FILTER_SCHEMA, scheduledAt: { type: "string", description: "ISO 8601, напр. 2026-10-06T10:00:00+03:00; пусто — сразу" }, graphId: { type: "string", description: "рассылка запуском сценария бота вместо сообщений" }, entryNodeId: { type: "string" }, draftId: { type: "string" }, dedup: { type: "boolean", description: "Не отправлять дважды одному человеку среди нескольких botIds (мульти-бот)" }, stagger: STAGGER_SCHEMA } } },
+  { name: "broadcast_cancel", description: "Отменить рассылку (POST /api/bots/broadcasts/{id}/cancel): запланированная не уйдёт, идущая остановится (статус CANCELLING → CANCELLED). Уже завершённую отменить нельзя — HTTP 409. Для группы (dedup/stagger) — broadcast_group {action:\"cancel\"}.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" } }, required: ["broadcastId"] } },
+  { name: "broadcast_recurring", description: "Повторяющиеся рассылки (/api/bots/broadcasts/recurring). action: list — правила (активные и остановленные); create {name, botIds[], messages[], tagsAll?/tagsNone? или audienceFilter?, recurrence: DAILY|MONTHLY|YEARLY, firstRunAt, dedup?, stagger?} — сообщения и фильтр как в broadcast_send; dedup/stagger заданы — КАЖДЫЙ прогон правила порождает свою отдельную группу (своя дедупликация с нуля, аудитория у повтора может быть другой); firstRunAt — первый запуск в будущем (ISO 8601, без пояса — московское), дальше в то же время суток/число (Москва); stop {ruleId} — остановить правило (уже отправленные прогоны не трогаются). Нужен платный тариф (402 со ссылкой).", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "create", "stop"] }, ruleId: { type: "string" }, name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, audienceFilter: AUDIENCE_FILTER_SCHEMA, recurrence: { type: "string", enum: ["DAILY", "MONTHLY", "YEARLY"] }, firstRunAt: { type: "string" }, dedup: { type: "boolean" }, stagger: STAGGER_SCHEMA }, required: ["action"] } },
   { name: "broadcast_drafts", description: "Черновики рассылок (/api/bots/broadcasts/drafts) — те же, что в мастере кабинета. action: list · get {draftId} · create {name?, botIds?, messages?, tagsAll?, tagsNone?, scheduledAt?} · update {draftId, …те же поля — переданные заменяют, остальные остаются} · delete {draftId}. Черновик не проверяется на полноту; отправить — broadcast_send {draftId}. Лимит — 200 черновиков.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "get", "create", "update", "delete"] }, draftId: { type: "string" }, name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, scheduledAt: { type: "string" } }, required: ["action"] } },
   { name: "broadcast_duplicate", description: "Копия как новый черновик «<имя> (копия)»: исходник не меняется, время отправки и статистика не переносятся. broadcastId — прямая рассылка (POST /api/bots/broadcasts/{id}/duplicate: бот, фильтр, сообщения; по сценарию — HTTP 409); draftId — черновик (POST /api/bots/broadcasts/drafts/{id}/duplicate). Дальше broadcast_drafts update / broadcast_send {draftId}.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" }, draftId: { type: "string" } } } },
+  { name: "broadcast_group", description: "Мульти-бот группа рассылки (dedup/stagger, создаётся broadcast_send/broadcast_recurring). action: preview {botIds[], tagsAll?/tagsNone? (у group-preview бэкенд пока читает ТОЛЬКО tagsAll/tagsNone, не полный audienceFilter — если передашь audienceFilter, из него возьмутся только эти два поля; сама отправка broadcast_send полный audienceFilter поддерживает), dedup?, stagger?} — POST /api/bots/broadcasts/group-preview, read-only: {totalRecipients, uniqueRecipients, perBot:[{botId, username, rawCount, dedupedCount, waves, lastWaveStartAt, plannedStartAt}], limit, scheduleEndsAt}; list — твои группы (новые сверху); get {groupId} — GET .../group/{id}: полная BroadcastGroup {id, status: SCHEDULED|RUNNING|PAUSED|DISPATCHED|CANCELLED, perBot:[{botId, waveIndex, totalWaves, status: PENDING|CLAIMED|DISPATCHED|FAILED|SKIPPED, broadcastId, recipientsRaw, recipientsSkippedDedup, recipientsPlanned, error}]...} — перBot[].broadcastId (после DISPATCHED) смотри прогресс через broadcast_get; pause {groupId} — новые запуски не стартуют, уже идущие (DISPATCHED) боты продолжают слать; resume {groupId} — снимает паузу у просроченных PENDING; cancel {groupId} — PENDING становятся SKIPPED, уже DISPATCHED переводятся в CANCELLING как обычная рассылка. pause/resume/cancel — 409, если группа не в подходящем состоянии; 403 — чужая группа.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["preview", "list", "get", "pause", "resume", "cancel"] }, groupId: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, audienceFilter: AUDIENCE_FILTER_SCHEMA, dedup: { type: "boolean" }, stagger: STAGGER_SCHEMA }, required: ["action"] } },
   // ---- Сайты: библиотека шаблонов ----
   // ---- Сайт-виджет, база знаний, подписчик ----
   { name: "web_widget_snippet", description: "Код вставки чат-виджета на сайт (GET /api/bots/web/{botId}/snippet) — для бота с platform WEB (create_bot {platform:\"WEB\"}). Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
@@ -783,13 +961,15 @@ const TOOLS = [
   // ---- Запись на слоты (бронирование) ----
   { name: "booking_calendar_list", description: "Календари записи пользователя (GET /api/bots/booking/calendars): id, name, zone, slotMinutes, hours, exceptions, botId. id — calendarId для действий сценария booking_slots/booking_book/booking_cancel. Read-only.", inputSchema: { type: "object", properties: {} } },
   { name: "booking_calendar_get", description: "Календарь записи по id (GET /api/bots/booking/calendars/{calendarId}). Read-only.", inputSchema: { type: "object", properties: { calendarId: { type: "string" } }, required: ["calendarId"] } },
-  { name: "booking_calendar_create", description: "Создать календарь записи (POST /api/bots/booking/calendars): сетка слотов по рабочим часам в зоне календаря, в слоте — одна бронь. Без hours свободных слотов не будет.", inputSchema: { type: "object", properties: { name: { type: "string", description: "Название (до 100 символов)" }, zone: { type: "string", description: "Часовой пояс IANA, по умолчанию Europe/Moscow" }, slotMinutes: { type: "number", description: "Длительность слота, 5–1440 мин (по умолчанию 60)" }, hours: { type: "array", description: "Рабочие окна: day 1=пн…7=вс, from/to \"HH:mm\"; несколько окон в день — перерыв", items: { type: "object", properties: { day: { type: "number" }, from: { type: "string" }, to: { type: "string" } }, required: ["day", "from", "to"] } }, exceptions: { type: "array", description: "Исключения на даты: {date:\"ГГГГ-ММ-ДД\"} — выходной, с from/to — только это окно", items: { type: "object", properties: { date: { type: "string" }, from: { type: "string" }, to: { type: "string" } }, required: ["date"] } }, botId: { type: "string", description: "Необязательно: только для этого бота (иначе — все боты владельца)" } }, required: ["name"] } },
-  { name: "booking_calendar_update", description: "Изменить календарь (PUT /api/bots/booking/calendars/{calendarId}): переданные поля заменяют текущие (hours/exceptions — целиком), остальные сохраняются. Существующие брони не трогаются.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, name: { type: "string", description: "Название (до 100 символов)" }, zone: { type: "string", description: "Часовой пояс IANA, по умолчанию Europe/Moscow" }, slotMinutes: { type: "number", description: "Длительность слота, 5–1440 мин (по умолчанию 60)" }, hours: { type: "array", description: "Рабочие окна: day 1=пн…7=вс, from/to \"HH:mm\"; несколько окон в день — перерыв", items: { type: "object", properties: { day: { type: "number" }, from: { type: "string" }, to: { type: "string" } }, required: ["day", "from", "to"] } }, exceptions: { type: "array", description: "Исключения на даты: {date:\"ГГГГ-ММ-ДД\"} — выходной, с from/to — только это окно", items: { type: "object", properties: { date: { type: "string" }, from: { type: "string" }, to: { type: "string" } }, required: ["date"] } }, botId: { type: "string", description: "Необязательно: только для этого бота (иначе — все боты владельца)" } }, required: ["calendarId"] } },
+  { name: "booking_calendar_create", description: "Создать календарь записи (POST /api/bots/booking/calendars): сетка слотов по рабочим часам в зоне календаря, в слоте — одна бронь. Без hours свободных слотов не будет. Доп. поля (буферы, горизонт, типы встреч, форма клиента, подтверждение владельцем, публичная ссылка /book/<slug>) — см. свойства ниже.", inputSchema: { type: "object", properties: { name: { type: "string", description: "Название (до 100 символов)" }, zone: { type: "string", description: "Часовой пояс IANA, по умолчанию Europe/Moscow" }, slotMinutes: { type: "number", description: "Длительность слота, 5–1440 мин (по умолчанию 60)" }, hours: { type: "array", description: "Рабочие окна: day 1=пн…7=вс, from/to \"HH:mm\"; несколько окон в день — перерыв", items: { type: "object", properties: { day: { type: "number" }, from: { type: "string" }, to: { type: "string" } }, required: ["day", "from", "to"] } }, exceptions: { type: "array", description: "Исключения на даты: {date:\"ГГГГ-ММ-ДД\"} — выходной, с from/to — только это окно", items: { type: "object", properties: { date: { type: "string" }, from: { type: "string" }, to: { type: "string" } }, required: ["date"] } }, botId: { type: "string", description: "Необязательно: только для этого бота (иначе — все боты владельца)" }, ...BOOKING_CAL_EXTRA_PROPS }, required: ["name"] } },
+  { name: "booking_calendar_update", description: "Изменить календарь (PUT /api/bots/booking/calendars/{calendarId}): переданные поля заменяют текущие (hours/exceptions/breaks/meetingTypes/intakeFields — целиком), остальные сохраняются. Существующие брони не трогаются.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, name: { type: "string", description: "Название (до 100 символов)" }, zone: { type: "string", description: "Часовой пояс IANA, по умолчанию Europe/Moscow" }, slotMinutes: { type: "number", description: "Длительность слота, 5–1440 мин (по умолчанию 60)" }, hours: { type: "array", description: "Рабочие окна: day 1=пн…7=вс, from/to \"HH:mm\"; несколько окон в день — перерыв", items: { type: "object", properties: { day: { type: "number" }, from: { type: "string" }, to: { type: "string" } }, required: ["day", "from", "to"] } }, exceptions: { type: "array", description: "Исключения на даты: {date:\"ГГГГ-ММ-ДД\"} — выходной, с from/to — только это окно", items: { type: "object", properties: { date: { type: "string" }, from: { type: "string" }, to: { type: "string" } }, required: ["date"] } }, botId: { type: "string", description: "Необязательно: только для этого бота (иначе — все боты владельца)" }, ...BOOKING_CAL_EXTRA_PROPS }, required: ["calendarId"] } },
   { name: "booking_calendar_delete", description: "УДАЛИТЬ календарь записи (DELETE /api/bots/booking/calendars/{calendarId}). Сценарии с его calendarId перестанут записывать. Только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, confirm: { type: "boolean" } }, required: ["calendarId", "confirm"] } },
-  { name: "booking_slots", description: "Свободные слоты календаря (GET /api/bots/booking/calendars/{calendarId}/slots): [{at — ISO-8601 с зоной, label — «пн 12.10 15:00»}]. from/to — даты ГГГГ-ММ-ДД в зоне календаря (по умолчанию сегодня … +6 дней), limit — 1–500 (по умолчанию 50). Read-only.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, from: { type: "string" }, to: { type: "string" }, limit: { type: "number" } }, required: ["calendarId"] } },
-  { name: "booking_list", description: "Брони календаря от даты from (ГГГГ-ММ-ДД, по умолчанию сегодня), включая отменённые, до 500 (GET /api/bots/booking/calendars/{calendarId}/bookings). Read-only.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, from: { type: "string" } }, required: ["calendarId"] } },
-  { name: "booking_create", description: "Записать вручную на слот (POST /api/bots/booking/calendars/{calendarId}/bookings {slotAt, name, phone}): slotAt — at из booking_slots (ISO-8601 с зоной). Слот занят → понятная ошибка «занят», слота нет в сетке → ошибка 400.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, slotAt: { type: "string" }, name: { type: "string" }, phone: { type: "string" } }, required: ["calendarId", "slotAt"] } },
+  { name: "booking_slots", description: "Свободные слоты календаря (GET /api/bots/booking/calendars/{calendarId}/slots): [{at — ISO-8601 с зоной, label — «пн 12.10 15:00»}]. from/to — даты ГГГГ-ММ-ДД в зоне календаря (по умолчанию сегодня … +6 дней), limit — 1–500 (по умолчанию 50). meetingTypeId — у календаря с типами встреч выбрать нужный (меняет шаг сетки); неизвестный id — как без него (slotMinutes). Read-only.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, from: { type: "string" }, to: { type: "string" }, limit: { type: "number" }, meetingTypeId: { type: "string", description: "id из meetingTypes календаря" } }, required: ["calendarId"] } },
+  { name: "booking_list", description: "Брони календаря от даты from (ГГГГ-ММ-ДД, по умолчанию сегодня), включая отменённые, до 500 (GET /api/bots/booking/calendars/{calendarId}/bookings). pendingOnly:true — игнорирует from, только брони MANUAL-календаря, ждущие confirm/reject (без потолка 500). Read-only.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, from: { type: "string" }, pendingOnly: { type: "boolean" } }, required: ["calendarId"] } },
+  { name: "booking_create", description: "Записать вручную на слот (POST /api/bots/booking/calendars/{calendarId}/bookings): slotAt — at из booking_slots (ISO-8601 с зоной). Слот занят → понятная ошибка «занят», слота нет в сетке → ошибка 400. email/comment/customAnswers — доп. поля формы клиента (intakeFields календаря — только подсказка для UI, не ограничивает, что можно передать здесь); meetingTypeId — у календаря с типами встреч. MANUAL confirmationMode — бронь создаётся с confirmed:false, слот уже занят; подтвердить/отклонить — booking_confirm/booking_reject.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, slotAt: { type: "string" }, name: { type: "string" }, phone: { type: "string" }, email: { type: "string" }, comment: { type: "string" }, customAnswers: { type: "object", additionalProperties: { type: "string" }, description: "Доп. поля формы: {key: значение}, ключи — intakeFields календаря" }, meetingTypeId: { type: "string" } }, required: ["calendarId", "slotAt"] } },
   { name: "booking_cancel", description: "Отменить бронь и освободить слот (POST /api/bots/booking/calendars/{calendarId}/bookings/{bookingId}/cancel). Повторная отмена — без ошибки. bookingId — из booking_list.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, bookingId: { type: "string" } }, required: ["calendarId", "bookingId"] } },
+  { name: "booking_confirm", description: "Подтвердить бронь, ждущую решения владельца (MANUAL confirmationMode) — POST .../bookings/{bookingId}/confirm. Клиенту уходит уведомление, если бронь пришла из чата бота. HTTP 404 — бронь не этого календаря, 409 — уже не ждёт решения (подтверждена/отменена/истёк pendingHoldHours).", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, bookingId: { type: "string" } }, required: ["calendarId", "bookingId"] } },
+  { name: "booking_reject", description: "Отклонить бронь, ждущую решения владельца (MANUAL confirmationMode) — POST .../bookings/{bookingId}/reject: освобождает слот, клиенту уходит «отклонено владельцем» (в отличие от booking_cancel — то работает на любой активной брони и ничего не присылает клиенту). HTTP 404/409 — как у booking_confirm.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, bookingId: { type: "string" } }, required: ["calendarId", "bookingId"] } },
   { name: "site_templates", description: "Библиотека шаблонов блоков сайта (GET /api/bots/pages/templates): {categories: [{id, title, description?}], templates: [{id, category, title, description?, blocks: сколько блоков вставится}]}. Вставка — site_edit add_template {container, templateId, after?} (results.id — первый блок, results.ids — все); дальше блоки правятся как обычные. category — фильтр по id категории.", inputSchema: { type: "object", properties: { category: { type: "string" } } } },
   // ---- Паритет платформы, часть 2: бот, база, агент, заявки, подписчики, каналы, ссылки, аналитика ----
   { name: "bot_rename", description: "Переименовать бота (PATCH /api/bots/{botId} {name}): отображаемое имя в кабинете, до 250 символов. Пустое name сбрасывает имя на @username. Имя в самом Telegram/MAX не меняется.", inputSchema: { type: "object", properties: { botId: { type: "string" }, name: { type: "string" } }, required: ["botId", "name"] } },
@@ -809,6 +989,23 @@ const TOOLS = [
   { name: "site_leads_export", description: "Все заявки сайта в CSV (GET /api/bots/pages/{siteId}/leads.csv). savePath — сохранить в локальный файл и вернуть путь (для больших выгрузок); без него CSV возвращается текстом. Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, savePath: { type: "string" } }, required: ["siteId"] } },
   { name: "bot_users_export", description: "Выгрузка всех подписчиков бота (GET /api/bots/{botId}/users/export?format=csv|json): chatId, имя, метки, переменные. savePath — сохранить в локальный файл и вернуть путь; без него данные возвращаются текстом. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, format: { type: "string", enum: ["csv", "json"] }, savePath: { type: "string" } }, required: ["botId"] } },
   { name: "bot_user_reset", description: "Сбросить сессию подписчика (DELETE /api/bots/{botId}/sessions/{chatId}): стираются его позиция в сценарии, метки и переменные, и он пропадает из list_bot_users; при следующем сообщении начнёт как новый. Для повторного прохождения воронки при тесте. Необратимо: только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, confirm: { type: "boolean" } }, required: ["botId", "chatId", "confirm"] } },
+  // ---- Аудитория (кросс-бот поиск/фильтр подписчиков, теги/переменные массово, экспорт) ----
+  { name: "audience_fields", description: "Поля для построителя фильтра (GET /api/bots/{botId}/audience/fields): variables — [{key, type: TEXT|NUMBER|DATE|BOOL}] (тип выведен по значению в сэмпле из последних 500 сессий — не точная схема), tags — список тегов. search — подстрока (и по ключам переменных, и по тегам), limit — до 200 каждого списка. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, search: { type: "string" }, limit: { type: "number" } }, required: ["botId"] } },
+  { name: "audience_search", description: "Фильтр+сортировка+поиск подписчиков (замена постраничного перебора list_bot_users под сложный фильтр). botId — один бот (POST /api/bots/{botId}/users/search); без botId — кросс-бот по всем доступным (POST /api/bots/subscribers/search, опц. botIds[] — подмножество, чужие id тихо отбрасываются). filter — AudienceFilter (см. свойство ниже), q — текстовый поиск (имя/username/id), sort ∈ updatedAt|activity|lastActivity|chatId|username|tgUsername|createdAt|subscribedAt|status|blocked|botId|bot, dir — asc|desc, page (с 0), size (до 200, по умолч. 25). Кросс-бот ответ — те же поля + botId/botName. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, filter: AUDIENCE_FILTER_SCHEMA, q: { type: "string" }, sort: { type: "string" }, dir: { type: "string", enum: ["asc", "desc"] }, page: { type: "number" }, size: { type: "number" } } } },
+  { name: "audience_tag_edit", description: "Массово добавить/снять теги у выбранных подписчиков бота (POST /api/bots/{botId}/users/tags): chatIds[] (до 10000, из audience_search/list_bot_users), add?/remove? — списки тегов; remove применяется ДО add (тег в обоих спискaх — останется). Возвращает {matched}.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatIds: { type: "array", items: { type: "string" } }, add: { type: "array", items: { type: "string" } }, remove: { type: "array", items: { type: "string" } } }, required: ["botId", "chatIds"] } },
+  { name: "audience_variable_edit", description: "Массово установить/снять custom-переменные у выбранных подписчиков (POST /api/bots/{botId}/users/variables): chatIds[] (до 1000 — читается документ целиком, потолок ниже, чем у audience_tag_edit), set? — {ключ: значение}, unset? — список ключей. Служебные ключи и ключи с «.»/ведущим «$» отклоняются (400). Каждая запись проходит тот же потолок переменных подписчика (одно значение ≤65536, сумма ≤262144 символов) — отклонённые видны в ответе {matched, rejected[] (до 50 по имени), rejectedCount}, остальные записи применяются как обычно.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatIds: { type: "array", items: { type: "string" } }, set: { type: "object" }, unset: { type: "array", items: { type: "string" } } }, required: ["botId", "chatIds"] } },
+  { name: "audience_export", description: "Потоковая выгрузка ТЕКУЩЕЙ отфильтрованной выборки подписчиков (не только одной страницы) — CSV или XLSX. botId — один бот (POST /api/bots/{botId}/users/export); без botId — кросс-бот (POST /api/bots/subscribers/export, опц. botIds[], доп. колонка «бот»). filter — AudienceFilter, q — текстовый поиск. Потолок 100000 строк — больше → HTTP 422 (сузь фильтр). format csv — текст (savePath необязателен, иначе вернётся строкой); format xlsx — ВСЕГДА требует savePath (бинарный формат, в чат не возвращается).", inputSchema: { type: "object", properties: { botId: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, filter: AUDIENCE_FILTER_SCHEMA, q: { type: "string" }, format: { type: "string", enum: ["csv", "xlsx"] }, savePath: { type: "string", description: "Обязательно для xlsx; для csv — необязательно (иначе выгрузка возвращается текстом)" } } } },
+  { name: "dialog_search", description: "Кросс-бот поиск по «Диалогам» (GET /api/bots/dialogs/search): q ищет по имени/username/id подписчика, названию бота И тексту сообщений (а не только карточке подписчика, в отличие от list_bot_users). limit — 1–60 (по умолчанию 40), объединённые результаты, свежие сверху, не постраничный — для большой выгрузки используй audience_search/audience_export. Только боты, доступные тебе. Read-only.", inputSchema: { type: "object", properties: { q: { type: "string" }, limit: { type: "number" } }, required: ["q"] } },
+  // ---- Публикации: квота и VK ----
+  { name: "publications_usage", description: "Месячная квота публикаций (GET /api/bots/{botId}/publications/usage) — ОДНА на владельца бота, общая для всех его ботов и платформ (Telegram/MAX channel_post, Instagram, VK — любой публикующий путь списывает её же). {used, limit, unlimited, planCode}; limit=-1/unlimited:true — без лимита. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
+  { name: "vk_status", description: "Подключённые VK-сообщества/страницы аккаунта (GET /api/bots/vk/status) — подключение АККАУНТА, не бота: видно во всех ботах владельца. {connected, accounts: [{id, platform:\"vk\", label, enabled, isDefault, hasCredentials}]}. Read-only.", inputSchema: { type: "object", properties: {} } },
+  { name: "vk_connect", description: "Подключить VK-сообщество вручную токеном (POST /api/bots/vk/connect-token): communityId, accessToken — токен сообщества с правами wall (и photos, если нужны фото-посты). Токен проверяется живым вызовом VK API перед сохранением — невалидный/без прав → HTTP 422 с причиной от VK, токен не сохраняется и не эхуется. Альтернатива — вход через VK ID (OAuth) в кабинете «Публикации»: по API недоступен, это браузерный флоу.", inputSchema: { type: "object", properties: { communityId: { type: "string" }, accessToken: { type: "string" } }, required: ["communityId", "accessToken"] } },
+  { name: "vk_disconnect", description: "Отключить VK-сообщество/страницу (DELETE /api/bots/vk/{accountId}); accountId — из vk_status. 404 — не найден/чужой.", inputSchema: { type: "object", properties: { accountId: { type: "string" } }, required: ["accountId"] } },
+  { name: "vk_post", description: "Опубликовать пост на стену подключённого VK-сообщества/страницы (POST /api/bots/vk/post): accountId (vk_status), text и/или mediaUrl (ТОЛЬКО фото — JPEG/PNG из upload_file; видео/другие типы отклоняются HTTP 422). Списывает publications_usage (резерв до отправки, откат при провале VK). HTTP 402 — квота исчерпана; 422 — VK отклонил (текст ошибки VK как есть).", inputSchema: { type: "object", properties: { accountId: { type: "string" }, text: { type: "string" }, mediaUrl: { type: "string", description: "url из upload_file — только изображение" } }, required: ["accountId"] } },
+  // ---- Миграция подписчиков из других конструкторов ----
+  { name: "migration_presets", description: "Каталог поддерживаемых источников миграции (GET /api/bots/migration/presets): BOTHELP|SALEBOT|SENLER|LEADTEH|SMARTSENDER|MANYCHAT|GENERIC — у каждого note (как экспортировать оттуда) и guessed*Headers (подсказки для автосопоставления колонок). Переносятся ТОЛЬКО подписчики (funnelImportSupported всегда false — ни один из этих билдеров не публикует документированный формат экспорта сценария; свои воронки переносятся через import_funnel/create_graph с retensy-bot-graph JSON, это другой формат). Read-only.", inputSchema: { type: "object", properties: {} } },
+  { name: "migration_preview", description: "Пробный прогон CSV-импорта подписчиков, НИЧЕГО не пишет в базу (POST /api/bots/{botId}/migration/subscribers/preview, multipart). path — локальный CSV (≤10 МБ, ≤20000 строк данных), platform — id из migration_presets. Без mapping — режим определения: headers, sampleRaw (до 5 строк), suggestedMapping (угадан по подсказкам пресета — только подсказка, не контракт). С mapping ({userIdColumn (обязательно — заголовок колонки с числовым chatId), usernameColumn?, tagsColumn?, tagsDelimiter? (по умолч. \"|;,\"), variableColumns?}) — полный dry-run: validRows, invalidRows (причины, до 20), newSubscribers/existingSubscribers (дедуп по chatId против текущих подписчиков бота), overCapacity (сверх лимита тарифа), remainingCapacity (-1 — безлимит), sample (до 10 строк как они импортируются), totalRowsInFile/truncated.", inputSchema: { type: "object", properties: { botId: { type: "string" }, path: { type: "string", description: "Локальный путь к CSV-файлу" }, platform: { type: "string", enum: ["BOTHELP", "SALEBOT", "SENLER", "LEADTEH", "SMARTSENDER", "MANYCHAT", "GENERIC"] }, mapping: { type: "object", description: "MigrationColumnMapping — передай ПОСЛЕ того, как проверил suggestedMapping/detect-режимом", properties: { userIdColumn: { type: "string" }, usernameColumn: { type: "string" }, tagsColumn: { type: "string" }, tagsDelimiter: { type: "string" }, variableColumns: { type: "array", items: { type: "string" } } } } }, required: ["botId", "path", "platform"] } },
+  { name: "migration_commit", description: "Реальный импорт подписчиков из CSV тем же mapping, что подтвердил migration_preview (POST /api/bots/{botId}/migration/subscribers/commit, multipart) — тот же путь дедупа по chatId/лимита тарифа/«никогда не перезаписывать существующее», что у bot_users_import. Возвращает {totalRowsInFile, processedRows, truncated, result: ImportUsersResponse}.", inputSchema: { type: "object", properties: { botId: { type: "string" }, path: { type: "string" }, platform: { type: "string", enum: ["BOTHELP", "SALEBOT", "SENLER", "LEADTEH", "SMARTSENDER", "MANYCHAT", "GENERIC"] }, mapping: { type: "object", properties: { userIdColumn: { type: "string" }, usernameColumn: { type: "string" }, tagsColumn: { type: "string" }, tagsDelimiter: { type: "string" }, variableColumns: { type: "array", items: { type: "string" } } }, required: ["userIdColumn"] } }, required: ["botId", "path", "platform", "mapping"] } },
 ];
 
 async function handleCall(params) {
@@ -1182,10 +1379,16 @@ async function handleCall(params) {
         if (!Number.isInteger(n) || n < 1 || n > 500) throw new Error("limit — целое от 1 до 500.");
         q.limit = n;
       }
+      if (a.meetingTypeId) q.meetingTypeId = uuidArg(a.meetingTypeId, "meetingTypeId");
       return okResult(await api(`/api/bots/booking/calendars/${uuidArg(a.calendarId, "calendarId")}/slots${qs(q)}`));
     }
     case "booking_list": {
-      const q = a.from ? { from: dateArg(a.from, "from") } : {};
+      const q = {};
+      if (a.from) q.from = dateArg(a.from, "from");
+      if (a.pendingOnly != null) {
+        if (typeof a.pendingOnly !== "boolean") throw new Error("pendingOnly — true или false.");
+        q.pendingOnly = a.pendingOnly;
+      }
       return okResult(await api(`/api/bots/booking/calendars/${uuidArg(a.calendarId, "calendarId")}/bookings${qs(q)}`));
     }
     case "booking_create": {
@@ -1194,8 +1397,13 @@ async function handleCall(params) {
       if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(slotAt) || Number.isNaN(Date.parse(slotAt))) {
         throw new Error(`slotAt — ISO-8601 с зоной (at из booking_slots), например 2026-10-12T15:00:00+03:00; получено: ${slotAt || "пусто"}.`);
       }
+      const body = { slotAt, name: a.name, phone: a.phone };
+      if (a.email !== undefined) body.email = a.email;
+      if (a.comment !== undefined) body.comment = a.comment;
+      if (a.customAnswers !== undefined) body.customAnswers = a.customAnswers;
+      if (a.meetingTypeId) body.meetingTypeId = uuidArg(a.meetingTypeId, "meetingTypeId");
       try {
-        return okResult(await api(`/api/bots/booking/calendars/${id}/bookings`, { method: "POST", body: { slotAt, name: a.name, phone: a.phone } }));
+        return okResult(await api(`/api/bots/booking/calendars/${id}/bookings`, { method: "POST", body }));
       } catch (e) {
         if (e.status === 409) throw new Error(`Слот ${slotAt} уже занят — выбери другой из booking_slots.`);
         throw e;
@@ -1206,6 +1414,20 @@ async function handleCall(params) {
       const bookingId = uuidArg(a.bookingId, "bookingId");
       await api(`/api/bots/booking/calendars/${id}/bookings/${bookingId}/cancel`, { method: "POST" });
       return okResult(`✅ Бронь ${bookingId} отменена, слот свободен.`);
+    }
+    case "booking_confirm":
+    case "booking_reject": {
+      const id = uuidArg(a.calendarId, "calendarId");
+      const bookingId = uuidArg(a.bookingId, "bookingId");
+      const verb = params.name === "booking_confirm" ? "confirm" : "reject";
+      try {
+        await api(`/api/bots/booking/calendars/${id}/bookings/${bookingId}/${verb}`, { method: "POST" });
+      } catch (e) {
+        if (e.status === 404) throw new Error(`Бронь ${bookingId} не найдена в календаре ${id}.`);
+        if (e.status === 409) throw new Error(`Бронь ${bookingId} уже не ждёт решения (подтверждена, отменена или истёк срок ожидания).`);
+        throw e;
+      }
+      return okResult(verb === "confirm" ? `✅ Бронь ${bookingId} подтверждена.` : `❌ Бронь ${bookingId} отклонена, слот свободен.`);
     }
     // ---- Паритет платформы ----
     case "integration_calls": {
@@ -1391,6 +1613,101 @@ async function handleCall(params) {
       await api(`/api/bots/${botId}/sessions/${chatId}`, { method: "DELETE" });
       return okResult(`♻️ Сессия подписчика ${chatId} сброшена: при следующем сообщении он начнёт как новый.`);
     }
+    // ---- Аудитория ----
+    case "audience_fields": {
+      const botId = uuidArg(a.botId, "botId");
+      const q = {};
+      if (a.search) q.search = a.search;
+      if (a.limit != null) {
+        const n = Number(a.limit);
+        if (!Number.isInteger(n) || n < 1 || n > 200) throw new Error("limit — целое от 1 до 200.");
+        q.limit = n;
+      }
+      return okResult(await api(`/api/bots/${botId}/audience/fields${qs(q)}`));
+    }
+    case "audience_search": {
+      const filter = audienceFilterArg(a.filter);
+      const body = { filter, q: a.q || undefined, sort: a.sort || undefined, dir: a.dir || undefined, page: a.page, size: a.size };
+      if (a.botId) return okResult(await api(`/api/bots/${uuidArg(a.botId, "botId")}/users/search`, { method: "POST", body }));
+      const ids = Array.isArray(a.botIds) ? a.botIds.map((id) => uuidArg(id, "botIds[]")) : undefined;
+      return okResult(await api("/api/bots/subscribers/search", { method: "POST", body: { ...body, botIds: ids } }));
+    }
+    case "audience_tag_edit": {
+      const botId = uuidArg(a.botId, "botId");
+      const chatIds = (Array.isArray(a.chatIds) ? a.chatIds : []).map((c) => chatIdArg(c));
+      if (!chatIds.length) throw new Error("Передай chatIds — список числовых id подписчиков (audience_search/list_bot_users).");
+      const add = strList(a.add), remove = strList(a.remove);
+      if (!add.length && !remove.length) throw new Error("Передай add и/или remove — список тегов.");
+      return okResult(await api(`/api/bots/${botId}/users/tags`, { method: "POST", body: { chatIds, add, remove } }));
+    }
+    case "audience_variable_edit": {
+      const botId = uuidArg(a.botId, "botId");
+      const chatIds = (Array.isArray(a.chatIds) ? a.chatIds : []).map((c) => chatIdArg(c));
+      if (!chatIds.length) throw new Error("Передай chatIds — список числовых id подписчиков (audience_search/list_bot_users).");
+      const set = a.set && typeof a.set === "object" && !Array.isArray(a.set) ? a.set : undefined;
+      const unset = strList(a.unset);
+      if ((!set || !Object.keys(set).length) && !unset.length) throw new Error("Передай set (объект {ключ: значение}) и/или unset (список ключей).");
+      return okResult(await api(`/api/bots/${botId}/users/variables`, { method: "POST", body: { chatIds, set, unset } }));
+    }
+    case "audience_export": {
+      const format = String(a.format || "csv").toLowerCase();
+      if (!["csv", "xlsx"].includes(format)) throw new Error("format: csv | xlsx.");
+      if (format === "xlsx" && !a.savePath) throw new Error("xlsx — бинарный формат, передай savePath (куда сохранить файл).");
+      const filter = audienceFilterArg(a.filter);
+      if (a.botId) {
+        const botId = uuidArg(a.botId, "botId");
+        const body = { filter, q: a.q || undefined, format };
+        if (format === "xlsx") return saveBinary(await apiBinaryPost(`/api/bots/${botId}/users/export`, body), a.savePath);
+        return exportResult(await api(`/api/bots/${botId}/users/export`, { method: "POST", body }), a.savePath);
+      }
+      const ids = Array.isArray(a.botIds) ? a.botIds.map((id) => uuidArg(id, "botIds[]")) : undefined;
+      const body = { botIds: ids, filter, q: a.q || undefined, format };
+      if (format === "xlsx") return saveBinary(await apiBinaryPost("/api/bots/subscribers/export", body), a.savePath);
+      return exportResult(await api("/api/bots/subscribers/export", { method: "POST", body }), a.savePath);
+    }
+    case "dialog_search": {
+      const q = String(a.q || "").trim();
+      if (!q) throw new Error("Передай q — текст поиска (имя/username/id/текст сообщения).");
+      const query = { q };
+      if (a.limit != null) {
+        const n = Number(a.limit);
+        if (!Number.isInteger(n) || n < 1 || n > 60) throw new Error("limit — целое от 1 до 60.");
+        query.limit = n;
+      }
+      return okResult(await api(`/api/bots/dialogs/search${qs(query)}`));
+    }
+    // ---- Публикации: квота, VK ----
+    case "publications_usage": return okResult(await api(`/api/bots/${uuidArg(a.botId, "botId")}/publications/usage`));
+    case "vk_status": return okResult(await api("/api/bots/vk/status"));
+    case "vk_connect": {
+      const communityId = String(a.communityId || "").trim();
+      const accessToken = String(a.accessToken || "").trim();
+      if (!communityId || !accessToken) throw new Error("Передай communityId и accessToken.");
+      return okResult(await api("/api/bots/vk/connect-token", { method: "POST", body: { communityId, accessToken } }));
+    }
+    case "vk_disconnect": {
+      const accountId = idArg(a.accountId, "accountId");
+      await api(`/api/bots/vk/${accountId}`, { method: "DELETE" });
+      return okResult(`🗑️ VK-аккаунт ${accountId} отключён.`);
+    }
+    case "vk_post": {
+      const accountId = idArg(a.accountId, "accountId");
+      const text = a.text == null ? "" : String(a.text);
+      const mediaUrl = a.mediaUrl ? String(a.mediaUrl) : undefined;
+      if (!text.trim() && !mediaUrl) throw new Error("Пустой пост: передай text и/или mediaUrl (файл из upload_file, только фото).");
+      return okResult(await api("/api/bots/vk/post", { method: "POST", body: { accountId, text, mediaUrl } }));
+    }
+    // ---- Миграция подписчиков ----
+    case "migration_presets": return okResult(await api("/api/bots/migration/presets"));
+    case "migration_preview":
+    case "migration_commit": {
+      const botId = uuidArg(a.botId, "botId");
+      const platform = enumArg(a.platform, "platform", ["BOTHELP", "SALEBOT", "SENLER", "LEADTEH", "SMARTSENDER", "MANYCHAT", "GENERIC"]);
+      const commit = params.name === "migration_commit";
+      if (commit && !a.mapping) throw new Error("Передай mapping — сначала проверь его через migration_preview (suggestedMapping или свой).");
+      const suffix = commit ? "commit" : "preview";
+      return okResult(await migrationMultipart(`/api/bots/${botId}/migration/subscribers/${suffix}`, { filePath: a.path, platform, mapping: a.mapping }));
+    }
     // ---- Боты ----
     case "create_bot": {
       const platform = String(a.platform || "").trim().toUpperCase();
@@ -1542,8 +1859,9 @@ async function handleCall(params) {
         if (ids.length !== 1) throw new Error("Рассылка по сценарию — ровно один botId (сценарий принадлежит боту).");
         await assertBroadcastBots(ids);
         if (!a.name) throw new Error("Передай name рассылки.");
+        const audienceFilter = audienceFilterArg(a.audienceFilter) || { tagsAll: strList(a.tagsAll), tagsNone: strList(a.tagsNone) };
         const b = await api(`/api/bots/${ids[0]}/broadcasts`, { method: "POST", body: {
-          name: a.name, audienceFilter: { tagsAll: strList(a.tagsAll), tagsNone: strList(a.tagsNone) },
+          name: a.name, audienceFilter,
           graphId: a.graphId, entryNodeId: a.entryNodeId || undefined, scheduledAt: toInstant(a.scheduledAt, "scheduledAt") } });
         return okResult({ broadcastIds: [b?.id], status: b?.status, scheduledAt: b?.scheduledAt ?? null, broadcast: b });
       }
@@ -1554,12 +1872,19 @@ async function handleCall(params) {
       await assertBroadcastBots(ids);
       const name = String(pick("name") || "").trim();
       if (!name) throw new Error("Передай name рассылки (видно только тебе в списке рассылок).");
+      const audienceFilter = audienceFilterArg(a.audienceFilter);
+      const dedup = a.dedup === true;
+      const stagger = staggerArg(a.stagger);
       const body = {
         name, botIds: ids,
-        tagsAll: strList(a.tagsAll !== undefined ? a.tagsAll : draft?.audienceFilter?.tagsAll),
-        tagsNone: strList(a.tagsNone !== undefined ? a.tagsNone : draft?.audienceFilter?.tagsNone),
+        ...(audienceFilter ? { audienceFilter } : {
+          tagsAll: strList(a.tagsAll !== undefined ? a.tagsAll : draft?.audienceFilter?.tagsAll),
+          tagsNone: strList(a.tagsNone !== undefined ? a.tagsNone : draft?.audienceFilter?.tagsNone),
+        }),
         messages: normalizeBroadcastMessages(pick("messages")),
         scheduledAt: toInstant(pick("scheduledAt"), "scheduledAt"),
+        ...(dedup ? { dedup } : {}),
+        ...(stagger ? { stagger } : {}),
       };
       if (body.scheduledAt && new Date(body.scheduledAt).getTime() <= Date.now()) {
         // Прошедшее время бэкенд молча считает «сейчас» — для черновика с устаревшей датой это сюрприз.
@@ -1569,6 +1894,8 @@ async function handleCall(params) {
       const r = await api("/api/bots/broadcasts/direct", { method: "POST", body });
       let draftDeleted = false;
       if (a.draftId) { try { await api(`/api/bots/broadcasts/drafts/${a.draftId}`, { method: "DELETE" }); draftDeleted = true; } catch { /* не критично */ } }
+      // dedup/stagger → бэкенд создаёт BroadcastGroup вместо прямых TgBroadcast (другая форма ответа: id/perBot[]/status вместо broadcastIds/totalAudience).
+      if (dedup || stagger) return okResult({ group: r, isGroup: true, ...(a.draftId ? { draftDeleted } : {}) });
       return okResult({ ...r, scheduledAt: body.scheduledAt, ...(a.draftId ? { draftDeleted } : {}) });
     }
     case "broadcast_cancel":
@@ -1590,9 +1917,12 @@ async function handleCall(params) {
         if (!["DAILY", "MONTHLY", "YEARLY"].includes(recurrence)) throw new Error("recurrence: DAILY | MONTHLY | YEARLY.");
         const firstRunAt = toInstant(a.firstRunAt, "firstRunAt");
         if (!firstRunAt || new Date(firstRunAt).getTime() <= Date.now()) throw new Error("firstRunAt — время первого запуска в будущем (ISO 8601, без пояса — московское).");
+        const audienceFilter = audienceFilterArg(a.audienceFilter);
         return okResult(await api(base, { method: "POST", body: {
-          name: a.name, botIds: ids, tagsAll: strList(a.tagsAll), tagsNone: strList(a.tagsNone),
-          messages: normalizeBroadcastMessages(a.messages), recurrence, firstRunAt } }));
+          name: a.name, botIds: ids,
+          ...(audienceFilter ? { audienceFilter } : { tagsAll: strList(a.tagsAll), tagsNone: strList(a.tagsNone) }),
+          messages: normalizeBroadcastMessages(a.messages), recurrence, firstRunAt,
+          ...(a.dedup === true ? { dedup: true } : {}), ...(a.stagger != null ? { stagger: staggerArg(a.stagger) } : {}) } }));
       }
       throw new Error("action: list | create | stop.");
     }
@@ -1624,6 +1954,35 @@ async function handleCall(params) {
       if (a.draftId) return okResult(await api(`/api/bots/broadcasts/drafts/${a.draftId}/duplicate`, { method: "POST" }));
       if (!a.broadcastId) throw new Error("Передай broadcastId или draftId.");
       return okResult(await api(`/api/bots/broadcasts/${a.broadcastId}/duplicate`, { method: "POST" }));
+    case "broadcast_group": {
+      const base = "/api/bots/broadcasts/group";
+      if (a.action === "list") return okResult(await api(base));
+      if (a.action === "preview") {
+        const ids = botIdsOf(a);
+        if (!ids.length) throw new Error("Передай botIds (1–20 ботов).");
+        await assertBroadcastBots(ids);
+        const body = { botIds: ids, tagsAll: strList(a.tagsAll), tagsNone: strList(a.tagsNone) };
+        const filter = audienceFilterArg(a.audienceFilter);
+        if (filter) Object.assign(body, { tagsAll: strList(filter.tagsAll), tagsNone: strList(filter.tagsNone) });
+        if (a.dedup === true) body.dedup = true;
+        const stagger = staggerArg(a.stagger);
+        if (stagger) body.stagger = stagger;
+        return okResult(await api(`${base}-preview`, { method: "POST", body }));
+      }
+      const groupId = uuidArg(a.groupId, "groupId");
+      if (a.action === "get") return okResult(await api(`${base}/${groupId}`));
+      if (["pause", "resume", "cancel"].includes(a.action)) {
+        try {
+          await api(`${base}/${groupId}/${a.action}`, { method: "POST" });
+        } catch (e) {
+          if (e.status === 409) throw new Error(`Группа ${groupId} сейчас не в состоянии для действия «${a.action}» (см. broadcast_group {action:"get"}).`);
+          throw e;
+        }
+        const verbs = { pause: "⏸️ поставлена на паузу", resume: "▶️ возобновлена", cancel: "⏹️ отменяется" };
+        return okResult(`Группа ${groupId} ${verbs[a.action]}.`);
+      }
+      throw new Error("action: preview | list | get | pause | resume | cancel.");
+    }
     case "site_templates": {
       const r = await api("/api/bots/pages/templates");
       let templates = Array.isArray(r?.templates) ? r.templates : [];

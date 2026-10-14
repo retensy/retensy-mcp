@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Оффлайн-валидатор знает действие call_scenario («Перейти в другой сценарий»), зеркало
- * GraphValidator.validateScenarioCalls: цель задана, не сам сценарий, только mode=goto, последнее в блоке,
+ * GraphValidator.validateScenarioCalls: цель задана, не сам сценарий, mode goto|call, последнее в блоке,
  * ключи variables[] — идентификаторы. Выход 0 — ок, 1 — провал.
  */
 
@@ -30,13 +30,17 @@ function run(actions, id) {
 
 const target = randomUUID();
 const good = run([{ kind: "add_tag", tag: "x" }, { kind: "call_scenario", graphId: target, variables: [{ key: "plan", value: "{{var.p}}" }] }]);
-check("корректный переход — exit 0 без ACTION_UNKNOWN_KIND и без предупреждения о kind", good.code === 0
+check("корректный переход (goto по умолчанию) — exit 0 без ACTION_UNKNOWN_KIND и без предупреждения о kind", good.code === 0
   && !/ACTION_UNKNOWN_KIND/.test(good.out) && !/call_scenario.*не из встроенного списка/.test(good.out));
+
+const goodCall = run([{ kind: "call_scenario", graphId: target, mode: "call" }]);
+check("mode:\"call\" (вызвать и вернуться) — exit 0", goodCall.code === 0 && !/CALL_SCENARIO_BAD_MODE/.test(goodCall.out));
 
 const cases = [
   ["CALL_SCENARIO_NO_TARGET", run([{ kind: "call_scenario" }])],
   ["CALL_SCENARIO_NOT_LAST", run([{ kind: "call_scenario", graphId: target }, { kind: "add_tag", tag: "x" }])],
-  ["CALL_SCENARIO_BAD_MODE", run([{ kind: "call_scenario", graphId: target, mode: "call" }])],
+  ["CALL_SCENARIO_NOT_LAST (mode call тоже последним)", run([{ kind: "call_scenario", graphId: target, mode: "call" }, { kind: "add_tag", tag: "x" }])],
+  ["CALL_SCENARIO_BAD_MODE", run([{ kind: "call_scenario", graphId: target, mode: "jump" }])],
   ["ACTION_BAD_KEY", run([{ kind: "call_scenario", graphId: target, variables: [{ key: "Bad Key", value: "1" }] }])],
   ["CALL_SCENARIO_SELF", run([{ kind: "call_scenario", graphId: target }], target)],
   ["CALL_SCENARIO_SELF (регистр)", run([{ kind: "call_scenario", graphId: target.toUpperCase() }], target)],

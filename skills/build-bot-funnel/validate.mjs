@@ -403,8 +403,8 @@ for (const n of nodes) {
           // Зеркало GraphValidator.validateScenarioCalls. Владение целью (сценарий этого же бота) проверит publish_graph.
           if (i !== c.actions.length - 1)
             errors.push(`CALL_SCENARIO_NOT_LAST: ${who} — переход в сценарий должен быть последним действием в блоке.`);
-          if (a.mode != null && String(a.mode) !== "goto")
-            errors.push(`CALL_SCENARIO_BAD_MODE: ${who} — поддерживается только mode «goto» (перейти).`);
+          if (a.mode != null && !["goto", "call"].includes(String(a.mode)))
+            errors.push(`CALL_SCENARIO_BAD_MODE: ${who} — mode: «goto» (перейти) или «call» (вызвать и вернуться).`);
           (Array.isArray(a.variables) ? a.variables : []).forEach((v, j) => {
             const key = String(v?.key ?? "");
             if (!VAR_RE.test(key) || key.startsWith("_"))
