@@ -27,7 +27,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.23.1";
+const VERSION = "0.24.0";
 /** С чего начать пустой сайт (init у /document/ops; на сайте с черновиком игнорируется). */
 const SITE_INITS = ["starter", "blank", "mini-landing"];
 /** Безвредная операция, когда нужен только init: бэкенд не принимает пустой ops[]. */
@@ -889,7 +889,7 @@ const TOOLS = [
   { name: "rename_graph", description: "Переименовать сценарий (работает и для опубликованных — имя не влияет на исполнение).", inputSchema: { type: "object", properties: { graphId: { type: "string" }, name: { type: "string" } }, required: ["graphId", "name"] } },
   { name: "clone_graph", description: "Склонировать граф в новый DRAFT «… (copy)» — безопасно итерировать поверх опубликованного. Клон сценария-вебхука получает собственный путь и секрет вебхука.", inputSchema: { type: "object", properties: { graphId: { type: "string" } }, required: ["graphId"] } },
   { name: "copy_graph", description: "Скопировать граф в ДРУГОГО бота (в т.ч. на другую платформу). Возвращает {graphId, sourcePlatform, targetPlatform, notes[]}. notes[] помечают, что адаптировано (severity=TRANSFORM, напр. вопрос-контакт → ввод телефона текстом), что требует ручной правки (MANUAL, напр. условие SUBSCRIBED в MAX) и особенности платформы (INFO). Авто-адаптация узлов реализована для Telegram⇄MAX; при копировании в/из Instagram-бота граф копируется без трансформаций — несовместимые узлы будут отмечены при публикации (IG-allowlist). preview=true — только проверка совместимости, без копирования. Тот же бот запрещён (для дублирования есть clone_graph). Копия сценария-вебхука становится обычным сценарием бота-получателя (вход по вебхуку не переносится).", inputSchema: { type: "object", properties: { graphId: { type: "string" }, targetBotId: { type: "string", description: "id бота-получателя (см. list_bots)" }, preview: { type: "boolean", description: "true = только отчёт о совместимости, ничего не сохраняется" } }, required: ["graphId", "targetBotId"] } },
-  { name: "delete_graph", description: "Удалить граф. Активный (опубликованный и назначенный боту) удалить нельзя — будет 409; сначала переключи активный через set_active_graph.", inputSchema: { type: "object", properties: { graphId: { type: "string" } }, required: ["graphId"] } },
+  { name: "delete_graph", description: "Удалить граф (DELETE /api/bots/graphs/{id}) — тот же эндпоинт удаляет и вебхук-сценарий (scenarioId из scenario_list/scenario_create — это id того же графа). Активный (опубликованный и назначенный боту) удалить нельзя — будет 409; сначала переключи активный через set_active_graph. Необратимо.", inputSchema: { type: "object", properties: { graphId: { type: "string" } }, required: ["graphId"] } },
   { name: "set_active_graph", description: "Назначить, какой опубликованный граф активен у бота (переключение живого сценария без перепубликации). HTTP 409 — граф не опубликован или это сценарий-вебхук (источник WEBHOOK — такой включается своей публикацией в вебе).", inputSchema: { type: "object", properties: { botId: { type: "string" }, graphId: { type: "string" } }, required: ["botId", "graphId"] } },
   { name: "upload_file", description: "Загрузить файл в библиотеку /bots/files (POST /api/bots/media) и получить публичный URL для вставки в сценарий. Передай path (локальный файл) ИЛИ url (перезалить файл по ссылке в своё хранилище). Возвращает {id, url, mediaType, sizeBytes, originalName}. Полученный url ставь в медиа-карточку SEND_MESSAGE (image/video/audio/file/voice/videonote → поле url; gallery → urls[]) или в SEND_PHOTO.photoUrl. Лимит 50 МБ; типы: image/video/audio/pdf/zip/doc(x)/xlsx/pptx/txt (SVG запрещён); при нехватке места — HTTP 402.", inputSchema: { type: "object", properties: { path: { type: "string", description: "Путь к локальному файлу (поддерживается ~)" }, url: { type: "string", description: "Ссылка на файл — будет скачан и перезалит в /bots/files" }, filename: { type: "string", description: "Переопределить имя файла (необязательно)" } } } },
   { name: "list_files", description: "Список файлов в библиотеке /bots/files (GET /api/bots/media) + использовано/лимит байт. Бери готовые url отсюда, чтобы не загружать одно и то же повторно.", inputSchema: { type: "object", properties: {} } },
@@ -1052,6 +1052,20 @@ const TOOLS = [
   { name: "agent_tool_test", description: "Проверить инструмент агента напрямую, БЕЗ модели (POST /api/bots/agents/{agentId}/tools/{toolId}/test): params — аргументы вызова (AMO_LOOKUP: query ИЛИ leadId; SHEETS_LOOKUP: value; HTTP_API: имена из httpParams этого инструмента). Проверяет только конфиг инструмента (подключение amoCRM/таблицу Sheets/URL) — модель не вызывается, бюджет ИИ не тратится. {ok:true, result} при успехе; ошибка конфига/внешнего сервиса — HTTP 400 {ok:false, error} с причиной на русском (никогда не 500). toolId — id инструмента из agent_get → tools[].id (настраивается через agent_update {patch:{tools:[...]}})." , inputSchema: { type: "object", properties: { agentId: { type: "string" }, toolId: { type: "string" }, params: { type: "object", description: "Аргументы вызова инструмента (см. описание)" } }, required: ["agentId", "toolId"] } },
   // ---- Заявки сайта: файлы вложений ----
   { name: "site_lead_file_download", description: "Метаданные и ссылка на скачивание файла из заявки сайта (GET /api/bots/pages/{siteId}/leads/{leadId}/files/{fileId}, владелец/ADMIN сайта). Байты файла НЕ передаются через MCP (может быть большим/бинарным) — инструмент делает HEAD-запрос, чтобы подтвердить, что файл принадлежит этой заявке (404 иначе), и вернуть {fileId, fileName, contentType, sizeBytes, downloadUrl}. downloadUrl отдаёт файл только с тем же токеном, что у этого MCP (заголовок Authorization: Bearer zmcp_...), — скачай curl'ом с этим заголовком или открой заявку в кабинете (сайт → «Заявки»). Список файлов заявки с теми же полями уже есть в site_leads (поле files[] каждой заявки) — этот инструмент нужен, только когда нужна именно прямая ссылка на скачивание одного файла.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, leadId: { type: "string" }, fileId: { type: "string" } }, required: ["siteId", "leadId", "fileId"] } },
+  // ---- Вебхук-сценарии (/api/scenarios, PAT-доступ открыт решением владельца 14.10) ----
+  { name: "scenario_list", description: "Сценарии автора (GET /api/scenarios): [{id, name, status, active, sourceType: BOT|WEBHOOK, botId}] — включая вебхук-сценарии (в list_graphs их нет, см. его описание). sourceType WEBHOOK — свой вход по адресу (path+secret в scenario_get), выход — произвольный бот через scenario_update_source; BOT — живёт в графах привязанного бота (тот же объект, что и в list_graphs/get_graph этого бота). Read-only.", inputSchema: { type: "object", properties: {} } },
+  { name: "scenario_create", description: "Создать сценарий (POST /api/scenarios), пустым — узлы/рёбра потом через update_graph/edit_graph_live по id из ответа. botId не передан → вебхук-сценарий (source.type WEBHOOK): сервер сам выпускает путь входа и секрет (видны в scenario_get, ротируются scenario_rotate_secret), выходной бот задаётся отдельно через scenario_update_source. botId передан → бот-сценарий (source.type BOT), сразу привязан к этому боту — нужен доступ на редактирование его графов (owner/EDITOR/ADMIN), иначе 403/404; публикуется он уже через publish_graph, не через scenario_publish. Лимит сценариев тарифа — HTTP 402.", inputSchema: { type: "object", properties: { name: { type: "string" }, botId: { type: "string", description: "UUID бота — делает сценарий бот-сценарием вместо вебхук-сценария" } }, required: ["name"] } },
+  { name: "scenario_get", description: "Сценарий по id (GET /api/scenarios/{id}) — тот же граф, что get_graph, плюс source: {type: BOT|WEBHOOK, config: у WEBHOOK path/secret входа и (если задан) botId выхода, у BOT — только botId} и outputBinding {channel, recipientFrom}. Свой сценарий — всегда; чужой бот-сценарий — если есть доступ к боту (как GET .../graphs/{id}); чужой вебхук-сценарий — 404 (в нём секрет входа, виден только автору).", inputSchema: { type: "object", properties: { scenarioId: { type: "string" } }, required: ["scenarioId"] } },
+  { name: "scenario_update_source", description: "Привязка выхода вебхук-сценария, ЦЕЛИКОМ заменяет текущую (PUT /api/scenarios/{id}/source) — только у source.type WEBHOOK, у BOT-сценария 409. botId — бот-выход (нужен доступ на редактирование его графов — owner/EDITOR/ADMIN, иначе 403/404); НЕ передан → привязка снимается, сценарий остаётся headless без бота. channel — OutputChannel: TG_BOT_API (обычный Bot API Telegram/MAX) | TG_USERBOT | IG | MAX; не передан — прежнее значение сохраняется. recipientFrom — откуда брать chatId получателя (например \"CHAT\" — чат-инициатор, или имя переменной сценария); НЕ передан → очищается в пустую строку (поле не частичное — шли его всегда, если хочешь сохранить текущее значение, сначала прочитай scenario_get). У опубликованного сценария новая привязка применяется сразу; если она добавляет НОВЫЕ ошибки проверки (платформа/лимит), которых не было при старой, — HTTP 422 со всеми code@nodeId, ничего не сохранено (уже имевшиеся ошибки не блокируют).", inputSchema: { type: "object", properties: { scenarioId: { type: "string" }, botId: { type: "string", description: "UUID бота-выхода; опусти, чтобы снять привязку" }, channel: { type: "string", enum: ["TG_BOT_API", "TG_USERBOT", "IG", "MAX"] }, recipientFrom: { type: "string", description: "Не передашь — очистится в пустую строку" } }, required: ["scenarioId"] } },
+  { name: "scenario_publish", description: "Опубликовать вебхук-сценарий (POST /api/scenarios/{id}/publish) — только source.type WEBHOOK (у BOT-сценария 409, публикуй через publish_graph). Те же проверки, что у publish_graph (узлы/лимиты/платформа выходного бота, если он задан): отказ → HTTP 422 со всеми причинами построчно (code@nodeId: message), ничего не опубликовано.", inputSchema: { type: "object", properties: { scenarioId: { type: "string" } }, required: ["scenarioId"] } },
+  { name: "scenario_rotate_secret", description: "Выпустить новый секрет входа вебхук-сценария (POST /api/scenarios/{id}/rotate-secret) — старый сразу перестаёт приниматься. Секрет виден в ответе этого вызова и в scenario_get (source.config.secret) — это собственный секрет сценария для настройки его входящего вебхука, не чужой секрет интеграции.", inputSchema: { type: "object", properties: { scenarioId: { type: "string" } }, required: ["scenarioId"] } },
+  // ---- Публичный API ИИ-агента: ключи (решение владельца 14.10) ----
+  { name: "agent_api_key_create", description: "Выпустить API-ключ публичного чата агента (POST /api/bots/agents/{agentId}/api-keys): один ключ работает только с ЭТИМ агентом (не аккаунтом целиком, в отличие от zmcp-токена). Секрет (вид zagt_...) виден ТОЛЬКО в этом ответе — дальше хранится лишь хеш; сохрани/покажи пользователю сразу, повторно его не получить. До 20 активных ключей на агента — сверх лимита HTTP 409 TOO_MANY_KEYS, сначала отзови лишний (agent_api_key_revoke). Ключ шлют заголовком Authorization: Bearer <ключ> на POST /api/public/agents/{agentId}/chat (публичный чат агента, без zmcp-токена/сессии) — {conversationId?, message (1–1000 симв.), metadata?} → {reply, conversationId, sources?}; 30 запросов/мин на ключ (429 иначе), агент должен быть опубликован (agent_publish).", inputSchema: { type: "object", properties: { agentId: { type: "string" }, name: { type: "string", description: "Название ключа для списка, например «Виджет на сайте»" } }, required: ["agentId"] } },
+  { name: "agent_api_key_list", description: "Список API-ключей агента (GET /api/bots/agents/{agentId}/api-keys): {id, name, keyPrefix, createdAt, lastUsedAt} — без секрета (key:null), секрет виден только один раз при agent_api_key_create. Read-only.", inputSchema: { type: "object", properties: { agentId: { type: "string" } }, required: ["agentId"] } },
+  { name: "agent_api_key_revoke", description: "Отозвать API-ключ агента (DELETE /api/bots/agents/{agentId}/api-keys/{keyId}) — публичный чат с этим ключом сразу перестаёт отвечать (401). keyId — из agent_api_key_list. Необратимо: только по явной просьбе пользователя, с confirm:true.", inputSchema: { type: "object", properties: { agentId: { type: "string" }, keyId: { type: "string" }, confirm: { type: "boolean" } }, required: ["agentId", "keyId", "confirm"] } },
+  // ---- Пакеты ответов ИИ сверх тарифа (решение владельца 14.10) ----
+  { name: "ai_packs", description: "Пакеты ответов ИИ сверх месячного бюджета тарифа: каталог (GET /api/bots/ai-packs) — [{sku, answers, priceRub, kopecks}] (ai_pack_1000 — 1000 ответов/490₽, ai_pack_5000 — 5000/1990₽, ai_pack_20000 — 20000/6990₽; kopecks — внутренняя единица бюджета, справочно, не присылай её). Плюс баланс — aiPackAnswersLeft/aiPackTokensLeft из GET /api/bots/subscription: пакет не сгорает без активного тарифа, но списывается только при нём, ПОСЛЕ месячного бюджета тарифа, FIFO по старшинству покупки (сначала самый старый). Read-only; купить — ai_pack_purchase.", inputSchema: { type: "object", properties: {} } },
+  { name: "ai_pack_purchase", description: "ЭТО ПЛАТЁЖ, не покупка напрямую. Купить пакет ответов ИИ (POST /api/bots/ai-packs/purchase {sku, method}): тот же конвейер оплаты (ЮKassa/крипта), что у смены тарифа — ответ НЕ списывает деньги сам, а возвращает invoiceUrl, ссылку на оплату; пакет зачислится на баланс только после подтверждения платежа пользователем в браузере. sku — из ai_packs; method — \"card\" (по умолчанию), как у subscribe. Только по явной просьбе пользователя, с confirm:true.", inputSchema: { type: "object", properties: { sku: { type: "string", description: "sku из ai_packs, например ai_pack_5000" }, method: { type: "string", description: "card (по умолчанию) и т.п., как у subscribe" }, confirm: { type: "boolean" } }, required: ["sku", "confirm"] } },
 ];
 
 async function handleCall(params) {
@@ -2111,6 +2125,77 @@ async function handleCall(params) {
       const fileId = uuidArg(a.fileId, "fileId");
       const meta = await siteLeadFileHead(siteId, leadId, fileId);
       return okResult({ ...meta, authHint: "Скачать: curl -H \"Authorization: Bearer <твой zmcp_-токен>\" \"<downloadUrl>\" -o файл — либо открой заявку в кабинете (сайт → «Заявки»)." });
+    }
+    // ---- Вебхук-сценарии ----
+    case "scenario_list": return okResult(await api("/api/scenarios"));
+    case "scenario_create": {
+      const name = String(a.name ?? "").trim();
+      if (!name) throw new Error("Передай name — название сценария.");
+      const source = a.botId != null && String(a.botId).trim() !== ""
+        ? { type: "BOT", config: { botId: uuidArg(a.botId, "botId") } }
+        : { type: "WEBHOOK", config: {} };
+      return okResult(await api("/api/scenarios", { method: "POST", body: { name, source } }));
+    }
+    case "scenario_get": return okResult(await api(`/api/scenarios/${uuidArg(a.scenarioId, "scenarioId")}`));
+    case "scenario_update_source": {
+      const scenarioId = uuidArg(a.scenarioId, "scenarioId");
+      const body = {
+        botId: a.botId != null && String(a.botId).trim() !== "" ? uuidArg(a.botId, "botId") : null,
+        channel: a.channel != null ? enumArg(a.channel, "channel", ["TG_BOT_API", "TG_USERBOT", "IG", "MAX"]) : null,
+        recipientFrom: a.recipientFrom != null ? String(a.recipientFrom) : null,
+      };
+      try {
+        return okResult(await api(`/api/scenarios/${scenarioId}/source`, { method: "PUT", body }));
+      } catch (e) {
+        if (e.status === 409) throw new Error("Это не вебхук-сценарий (source.type BOT) — у бот-сценария выход не перепривязывается, это сам бот графа.");
+        throw e;
+      }
+    }
+    case "scenario_publish": {
+      try {
+        return okResult(await api(`/api/scenarios/${uuidArg(a.scenarioId, "scenarioId")}/publish`, { method: "POST" }));
+      } catch (e) {
+        if (e.status === 409) throw new Error("Это не вебхук-сценарий (source.type BOT) — публикуй через publish_graph.");
+        throw e;
+      }
+    }
+    case "scenario_rotate_secret": return okResult(await api(`/api/scenarios/${uuidArg(a.scenarioId, "scenarioId")}/rotate-secret`, { method: "POST" }));
+    // ---- Публичный API ИИ-агента: ключи ----
+    case "agent_api_key_list": return okResult(await api(`/api/bots/agents/${idArg(a.agentId, "agentId")}/api-keys`));
+    case "agent_api_key_create": {
+      const body = {};
+      if (a.name != null && String(a.name).trim() !== "") body.name = String(a.name).trim();
+      try {
+        return okResult(await api(`/api/bots/agents/${idArg(a.agentId, "agentId")}/api-keys`, { method: "POST", body }));
+      } catch (e) {
+        if (e.status === 409) throw new Error("До 20 активных ключей на агента — сначала отзови лишний (agent_api_key_revoke).");
+        throw e;
+      }
+    }
+    case "agent_api_key_revoke": {
+      const agentId = idArg(a.agentId, "agentId");
+      const keyId = idArg(a.keyId, "keyId");
+      if (a.confirm !== true) throw new Error("Отзыв ключа необратим: публичный чат с ним сразу перестанет отвечать. Спроси пользователя и повтори с confirm:true.");
+      await api(`/api/bots/agents/${agentId}/api-keys/${keyId}`, { method: "DELETE" });
+      return okResult(`🗑️ Ключ ${keyId} отозван.`);
+    }
+    // ---- Пакеты ответов ИИ ----
+    case "ai_packs": {
+      const [skus, sub] = await Promise.all([
+        api("/api/bots/ai-packs"),
+        api("/api/bots/subscription").catch(() => null),
+      ]);
+      return okResult({
+        skus,
+        balance: sub ? { aiPackAnswersLeft: sub.aiPackAnswersLeft, aiPackTokensLeft: sub.aiPackTokensLeft } : null,
+      });
+    }
+    case "ai_pack_purchase": {
+      const sku = String(a.sku ?? "").trim();
+      if (!sku) throw new Error("Передай sku — из ai_packs.");
+      if (a.confirm !== true) throw new Error("Это платёж. Спроси пользователя и повтори с confirm:true.");
+      const r = await api("/api/bots/ai-packs/purchase", { method: "POST", body: { sku, method: a.method || "card" } });
+      return okResult({ ...r, hint: "Пакет зачислится после подтверждения оплаты по invoiceUrl — ничего не списано автоматически." });
     }
     default:
       throw new Error(`Неизвестный инструмент: ${params && params.name}`);

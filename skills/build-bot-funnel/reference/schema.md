@@ -73,8 +73,15 @@
   Бот должен быть админом канала/группы, иначе события оттуда не придут.
 - `TRIGGER_ANY_UPDATE` — `{}`, ловит ЛЮБОЙ апдейт. Приоритет самый низкий: срабатывает, только
   если не подошёл ни один конкретный триггер. Удобен как «ничего не понял» / отладка.
-- `TRIGGER_WEBHOOK` — `{}`, точка входа сценария с источником WEBHOOK (не бот). Такие сценарии
-  создаются в вебе; у графа бота этот триггер не сработает.
+- `TRIGGER_WEBHOOK` — `{}`, точка входа сценария с источником WEBHOOK (не бот); у графа БОТ-сценария
+  этот триггер не сработает. Такой сценарий создаётся `scenario_create(name)` без `botId` — сервер сам
+  выпускает путь входа и секрет (видны в `scenario_get` → `source.config`, ротируются `scenario_rotate_secret`);
+  узлы/рёбра — как у обычного графа, через `update_graph`/`edit_graph_live`/`patch_graph` по вернувшемуся id.
+  Выходной бот (кому слать ответ) задаётся/снимается отдельно через `scenario_update_source(scenarioId, botId?,
+  channel?, recipientFrom?)` — поле заменяется ЦЕЛИКОМ, без `botId` сценарий остаётся headless. Публикуется
+  такой сценарий `scenario_publish`, НЕ `publish_graph` (у него на source.type WEBHOOK — 409). Список своих
+  сценариев, включая вебхук-сценарии (их нет в `list_graphs`), — `scenario_list`; удаление — `delete_graph`
+  (тем же id). Собрать так же можно и в вебе — оба пути ведут в один и тот же объект.
   - **Внешние события интеграции** — тот же `TRIGGER_WEBHOOK`, но с заполненными
     `{ "provider": "<provider-ключ из integration_catalog, нижний регистр>", "connectionId": "<id из list_integrations>",
     "event": "<events[].key нужного события из inbound.events того же provider в integration_catalog>" }`.

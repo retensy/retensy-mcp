@@ -121,6 +121,10 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 
 Отозвать токен можно там же — доступ блокируется мгновенно.
 
+> С 14.10 тот же токен `zmcp_...` полностью покрывает и вебхук-сценарии (`/api/scenarios` — `scenario_*`),
+> и управление подключениями сервисов (`/api/integrations` — `connect_integration`/`disconnect_integration`/
+> `integration_update` и остальные `integration_*`), не только `/api/bots`. Отдельного токена под эти инструменты не нужно.
+
 > **Не знаешь, что делать?** Скажи агенту «настрой подключение» — он вызовет `setup`, объяснит шаги и попросит токен. Любой инструмент при отсутствии токена тоже вернёт пошаговую инструкцию.
 
 > Дев-окружение: `RETENSY_BASE_URL=http://localhost:8066`.
@@ -267,6 +271,15 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `scenario_timeseries(graphId, from, to)` | дневной ряд прогонов сценария `{ok, failed, other}` (по узлам — `graph_analytics`) |
 | `agent_tool_test(agentId, toolId, params?)` | проверить инструмент агента (`AMO_LOOKUP`/`SHEETS_LOOKUP`/`HTTP_API`) напрямую, без модели — бюджет ИИ не тратится |
 | `site_lead_file_download(siteId, leadId, fileId)` | метаданные вложения заявки + ссылка на скачивание (сам файл через MCP не передаётся — HEAD-запрос, не GET) |
+| `scenario_list()` | сценарии автора, включая вебхук-сценарии (`sourceType: WEBHOOK`\|`BOT`) — в `list_graphs` вебхук-сценарии не входят |
+| `scenario_create(name, botId?)` | создать сценарий: без `botId` — вебхук-сценарий (сервер сам выпускает путь входа и секрет), с `botId` — бот-сценарий, сразу привязанный к боту |
+| `scenario_get(scenarioId)` | сценарий целиком — граф + `source` (у вебхук-сценария: путь/секрет входа) + `outputBinding` |
+| `scenario_update_source(scenarioId, botId?, channel?, recipientFrom?)` | привязка выхода вебхук-сценария, заменяется ЦЕЛИКОМ (без `botId` — привязка снимается, без `recipientFrom` — очищается); только для `sourceType:"WEBHOOK"` |
+| `scenario_publish(scenarioId)` | опубликовать вебхук-сценарий (бот-сценарий — через `publish_graph`) |
+| `scenario_rotate_secret(scenarioId)` | выпустить новый секрет входа вебхук-сценария — старый сразу перестаёт приниматься |
+| `agent_api_key_create(agentId, name?)` / `agent_api_key_list(agentId)` / `agent_api_key_revoke(agentId, keyId, confirm:true)` | API-ключи публичного чата агента (`zagt_...`, секрет виден один раз) — для `POST /api/public/agents/{agentId}/chat` без основного токена |
+| `ai_packs()` | каталог пакетов ответов ИИ сверх тарифа + текущий баланс (`aiPackAnswersLeft`) |
+| `ai_pack_purchase(sku, method?, confirm:true)` | купить пакет — возвращает ссылку на оплату, деньги не списываются этим вызовом |
 
 ### Рассылки
 
