@@ -138,7 +138,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `site_create(title, slug?, template?)` | новый сайт из блоков → `id`; `template` (`starter`/`blank`/`mini-landing`) — сразу черновик из шаблона; число сайтов ограничено тарифом — сверх лимита HTTP 402 с причиной и ссылкой на смену тарифа |
 | `site_get(siteId, saveToFile?)` | модель сайта (`revision`, `draft`, `versions[]` публикаций) |
 | `site_schema()` | JSON Schema модели и операций — читать перед правкой |
-| `site_edit(siteId, ops[]?, revision?, init?)` | правка операциями (`init`: `starter`/`blank`/`mini-landing`; только `init` — черновик из шаблона), всё или ничего: страницы и папки, блоки, Zero-элементы, код блока (`get/set/add_block_code`), дизайны и их кадры, шаблоны (`add_template`), тема, попапы |
+| `site_edit(siteId, ops[]?, revision?, init?)` | правка операциями (`init`: `starter`/`blank`/`mini-landing`; только `init` — черновик из шаблона), всё или ничего: страницы и папки, блоки, Zero-элементы, код блока (`get/set/add_block_code`), дизайны и их кадры, шаблоны (`add_template`), тема, попапы; пиксели аналитики (GA4/GTM/Meta/VK/Яндекс.Метрика) — тоже сюда, `set_settings {analytics: {...}}` (отдельного инструмента нет — те же `settings.analytics` модели сайта, валидируются форматом id на сервере) |
 | `site_templates(category?, full?)` | библиотека шаблонов блоков для `add_template` |
 | `site_publish(siteId)` | опубликовать черновик → `url` |
 | `site_rollback(siteId, revision)` | вернуть прошлую публикацию |
@@ -212,6 +212,19 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `migration_presets()` | каталог источников миграции подписчиков (BotHelp/SaleBot/Senler/Leadteh/Smartsender/ManyChat/универсальный CSV) |
 | `migration_preview(botId, path, platform, mapping?)` | пробный прогон CSV (ничего не пишет): без `mapping` — определение заголовков/подсказка сопоставления, с `mapping` — полный dry-run (новые/существующие, превышение лимита) |
 | `migration_commit(botId, path, platform, mapping)` | реальный импорт подписчиков тем же `mapping`, что подтвердил `migration_preview` |
+| `chain_list()` / `chain_get(chainId)` | цепочки публикаций («Публикации» → «Цепочки», автопостинг source → destinations[]) / одна цепочка целиком |
+| `chain_create(chain)` / `chain_update(chainId, chain)` | создать / изменить цепочку целиком (`chain`: `name`, `source` TELEGRAM\|VK\|RSS, `destinations[]` TELEGRAM\|MAX\|VK\|INSTAGRAM, `steps[]` FILTER\|TEXT_TRANSFORM\|AI_ADAPT\|UTM\|DELAY, `approvalMode?`, `utmDefaults?`); HTTP 409 — прямой цикл с другой цепочкой |
+| `chain_delete(chainId, confirm:true)` | удалить цепочку (теряется история заданий) |
+| `chain_enable(chainId)` / `chain_pause(chainId)` | включить / поставить на паузу приём новых постов источника |
+| `chain_runs(chainId, page?, size?)` | история заданий цепочки, новые сверху (бэкенд без постраничной выдачи — `page`/`size`, если переданы, режут список в MCP) |
+| `chain_approve(jobId)` / `chain_reject(jobId)` | согласовать / отклонить задание, ждущее подтверждения (`approvalMode` AI_ONLY/ALL) |
+| `chain_retry(jobId)` | повторить проваленное задание вручную, минуя бэкофф |
+| `site_analytics(siteId, from?, to?)` | KPI+тренд сайта: просмотры, клики (только с `goalName`), заявки, топ-страницы/источники (по умолчанию последние 30 дней) |
+| `site_analytics_events(siteId, from?, to?, page?, size?)` | сырые события сайта постранично (`PAGE_VIEW`\|`CLICK`\|`FORM_SUBMIT`, UTM) |
+| `bot_subscriber_analytics(botId, from, to)` | новые подписчики/активность бота по дням (дашборд аналитики, диапазон до 92 дней) |
+| `scenario_timeseries(graphId, from, to)` | дневной ряд прогонов сценария `{ok, failed, other}` (по узлам — `graph_analytics`) |
+| `agent_tool_test(agentId, toolId, params?)` | проверить инструмент агента (`AMO_LOOKUP`/`SHEETS_LOOKUP`/`HTTP_API`) напрямую, без модели — бюджет ИИ не тратится |
+| `site_lead_file_download(siteId, leadId, fileId)` | метаданные вложения заявки + ссылка на скачивание (сам файл через MCP не передаётся — HEAD-запрос, не GET) |
 
 ### Рассылки
 

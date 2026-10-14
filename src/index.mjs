@@ -27,7 +27,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.22.0";
+const VERSION = "0.23.0";
 /** С чего начать пустой сайт (init у /document/ops; на сайте с черновиком игнорируется). */
 const SITE_INITS = ["starter", "blank", "mini-landing"];
 /** Безвредная операция, когда нужен только init: бэкенд не принимает пустой ops[]. */
@@ -428,6 +428,31 @@ async function apiBinaryPost(path_, body) {
     throw httpError("POST", path_, res.status, data);
   }
   return Buffer.from(await res.arrayBuffer());
+}
+// HEAD, не GET — заявки могут нести бинарные вложения; нам нужны только заголовки (имя/тип/размер),
+// без скачивания байтов файла в MCP-ответ (см. site_lead_file_download). Spring отвечает на @GetMapping
+// заголовками без тела и для HEAD — метод контроллера при этом всё равно выполняется целиком (читает файл
+// с диска/объектного хранилища), просто DispatcherServlet не отдаёт тело — доступ/404 проверяются так же, как у GET.
+async function siteLeadFileHead(siteId, leadId, fileId) {
+  if (!isAuthed()) throw new Error(NO_AUTH_HELP);
+  const path_ = `/api/bots/pages/${siteId}/leads/${leadId}/files/${fileId}`;
+  const res = await fetch(`${BASE}${path_}`, { method: "HEAD", headers: authHeaders() });
+  if (!res.ok) {
+    if (res.status === 401) throw new Error(`Доступ отклонён (HTTP 401). Токен невалиден/отозван — создай новый на ${TOKENS_PAGE}.`);
+    if (res.status === 403) throw new Error(`Доступ отклонён (HTTP 403). Нет прав на заявки этого сайта.`);
+    if (res.status === 404) throw new Error("Файл не найден: не принадлежит этой заявке/сайту, либо заявка/файл удалены.");
+    throw httpError("HEAD", path_, res.status, null);
+  }
+  const disp = res.headers.get("content-disposition") || "";
+  const m = disp.match(/filename="([^"]*)"/);
+  const len = res.headers.get("content-length");
+  return {
+    fileId, siteId, leadId,
+    fileName: m ? m[1] : null,
+    contentType: res.headers.get("content-type") || null,
+    sizeBytes: len ? Number(len) : null,
+    downloadUrl: `${BASE}${path_}`,
+  };
 }
 function saveBinary(buf, savePath) {
   const abs = path.resolve(String(savePath).replace(/^~(?=$|[/\\])/, os.homedir()));
@@ -1006,6 +1031,27 @@ const TOOLS = [
   { name: "migration_presets", description: "Каталог поддерживаемых источников миграции (GET /api/bots/migration/presets): BOTHELP|SALEBOT|SENLER|LEADTEH|SMARTSENDER|MANYCHAT|GENERIC — у каждого note (как экспортировать оттуда) и guessed*Headers (подсказки для автосопоставления колонок). Переносятся ТОЛЬКО подписчики (funnelImportSupported всегда false — ни один из этих билдеров не публикует документированный формат экспорта сценария; свои воронки переносятся через import_funnel/create_graph с retensy-bot-graph JSON, это другой формат). Read-only.", inputSchema: { type: "object", properties: {} } },
   { name: "migration_preview", description: "Пробный прогон CSV-импорта подписчиков, НИЧЕГО не пишет в базу (POST /api/bots/{botId}/migration/subscribers/preview, multipart). path — локальный CSV (≤10 МБ, ≤20000 строк данных), platform — id из migration_presets. Без mapping — режим определения: headers, sampleRaw (до 5 строк), suggestedMapping (угадан по подсказкам пресета — только подсказка, не контракт). С mapping ({userIdColumn (обязательно — заголовок колонки с числовым chatId), usernameColumn?, tagsColumn?, tagsDelimiter? (по умолч. \"|;,\"), variableColumns?}) — полный dry-run: validRows, invalidRows (причины, до 20), newSubscribers/existingSubscribers (дедуп по chatId против текущих подписчиков бота), overCapacity (сверх лимита тарифа), remainingCapacity (-1 — безлимит), sample (до 10 строк как они импортируются), totalRowsInFile/truncated.", inputSchema: { type: "object", properties: { botId: { type: "string" }, path: { type: "string", description: "Локальный путь к CSV-файлу" }, platform: { type: "string", enum: ["BOTHELP", "SALEBOT", "SENLER", "LEADTEH", "SMARTSENDER", "MANYCHAT", "GENERIC"] }, mapping: { type: "object", description: "MigrationColumnMapping — передай ПОСЛЕ того, как проверил suggestedMapping/detect-режимом", properties: { userIdColumn: { type: "string" }, usernameColumn: { type: "string" }, tagsColumn: { type: "string" }, tagsDelimiter: { type: "string" }, variableColumns: { type: "array", items: { type: "string" } } } } }, required: ["botId", "path", "platform"] } },
   { name: "migration_commit", description: "Реальный импорт подписчиков из CSV тем же mapping, что подтвердил migration_preview (POST /api/bots/{botId}/migration/subscribers/commit, multipart) — тот же путь дедупа по chatId/лимита тарифа/«никогда не перезаписывать существующее», что у bot_users_import. Возвращает {totalRowsInFile, processedRows, truncated, result: ImportUsersResponse}.", inputSchema: { type: "object", properties: { botId: { type: "string" }, path: { type: "string" }, platform: { type: "string", enum: ["BOTHELP", "SALEBOT", "SENLER", "LEADTEH", "SMARTSENDER", "MANYCHAT", "GENERIC"] }, mapping: { type: "object", properties: { userIdColumn: { type: "string" }, usernameColumn: { type: "string" }, tagsColumn: { type: "string" }, tagsDelimiter: { type: "string" }, variableColumns: { type: "array", items: { type: "string" } } }, required: ["userIdColumn"] } }, required: ["botId", "path", "platform", "mapping"] } },
+  // ---- Публикации: цепочки (автопостинг «Цепочки публикаций») ----
+  { name: "chain_list", description: "Цепочки публикаций пользователя (GET /api/bots/chains): автоматический репост source → destinations[] с шагами обработки (steps[]) и UTM. Цепочка привязана к владельцу, не к конкретному боту. Read-only.", inputSchema: { type: "object", properties: {} } },
+  { name: "chain_get", description: "Цепочка по id (GET /api/bots/chains/{id}). 404 — не своя/не найдена. Read-only.", inputSchema: { type: "object", properties: { chainId: { type: "string" } }, required: ["chainId"] } },
+  { name: "chain_create", description: "Создать цепочку публикаций (POST /api/bots/chains): chain — {name, enabled?, approvalMode?: NONE|AI_ONLY|ALL, source: {type: TELEGRAM|VK|RSS, botId?, chatId?, accountId?, rssUrl?}, destinations: [{type: TELEGRAM|MAX|VK|INSTAGRAM, botId?, chatId?, accountId?, utmOverride?}], steps?: [{type: FILTER|TEXT_TRANSFORM|AI_ADAPT|UTM|DELAY, ...поля шага}], utmDefaults?}. TELEGRAM-источник — свой канал бота (bot_channel_list/list_channels), VK-источник/назначение — подключённый аккаунт (vk_status). INSTAGRAM в destinations принимается моделью, но публикация требует медиа и подключённый Instagram-аккаунт — без них задание уходит в SKIPPED с причиной, не FAILED. HTTP 400 — не хватает полей или источник/назначение не найдены/не ваши; HTTP 409 — прямой цикл с другой вашей цепочкой (A→B при уже существующей B→A).", inputSchema: { type: "object", properties: { chain: { type: "object", description: "PublishChain draft — см. описание инструмента" } }, required: ["chain"] } },
+  { name: "chain_update", description: "Изменить цепочку целиком (PUT /api/bots/chains/{id}): chain — PublishChain draft (та же форма, что в chain_create), заменяет текущую конфигурацию полностью — сначала прочитай chain_get и поменяй нужное. Те же 400/409, что у chain_create.", inputSchema: { type: "object", properties: { chainId: { type: "string" }, chain: { type: "object", description: "PublishChain draft целиком" } }, required: ["chainId", "chain"] } },
+  { name: "chain_delete", description: "УДАЛИТЬ цепочку публикаций (DELETE /api/bots/chains/{id}). История заданий (chain_runs) теряется вместе с ней. Необратимо: только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { chainId: { type: "string" }, confirm: { type: "boolean" } }, required: ["chainId", "confirm"] } },
+  { name: "chain_enable", description: "Включить цепочку (POST /api/bots/chains/{id}/enable) — начинает принимать новые посты источника (TELEGRAM — сразу по событию, VK/RSS — со следующего опроса, раз в 3 мин).", inputSchema: { type: "object", properties: { chainId: { type: "string" } }, required: ["chainId"] } },
+  { name: "chain_pause", description: "Поставить цепочку на паузу (POST /api/bots/chains/{id}/pause) — перестаёт принимать новые посты источника (VK/RSS — опрос останавливается, TELEGRAM — события игнорируются); история и настройки сохраняются.", inputSchema: { type: "object", properties: { chainId: { type: "string" } }, required: ["chainId"] } },
+  { name: "chain_runs", description: "История заданий цепочки (GET /api/bots/chains/{id}/runs), новые сверху: [{id, status: PENDING|RUNNING|DONE|FAILED|AWAITING_APPROVAL|SKIPPED, originId, destinationId, lastError, reviewedBy, reviewedAt…}]. Бэкенд отдаёт всю историю без постраничной выдачи на сервере — page (с 0)/size (по умолчанию 20) режут список уже здесь, в MCP, чтобы не упираться в лимит токенов на цепочке с долгой историей; без них — список целиком. Read-only.", inputSchema: { type: "object", properties: { chainId: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["chainId"] } },
+  { name: "chain_approve", description: "Согласовать задание, ждущее подтверждения (approvalMode AI_ONLY/ALL) — POST /api/bots/chains/jobs/{jobId}/approve: AWAITING_APPROVAL → PENDING, подхватится ближайшим тиком исполнения (раз в 15 сек). jobId — из chain_runs. HTTP 400 — задание сейчас не ждёт согласования.", inputSchema: { type: "object", properties: { jobId: { type: "string" } }, required: ["jobId"] } },
+  { name: "chain_reject", description: "Отклонить задание, ждущее подтверждения — POST /api/bots/chains/jobs/{jobId}/reject: AWAITING_APPROVAL → SKIPPED, публикации не будет. jobId — из chain_runs. HTTP 400 — задание сейчас не ждёт согласования.", inputSchema: { type: "object", properties: { jobId: { type: "string" } }, required: ["jobId"] } },
+  { name: "chain_retry", description: "Повторить проваленное задание вручную, минуя бэкофф (POST /api/bots/chains/jobs/{jobId}/retry): сбрасывает lastError, задание подхватится ближайшим тиком исполнения. jobId — из chain_runs (status FAILED).", inputSchema: { type: "object", properties: { jobId: { type: "string" } }, required: ["jobId"] } },
+  // ---- Аналитика (дашборд «/bots/analytics»: сайт/бот/сценарий/рассылка) ----
+  { name: "site_analytics", description: "KPI+тренд сайта (GET /api/bots/pages/{siteId}/analytics?from&to): {pageViews, clicks, formSubmits, uniqueVisitors, leads, topPages, topReferrers, utmSources, trend:[{day,pageViews,clicks,formSubmits,uniqueVisitors}]}. from/to — ГГГГ-ММ-ДД, по умолчанию последние 30 дней UTC. uniqueVisitors — сумма дневных уников (не дедуп по всему периоду, это приближение). clicks считает только элементы с goalName, заданным в редакторе сайта (data-rs-track), а не любой клик. Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, from: { type: "string", description: "ГГГГ-ММ-ДД" }, to: { type: "string", description: "ГГГГ-ММ-ДД" } }, required: ["siteId"] } },
+  { name: "site_analytics_events", description: "Сырые события аналитики сайта постранично (GET /api/bots/pages/{siteId}/analytics/events?from&to&page&size): {items:[{id, type: PAGE_VIEW|CLICK|FORM_SUBMIT, objectId, visitorId, page, referrer, utmSource/Medium/Campaign/Content/Term, props, createdAt}], total}. from/to — ГГГГ-ММ-ДД (по умолчанию последние 30 дней), page (с 0), size (по умолчанию 50). Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, from: { type: "string" }, to: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["siteId"] } },
+  { name: "bot_subscriber_analytics", description: "Новые подписчики/активность бота по дням (GET /api/bots/{botId}/analytics/subscribers?from&to): {newSubscribers, active, total, legacyExcluded, trend:[{day,newSubscribers,active}]}. from/to обязательны — ГГГГ-ММ-ДД, диапазон обрезается сервером до 92 дней. legacyExcluded — сессии без даты создания (заведены до этой фичи): не входят в newSubscribers/trend, но учтены в total. active — по updatedAt в диапазоне (одна сессия может посчитаться в несколько дней). Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, from: { type: "string", description: "ГГГГ-ММ-ДД" }, to: { type: "string", description: "ГГГГ-ММ-ДД" } }, required: ["botId", "from", "to"] } },
+  { name: "scenario_timeseries", description: "Дневной ряд прогонов сценария (GET /api/bots/graphs/{graphId}/analytics/timeseries?from&to): [{day, ok, failed, other}] — по одной строке на каждый день диапазона (пустые дни — нулями), other = PARKED/NO_MATCH/PARTIAL (не отброшены). from/to обязательны — ГГГГ-ММ-ДД, диапазон обрезается до 92 дней. Разбивку по узлам сценария (не по дням) даёт graph_analytics — это разные срезы одних данных. Read-only.", inputSchema: { type: "object", properties: { graphId: { type: "string" }, from: { type: "string", description: "ГГГГ-ММ-ДД" }, to: { type: "string", description: "ГГГГ-ММ-ДД" } }, required: ["graphId", "from", "to"] } },
+  // ---- ИИ-агенты: инструменты (вызов внешних систем моделью) ----
+  { name: "agent_tool_test", description: "Проверить инструмент агента напрямую, БЕЗ модели (POST /api/bots/agents/{agentId}/tools/{toolId}/test): params — аргументы вызова (AMO_LOOKUP: query ИЛИ leadId; SHEETS_LOOKUP: value; HTTP_API: имена из httpParams этого инструмента). Проверяет только конфиг инструмента (подключение amoCRM/таблицу Sheets/URL) — модель не вызывается, бюджет ИИ не тратится. {ok:true, result} при успехе; ошибка конфига/внешнего сервиса — HTTP 400 {ok:false, error} с причиной на русском (никогда не 500). toolId — id инструмента из agent_get → tools[].id (настраивается через agent_update {patch:{tools:[...]}})." , inputSchema: { type: "object", properties: { agentId: { type: "string" }, toolId: { type: "string" }, params: { type: "object", description: "Аргументы вызова инструмента (см. описание)" } }, required: ["agentId", "toolId"] } },
+  // ---- Заявки сайта: файлы вложений ----
+  { name: "site_lead_file_download", description: "Метаданные и ссылка на скачивание файла из заявки сайта (GET /api/bots/pages/{siteId}/leads/{leadId}/files/{fileId}, владелец/ADMIN сайта). Байты файла НЕ передаются через MCP (может быть большим/бинарным) — инструмент делает HEAD-запрос, чтобы подтвердить, что файл принадлежит этой заявке (404 иначе), и вернуть {fileId, fileName, contentType, sizeBytes, downloadUrl}. downloadUrl отдаёт файл только с тем же токеном, что у этого MCP (заголовок Authorization: Bearer zmcp_...), — скачай curl'ом с этим заголовком или открой заявку в кабинете (сайт → «Заявки»). Список файлов заявки с теми же полями уже есть в site_leads (поле files[] каждой заявки) — этот инструмент нужен, только когда нужна именно прямая ссылка на скачивание одного файла.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, leadId: { type: "string" }, fileId: { type: "string" } }, required: ["siteId", "leadId", "fileId"] } },
 ];
 
 async function handleCall(params) {
@@ -1987,6 +2033,84 @@ async function handleCall(params) {
       let templates = Array.isArray(r?.templates) ? r.templates : [];
       if (a.category) templates = templates.filter((t) => t?.category === a.category);
       return okResult({ categories: r?.categories ?? [], templates });
+    }
+    // ---- Публикации: цепочки ----
+    case "chain_list": return okResult(await api("/api/bots/chains"));
+    case "chain_get": return okResult(await api(`/api/bots/chains/${uuidArg(a.chainId, "chainId")}`));
+    case "chain_create": {
+      if (!a.chain || typeof a.chain !== "object") throw new Error("Передай chain — объект PublishChain (см. описание chain_create).");
+      return okResult(await api("/api/bots/chains", { method: "POST", body: a.chain }));
+    }
+    case "chain_update": {
+      const chainId = uuidArg(a.chainId, "chainId");
+      if (!a.chain || typeof a.chain !== "object") throw new Error("Передай chain — объект PublishChain целиком (сначала прочитай chain_get).");
+      return okResult(await api(`/api/bots/chains/${chainId}`, { method: "PUT", body: a.chain }));
+    }
+    case "chain_delete": {
+      const chainId = uuidArg(a.chainId, "chainId");
+      if (a.confirm !== true) throw new Error("Удаление цепочки необратимо (теряется история заданий). Спроси пользователя и повтори с confirm:true.");
+      await api(`/api/bots/chains/${chainId}`, { method: "DELETE" });
+      return okResult(`🗑️ Цепочка ${chainId} удалена.`);
+    }
+    case "chain_enable": return okResult(await api(`/api/bots/chains/${uuidArg(a.chainId, "chainId")}/enable`, { method: "POST" }));
+    case "chain_pause": return okResult(await api(`/api/bots/chains/${uuidArg(a.chainId, "chainId")}/pause`, { method: "POST" }));
+    case "chain_runs": {
+      const chainId = uuidArg(a.chainId, "chainId");
+      const list = await api(`/api/bots/chains/${chainId}/runs`);
+      // Бэкенд не умеет page/size на этом эндпоинте — режем список здесь же, в MCP (см. описание инструмента).
+      if (!Array.isArray(list) || (a.page == null && a.size == null)) return okResult(list);
+      const size = a.size != null ? Math.max(1, Number(a.size) || 20) : 20;
+      const page = a.page != null ? Math.max(0, Number(a.page) || 0) : 0;
+      const start = page * size;
+      return okResult({ content: list.slice(start, start + size), totalElements: list.length, page, size });
+    }
+    case "chain_approve": return okResult(await api(`/api/bots/chains/jobs/${uuidArg(a.jobId, "jobId")}/approve`, { method: "POST" }));
+    case "chain_reject": return okResult(await api(`/api/bots/chains/jobs/${uuidArg(a.jobId, "jobId")}/reject`, { method: "POST" }));
+    case "chain_retry": {
+      const jobId = uuidArg(a.jobId, "jobId");
+      await api(`/api/bots/chains/jobs/${jobId}/retry`, { method: "POST" });
+      return okResult(`🔁 Задание ${jobId} поставлено на повтор.`);
+    }
+    // ---- Аналитика (дашборд) ----
+    case "site_analytics": {
+      const siteId = uuidArg(a.siteId, "siteId");
+      const qs = [];
+      if (a.from) qs.push(`from=${encodeURIComponent(dateArg(a.from, "from"))}`);
+      if (a.to) qs.push(`to=${encodeURIComponent(dateArg(a.to, "to"))}`);
+      return okResult(await api(`/api/bots/pages/${siteId}/analytics${qs.length ? `?${qs.join("&")}` : ""}`));
+    }
+    case "site_analytics_events": {
+      const siteId = uuidArg(a.siteId, "siteId");
+      const qs = [];
+      if (a.from) qs.push(`from=${encodeURIComponent(dateArg(a.from, "from"))}`);
+      if (a.to) qs.push(`to=${encodeURIComponent(dateArg(a.to, "to"))}`);
+      if (a.page != null) qs.push(`page=${encodeURIComponent(a.page)}`);
+      if (a.size != null) qs.push(`size=${encodeURIComponent(a.size)}`);
+      return okResult(await api(`/api/bots/pages/${siteId}/analytics/events${qs.length ? `?${qs.join("&")}` : ""}`));
+    }
+    case "bot_subscriber_analytics": {
+      const botId = uuidArg(a.botId, "botId");
+      const from = dateArg(a.from, "from"), to = dateArg(a.to, "to");
+      return okResult(await api(`/api/bots/${botId}/analytics/subscribers?from=${from}&to=${to}`));
+    }
+    case "scenario_timeseries": {
+      const graphId = uuidArg(a.graphId, "graphId");
+      const from = dateArg(a.from, "from"), to = dateArg(a.to, "to");
+      return okResult(await api(`/api/bots/graphs/${graphId}/analytics/timeseries?from=${from}&to=${to}`));
+    }
+    // ---- ИИ-агенты: инструменты ----
+    case "agent_tool_test": {
+      if (!a.agentId) throw new Error("Передай agentId.");
+      const toolId = idArg(a.toolId, "toolId");
+      return okResult(await api(`/api/bots/agents/${a.agentId}/tools/${toolId}/test`, { method: "POST", body: { params: a.params || {} } }));
+    }
+    // ---- Заявки сайта: файлы ----
+    case "site_lead_file_download": {
+      const siteId = uuidArg(a.siteId, "siteId");
+      const leadId = uuidArg(a.leadId, "leadId");
+      const fileId = uuidArg(a.fileId, "fileId");
+      const meta = await siteLeadFileHead(siteId, leadId, fileId);
+      return okResult({ ...meta, authHint: "Скачать: curl -H \"Authorization: Bearer <твой zmcp_-токен>\" \"<downloadUrl>\" -o файл — либо открой заявку в кабинете (сайт → «Заявки»)." });
     }
     default:
       throw new Error(`Неизвестный инструмент: ${params && params.name}`);
