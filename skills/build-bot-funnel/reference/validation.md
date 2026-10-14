@@ -47,6 +47,14 @@
 - `SCHEDULE`: `isoDate` = `YYYY-MM-DD`, ISO-8601 дата-время или шаблон `{{var.x}}` (`SCHEDULE_BAD_DATE`); `time` = `HH:mm` — обязателен при голой дате (`SCHEDULE_BAD_TIME`); опц. `offset` (`SCHEDULE_BAD_OFFSET`), `timezone` (`SCHEDULE_BAD_TIMEZONE`).
 - `TRIGGER_SCHEDULE`: `cron` ровно из 5 полей, не чаще раза в минуту (`SCHEDULE_TRIGGER_BAD_CRON`); `timezone` — известная зона (`SCHEDULE_TRIGGER_BAD_TIMEZONE`).
 - `ACTIONS`: непустой `actions[]` (`ACTIONS_EMPTY`); каждый `kind` — из допустимого списка (`ACTION_UNKNOWN_KIND`, список — в schema.md); per-kind: `tag` (`ACTION_BAD_TAG`), `set_field.key` (`ACTION_BAD_KEY`), `url` у `external_request`/`subscriber_webhook` (`ACTION_BAD_URL`), `calendarId` у `booking_slots`/`booking_book` (`ACTION_BOOKING_NO_CALENDAR`) и их `saveTo` (`ACTION_BAD_KEY`). Действия Integration Core (`actions[].kind` из `integration_catalog`, например `meta_capi_event`) бэкенд узнаёт по реестру провайдеров; `validate.mjs` их оффлайн не знает и выдаёт предупреждение, а не ошибку.
+- `ACTIONS` с действием `call_scenario` (переход/вызов другого сценария того же бота того же владельца), зеркало `GraphValidator.validateScenarioCalls`:
+  - должно быть **последним** действием в блоке, для обоих `mode` (`CALL_SCENARIO_NOT_LAST`);
+  - `graphId` обязателен — сценарий этого же бота, `list_graphs` (`CALL_SCENARIO_NO_TARGET`); не сам текущий граф (`CALL_SCENARIO_SELF`, сравнение без учёта регистра);
+  - `mode` — `"goto"` (по умолчанию) или `"call"`, другое значение → `CALL_SCENARIO_BAD_MODE`;
+  - `variables[].key` ∈ `[a-z][a-z0-9_]{0,63}`, служебные `_*` запрещены → `ACTION_BAD_KEY`;
+  - чужой/несуществующий/вебхук-сценарий-цель → `CALL_SCENARIO_FORBIDDEN` (проверяется при публикации, не офлайн-валидатором).
+  - В рантайме (оба `mode` делят один и тот же счётчик глубины/цикла): не больше **5** переходов/вызовов подряд в одной цепочке (`CALL_SCENARIO_DEPTH`); граф, уже бывший в этой цепочке — `CALL_SCENARIO_RECURSION` (для `mode:"call"` цепочка — персистентный `session.callStack`, не только текущий тик); прочие рантайм-коды: `CALL_SCENARIO_NOT_FOUND`, `CALL_SCENARIO_NO_ENTRY`, `CALL_SCENARIO_NO_SUBSCRIBER` (headless-вебхук), `NOT_CONFIGURED` (бэкенд в режиме развязанных сценариев).
+  - `mode:"goto"` — текущий прогон завершается `OK`, подписчик продолжает в цели отдельным прогоном, возврата нет. `mode:"call"` — перед переходом в `session.callStack` кладётся кадр (вызывающий граф + узел после блока по ребру `next`, если есть); когда цель доходит до `END`/конца графа, кадр снимается и вызывающий продолжается с этого места новым прогоном.
 - `ACTIONS` с действием `issue_invoice` (счёт на кассу владельца):
   - `connectionId` обязателен (`YK_NO_CONNECTION`) — подключение с `provider=YOOKASSA` из `list_integrations`;
   - `amount` обязателен (`YK_NO_AMOUNT`), число > 0 или шаблон `{{var.x}}` (`YK_BAD_AMOUNT`);
