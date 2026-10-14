@@ -33,7 +33,7 @@ function finish() {
   const ok =
     init?.result?.serverInfo?.name === "retensy-mcp" &&
     Array.isArray(tools) &&
-    tools.length === 151 &&
+    tools.length === 162 &&
     new Set(toolNames).size === toolNames.length &&
     toolNames.includes("list_channels") &&
     toolNames.includes("list_integrations") &&
@@ -55,7 +55,9 @@ function finish() {
       "audience_fields", "audience_search", "audience_tag_edit", "audience_variable_edit", "audience_export",
       "dialog_search", "publications_usage", "vk_status", "vk_connect", "vk_disconnect", "vk_post",
       "migration_presets", "migration_preview", "migration_commit", "broadcast_group",
-      "booking_confirm", "booking_reject"]
+      "booking_confirm", "booking_reject",
+      "scenario_list", "scenario_create", "scenario_get", "scenario_update_source", "scenario_publish", "scenario_rotate_secret",
+      "agent_api_key_create", "agent_api_key_list", "agent_api_key_revoke", "ai_packs", "ai_pack_purchase"]
       .every((n) => toolNames.includes(n));
   child.kill();
   if (!ok) {
