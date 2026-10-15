@@ -33,7 +33,7 @@ function finish() {
   const ok =
     init?.result?.serverInfo?.name === "retensy-mcp" &&
     Array.isArray(tools) &&
-    tools.length === 172 && // 167 (master) + 5: vk_landing_list/get/create/update/delete (Направление B, VK Mini App-лендинги)
+    tools.length === 173 && // 167 (master) + 5: vk_landing_list/get/create/update/delete (Направление B, VK Mini App-лендинги) + 1: chain_create_draft (POST /api/bots/chains/draft)
     new Set(toolNames).size === toolNames.length &&
     toolNames.includes("list_channels") &&
     toolNames.includes("list_integrations") &&
