@@ -224,7 +224,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `bot_user_runs(botId, chatId)` | журнал запусков с шагами — проверка, что сценарий реально выполнил действия (CRM, уведомление, HTTP) |
 | `dialog_messages(botId, chatId)` / `dialog_reply(botId, chatId, text)` | переписка с подписчиком / ответ оператора (уходит реальному человеку) |
 | `dialog_handoff(botId, chatId, active)` | передать диалог оператору (бот и ИИ молчат) / вернуть боту |
-| `bot_users_import(botId, rows)` | добавить подписчикам метки и новые поля (`rows: [{chatId, tags?, variables?}]`; существующие поля не перезаписываются) |
+| `bot_users_import(botId, rows)` | добавить/обновить подписчиков пачкой JSON (`rows: [{chatId, tags?, variables?, subscribedAt?, source?, status?}]`; существующие поля не перезаписываются, `status: BLOCKED/UNSUBSCRIBED` только выставляет блокировку, никогда не снимает) |
 | `bot_runs(botId` или `runId)` | журнал прогонов бота / один прогон с шагами (статус `PARTIAL` — «завершён с ошибками») |
 | `scenario_runs(graphId, page?, size?)` | журнал прогонов одного сценария, включая headless (вебхук, заявки сайта, `TRIGGER_SCHEDULE`) |
 | `bot_delete(botId, confirm:true)` | удалить бота навсегда (только по явной просьбе) |
@@ -258,6 +258,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `migration_presets()` | каталог источников миграции подписчиков (BotHelp/SaleBot/Senler/Leadteh/Smartsender/ManyChat/универсальный CSV) |
 | `migration_preview(botId, path, platform, mapping?)` | пробный прогон CSV (ничего не пишет): без `mapping` — определение заголовков/подсказка сопоставления, с `mapping` — полный dry-run (новые/существующие, превышение лимита) |
 | `migration_commit(botId, path, platform, mapping)` | реальный импорт подписчиков тем же `mapping`, что подтвердил `migration_preview` |
+| `bothelp_scenario_preview(botId, scenarioFile, externalRequestsDir?)` | dry-run структурной конвертации ОДНОГО сценария BotHelp (его собственный JSON-экспорт, не CSV) в граф Retensy — ничего не пишет, возвращает отчёт `notes[]` (что сконвертировано приближённо/заглушкой) |
+| `bothelp_scenario_commit(botId, scenarioFile, externalRequestsDir?)` | то же + сохраняет граф (DRAFT); идемпотентно по `(botId, bothelpScenarioId)` — повторный вызов обновляет тот же граф |
 | `chain_list()` / `chain_get(chainId)` | цепочки публикаций («Публикации» → «Цепочки», автопостинг source → destinations[]) / одна цепочка целиком |
 | `chain_create(chain)` / `chain_update(chainId, chain)` | создать / изменить цепочку целиком (`chain`: `name`, `source` TELEGRAM\|VK\|RSS, `destinations[]` TELEGRAM\|MAX\|VK\|INSTAGRAM, `steps[]` FILTER\|TEXT_TRANSFORM\|AI_ADAPT\|UTM\|DELAY, `approvalMode?`, `utmDefaults?`); HTTP 409 — прямой цикл с другой цепочкой |
 | `chain_delete(chainId, confirm:true)` | удалить цепочку (теряется история заданий) |
