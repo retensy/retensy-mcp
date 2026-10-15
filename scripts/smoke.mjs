@@ -33,7 +33,7 @@ function finish() {
   const ok =
     init?.result?.serverInfo?.name === "retensy-mcp" &&
     Array.isArray(tools) &&
-    tools.length === 162 &&
+    tools.length === 167 && // +5: vk_landing_list/get/create/update/delete (Направление B, VK Mini App-лендинги)
     new Set(toolNames).size === toolNames.length &&
     toolNames.includes("list_channels") &&
     toolNames.includes("list_integrations") &&
@@ -57,7 +57,8 @@ function finish() {
       "migration_presets", "migration_preview", "migration_commit", "broadcast_group",
       "booking_confirm", "booking_reject",
       "scenario_list", "scenario_create", "scenario_get", "scenario_update_source", "scenario_publish", "scenario_rotate_secret",
-      "agent_api_key_create", "agent_api_key_list", "agent_api_key_revoke", "ai_packs", "ai_pack_purchase"]
+      "agent_api_key_create", "agent_api_key_list", "agent_api_key_revoke", "ai_packs", "ai_pack_purchase",
+      "vk_landing_list", "vk_landing_get", "vk_landing_create", "vk_landing_update", "vk_landing_delete"]
       .every((n) => toolNames.includes(n));
   child.kill();
   if (!ok) {

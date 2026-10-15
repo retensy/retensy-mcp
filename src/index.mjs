@@ -540,6 +540,20 @@ function uuidArg(v, label) {
   if (!UUID_RE.test(s)) throw new Error(`${label} — UUID (например, из list_bots), получено: ${s || "пусто"}.`);
   return s;
 }
+/** Тело vk_landing_create/vk_landing_update — одна форма на оба (PUT полностью заменяет поля). */
+function landingBody(a) {
+  return {
+    botId: uuidArg(a.botId, "botId"),
+    title: String(a.title),
+    subtitle: a.subtitle ?? null,
+    imageUrl: a.imageUrl ?? null,
+    buttonText: a.buttonText ?? null,
+    targetGraphId: a.targetGraphId ? uuidArg(a.targetGraphId, "targetGraphId") : null,
+    tags: Array.isArray(a.tags) ? a.tags.map(String) : [],
+    autoSubscribe: !!a.autoSubscribe,
+    bothelpLandingId: a.bothelpLandingId ?? null,
+  };
+}
 // id из Mongo/строковые ключи: только безопасный сегмент пути, без «/», «..», пробелов.
 function idArg(v, label) {
   const s = String(v ?? "").trim();
@@ -938,7 +952,13 @@ const TOOLS = [
   { name: "kb_reindex", description: "Переиндексировать документ-файл базы знаний из сохранённого оригинала (POST /api/bots/kb/{kbId}/docs/{docId}/reindex) — «Повторить» после ошибки. headerRow — необязательно, для табличных файлов: номер строки с шапкой (1..50), если автоопределение ошиблось. Только для источника FILE.", inputSchema: { type: "object", properties: { kbId: { type: "string" }, docId: { type: "string" }, headerRow: { type: "number" } }, required: ["kbId", "docId"] } },
   { name: "agent_unanswered", description: "Вопросы без ответа агента за период (GET /api/bots/agents/{agentId}/unanswered): days — 7|30|90 (по умолчанию 30). Группы вопросов, на которые агент не нашёл ответ в базе знаний — подсказка, что туда добавить. Read-only.", inputSchema: { type: "object", properties: { agentId: { type: "string" }, days: { type: "number", enum: [7, 30, 90] } }, required: ["agentId"] } },
   // ---- Боты ----
-  { name: "create_bot", description: "Подключить бота по токену (POST /api/bots): platform TELEGRAM (токен от @BotFather) или MAX (токен от MasterBot в MAX). Вебхук настраивается сам; name — отображаемое имя (иначе @username). Возвращает бота с id. Число ботов ограничено тарифом — HTTP 402 со ссылкой на смену тарифа. platform WEB — чат-виджет для сайта без токена (POST /api/bots/web): вернёт botId, key и snippet — код вставки на сайт (у существующего виджета — web_widget_snippet). platform INSTAGRAM по токену не подключается — только входом через Instagram (OAuth) в кабинете (/bots/instagram), нужен Instagram-аккаунт Business или Creator — инструмент вернёт ссылку на кабинет вместо ошибки.", inputSchema: { type: "object", properties: { platform: { type: "string", enum: ["TELEGRAM", "MAX", "WEB", "INSTAGRAM"] }, token: { type: "string", description: "Токен бота: 123456789:AA… (Telegram) или токен MAX" }, name: { type: "string" } }, required: ["platform"] } },
+  { name: "create_bot", description: "Подключить бота по токену (POST /api/bots): platform TELEGRAM (токен от @BotFather) или MAX (токен от MasterBot в MAX). Вебхук настраивается сам; name — отображаемое имя (иначе @username). Возвращает бота с id. Число ботов ограничено тарифом — HTTP 402 со ссылкой на смену тарифа. platform WEB — чат-виджет для сайта без токена (POST /api/bots/web): вернёт botId, key и snippet — код вставки на сайт (у существующего виджета — web_widget_snippet). platform INSTAGRAM по токену не подключается — только входом через Instagram (OAuth) в кабинете (/bots/instagram), нужен Instagram-аккаунт Business или Creator — инструмент вернёт ссылку на кабинет вместо ошибки. platform VK — сообщество как полноценный канал (Callback API, НЕ путать с vk_connect — тот для публикаций на стену): token — токен СООБЩЕСТВА (Управление сообществом → Работа с API → Создать ключ, доступ «Сообщения сообщества»), groupId — числовой id сообщества (обязателен). После подключения нужно вручную включить Callback API в настройках сообщества — см. webhookSecret в ответе и URL /vk/hooks/{botId} (подробный чек-лист у разработчика).", inputSchema: { type: "object", properties: { platform: { type: "string", enum: ["TELEGRAM", "MAX", "WEB", "INSTAGRAM", "VK"] }, token: { type: "string", description: "Токен бота/сообщества: 123456789:AA… (Telegram), токен MAX, или community token VK" }, groupId: { type: "string", description: "Только platform=VK: числовой id сообщества" }, name: { type: "string" } }, required: ["platform"] } },
+  // ---- VK-лендинги (growth tools, Mini App) ----
+  { name: "vk_landing_list", description: "Список VK-лендингов (Mini App, GET /api/growth/vk-landings): контент, сценарий-цель, авто-режим, готовые ссылки links.{base,auto}, статистика views/clicks/subscribes. Read-only.", inputSchema: { type: "object", properties: {} } },
+  { name: "vk_landing_get", description: "Один VK-лендинг по id (GET /api/growth/vk-landings/{id}). 404 — не найден/чужой.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } },
+  { name: "vk_landing_create", description: "Создать VK-лендинг (POST /api/growth/vk-landings): botId — VK-бот (create_bot platform VK), title обязателен, остальное опционально — subtitle, imageUrl, buttonText, targetGraphId (сценарий — список scenario_list/list_graphs), tags (добавляются подписчику при переходе), autoSubscribe (true = &auto=1, подписка сразу при открытии), bothelpLandingId (маппинг старой ссылки BotHelp). Возвращает лендинг с готовыми ссылками links.base/links.auto вида vk.com/app<id>_-<groupId>#l=<id>[&auto=1] — публикуй их в сообществе.", inputSchema: { type: "object", properties: { botId: { type: "string" }, title: { type: "string" }, subtitle: { type: "string" }, imageUrl: { type: "string" }, buttonText: { type: "string" }, targetGraphId: { type: "string" }, tags: { type: "array", items: { type: "string" } }, autoSubscribe: { type: "boolean" }, bothelpLandingId: { type: "string" } }, required: ["botId", "title"] } },
+  { name: "vk_landing_update", description: "Изменить VK-лендинг (PUT /api/growth/vk-landings/{id}) — те же поля, что vk_landing_create, полностью заменяют текущие (не частичный патч).", inputSchema: { type: "object", properties: { id: { type: "string" }, botId: { type: "string" }, title: { type: "string" }, subtitle: { type: "string" }, imageUrl: { type: "string" }, buttonText: { type: "string" }, targetGraphId: { type: "string" }, tags: { type: "array", items: { type: "string" } }, autoSubscribe: { type: "boolean" }, bothelpLandingId: { type: "string" } }, required: ["id", "botId", "title"] } },
+  { name: "vk_landing_delete", description: "Удалить VK-лендинг (DELETE /api/growth/vk-landings/{id}) — ссылки перестают работать.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } },
   { name: "bot_stop", description: "Остановить бота (POST /api/bots/{botId}/stop): снимает вебхук, бот перестаёт отвечать, сценарии и подписчики сохраняются. Запуск обратно — bot_resume.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   { name: "bot_resume", description: "Запустить остановленного бота или бота, приостановленного лимитом тарифа (POST /api/bots/{botId}/resume). Если лимит ботов тарифа исчерпан — HTTP 402 со ссылкой на смену тарифа.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   // ---- Подключения ----
@@ -1773,8 +1793,26 @@ async function handleCall(params) {
       const platform = String(a.platform || "").trim().toUpperCase();
       if (platform === "INSTAGRAM") return instagramAnswer();
       if (platform === "WEB") return okResult(await api("/api/bots/web", { method: "POST", body: { name: a.name || undefined } }));
-      if (platform !== "TELEGRAM" && platform !== "MAX") throw new Error("platform: TELEGRAM | MAX | WEB (Instagram подключается только в кабинете).");
+      if (platform !== "TELEGRAM" && platform !== "MAX" && platform !== "VK") throw new Error("platform: TELEGRAM | MAX | VK | WEB (Instagram подключается только в кабинете).");
       const token = String(a.token || "").trim();
+      if (platform === "VK") {
+        const groupId = String(a.groupId || "").trim();
+        if (!token || !groupId) {
+          return okResult("Нужны токен сообщества и его id: Управление сообществом → Работа с API → Создать ключ (доступ «Сообщения сообщества») — пришли token и groupId (create_bot {platform:\"VK\", token, groupId}).");
+        }
+        let vkBot;
+        try {
+          vkBot = await api("/api/bots", { method: "POST", body: { token, platform: "VK", groupId } });
+        } catch (e) {
+          if (e.status === 400) throw new Error(`VK-бот не подключён: ${typeof e.data === "string" && e.data ? e.data : "токен или groupId не приняты"}. Проверь токен и id сообщества.`);
+          throw e;
+        }
+        if (a.name && vkBot?.id) {
+          try { vkBot = await api(`/api/bots/${vkBot.id}`, { method: "PATCH", body: { name: a.name } }); }
+          catch (e) { return okResult({ ...vkBot, warning: `Бот подключён, но имя не задано: ${(e.message || "").split("\n")[0]}` }); }
+        }
+        return okResult({ ...vkBot, note: "Дальше включи Callback API в настройках сообщества (Управление → Работа с API → Callback API): URL https://<домен>/vk/hooks/" + vkBot.id + ", секретный ключ — поле vkCallbackSecret в этом же ответе, тип события «Входящее сообщение», затем «Подтвердить сервер»." });
+      }
       if (!token) {
         return okResult(platform === "MAX"
           ? "Нужен токен MAX-бота: создай бота у MasterBot в MAX и пришли токен — я подключу его (create_bot {platform:\"MAX\", token})."
@@ -1794,6 +1832,19 @@ async function handleCall(params) {
       }
       return okResult(bot);
     }
+    case "vk_landing_list": return okResult(await api("/api/growth/vk-landings"));
+    case "vk_landing_get": return okResult(await api(`/api/growth/vk-landings/${uuidArg(a.id, "id")}`));
+    case "vk_landing_create": {
+      if (!a.botId || !a.title) throw new Error("botId и title обязательны");
+      return okResult(await api("/api/growth/vk-landings", { method: "POST", body: landingBody(a) }));
+    }
+    case "vk_landing_update": {
+      if (!a.id || !a.botId || !a.title) throw new Error("id, botId и title обязательны");
+      return okResult(await api(`/api/growth/vk-landings/${uuidArg(a.id, "id")}`, { method: "PUT", body: landingBody(a) }));
+    }
+    case "vk_landing_delete":
+      await api(`/api/growth/vk-landings/${uuidArg(a.id, "id")}`, { method: "DELETE" });
+      return okResult({ deleted: true });
     case "bot_stop": return okResult(await api(`/api/bots/${a.botId}/stop`, { method: "POST" }));
     case "bot_resume": return okResult(await api(`/api/bots/${a.botId}/resume`, { method: "POST" }));
     // ---- Подключения ----
