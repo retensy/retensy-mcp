@@ -62,6 +62,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 - 🌐 **Сайты из блоков** (раздел «Страницы»): создание, правка операциями (блоки, Zero-блок со свободной вёрсткой, код блока, папки страниц, дизайны, шаблоны из библиотеки), публикация и откат, свои домены, заявки из форм и куда их доставлять — инструменты `site_*` + скилл `build-site`.
 - 🧠 **Скилл `build-bot-funnel`**: учит агента собирать корректный граф (типы узлов, ветки, кнопки, задержки) и проверять его перед публикацией. Поддерживает Telegram, MAX и Instagram.
 - 🔁 **Скилл `rebuild-funnel-from-builder`**: переносит воронку из другого конструктора (BotHelp, SaleBot, Senler, Leadteh, Smartsender, ManyChat, PuzzleBot и др.) по export JSON/тексту, скриншотам или пересказу — в граф Retensy, новым черновиком, без перезаписи текущего сценария. См. [«Перенос воронки из другого конструктора»](#перенос-воронки-из-другого-конструктора).
+- 🔗 **Скилл `build-publication-chain`**: учит агента собирать «Цепочки публикаций» (автопостинг source → граф обработки → N назначений) — линейно или графом (общий/раздельный ИИ-адаптер на ветках), UTM по назначению, согласование, фан-аут в один заход («1 источник → общий ИИ → 10 TG-каналов + 2 VK + 4 MAX»).
 - 📦 **Без зависимостей** — чистый Node ≥18, ставится и запускается сразу.
 
 ### Поддерживаемые платформы
@@ -83,7 +84,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 /plugin install retensy-mcp@retensy
 ```
 
-Подтянутся MCP-сервер и скиллы `build-bot-funnel`, `rebuild-funnel-from-builder`, `build-site`, `send-broadcast`. Проверить: `/mcp` и `/plugin`.
+Подтянутся MCP-сервер и скиллы `build-bot-funnel`, `rebuild-funnel-from-builder`, `build-site`, `send-broadcast`, `build-publication-chain`. Проверить: `/mcp` и `/plugin`.
 
 ### Вариант B — как обычный MCP-сервер (Claude Code / Cursor / Windsurf / любой MCP-клиент)
 
@@ -224,7 +225,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `bot_user_runs(botId, chatId)` | журнал запусков с шагами — проверка, что сценарий реально выполнил действия (CRM, уведомление, HTTP) |
 | `dialog_messages(botId, chatId)` / `dialog_reply(botId, chatId, text)` | переписка с подписчиком / ответ оператора (уходит реальному человеку) |
 | `dialog_handoff(botId, chatId, active)` | передать диалог оператору (бот и ИИ молчат) / вернуть боту |
-| `bot_users_import(botId, rows)` | добавить подписчикам метки и новые поля (`rows: [{chatId, tags?, variables?}]`; существующие поля не перезаписываются) |
+| `bot_users_import(botId, rows)` | добавить/обновить подписчиков пачкой JSON (`rows: [{chatId, tags?, variables?, subscribedAt?, source?, status?}]`; существующие поля не перезаписываются, `status: BLOCKED/UNSUBSCRIBED` только выставляет блокировку, никогда не снимает) |
 | `bot_runs(botId` или `runId)` | журнал прогонов бота / один прогон с шагами (статус `PARTIAL` — «завершён с ошибками») |
 | `scenario_runs(graphId, page?, size?)` | журнал прогонов одного сценария, включая headless (вебхук, заявки сайта, `TRIGGER_SCHEDULE`) |
 | `bot_delete(botId, confirm:true)` | удалить бота навсегда (только по явной просьбе) |
@@ -258,8 +259,13 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `migration_presets()` | каталог источников миграции подписчиков (BotHelp/SaleBot/Senler/Leadteh/Smartsender/ManyChat/универсальный CSV) |
 | `migration_preview(botId, path, platform, mapping?)` | пробный прогон CSV (ничего не пишет): без `mapping` — определение заголовков/подсказка сопоставления, с `mapping` — полный dry-run (новые/существующие, превышение лимита) |
 | `migration_commit(botId, path, platform, mapping)` | реальный импорт подписчиков тем же `mapping`, что подтвердил `migration_preview` |
-| `chain_list()` / `chain_get(chainId)` | цепочки публикаций («Публикации» → «Цепочки», автопостинг source → destinations[]) / одна цепочка целиком |
-| `chain_create(chain)` / `chain_update(chainId, chain)` | создать / изменить цепочку целиком (`chain`: `name`, `source` TELEGRAM\|VK\|RSS, `destinations[]` TELEGRAM\|MAX\|VK\|INSTAGRAM, `steps[]` FILTER\|TEXT_TRANSFORM\|AI_ADAPT\|UTM\|DELAY, `approvalMode?`, `utmDefaults?`); HTTP 409 — прямой цикл с другой цепочкой |
+| `bothelp_scenario_preview(botId, scenarioFile, externalRequestsDir?)` | dry-run структурной конвертации ОДНОГО сценария BotHelp (его собственный JSON-экспорт, не CSV) в граф Retensy — ничего не пишет, возвращает отчёт `notes[]` (что сконвертировано приближённо/заглушкой) |
+| `bothelp_scenario_commit(botId, scenarioFile, externalRequestsDir?)` | то же + сохраняет граф (DRAFT); идемпотентно по `(botId, bothelpScenarioId)` — повторный вызов обновляет тот же граф |
+| `chain_list()` / `chain_get(chainId)` | цепочки публикаций («Публикации» → «Цепочки», автопостинг source → граф обработки/назначений) / одна цепочка как хранится (legacy либо граф) |
+| `chain_graph_get(chainId)` | граф цепочки ВСЕГДА graph-shaped `{nodes, edges}`, даже для старых линейных цепочек (синтезируется на лету) |
+| `chain_create(chain)` / `chain_update(chainId, chain)` | создать / изменить цепочку целиком (`chain`: `name`, `source` TELEGRAM\|VK\|RSS, `approvalMode?`, `utmDefaults?`, и либо legacy `destinations[]`+`steps[]`, либо граф `nodes[]`+`edges[]` — дерево с ветвлением, не произвольный DAG: один узел может кормить несколько назначений, слияния путей нет); HTTP 409 — прямой цикл с другой цепочкой; графовый 400 — «Схема цепочки: …» (см. `chain_validate`) |
+| `chain_validate(nodes, edges)` / `chain_validate(chain)` | офлайн-проверка графа (зеркало серверного `ChainGraphValidator`, не строже сервера) — перед `chain_create`/`chain_update` на сложном графе |
+| `chain_destinations_catalog(botIds?)` | одним вызовом: все TG/MAX-каналы по ботам владельца + VK-аккаунты — собрать «1 источник → N каналов» без ручного обхода `list_bots`+`list_channels`+`vk_status` |
 | `chain_delete(chainId, confirm:true)` | удалить цепочку (теряется история заданий) |
 | `chain_enable(chainId)` / `chain_pause(chainId)` | включить / поставить на паузу приём новых постов источника |
 | `chain_runs(chainId, page?, size?)` | история заданий цепочки, новые сверху (бэкенд без постраничной выдачи — `page`/`size`, если переданы, режут список в MCP) |
