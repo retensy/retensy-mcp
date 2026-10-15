@@ -61,6 +61,18 @@ check("create_bot WEB → POST /api/bots/web с именем, без токен�
 await call("web_widget_snippet", { botId: "b1" });
 check("web_widget_snippet → GET snippet", !!req("GET", "/api/bots/web/b1/snippet"));
 
+// BotHelp-миграция: inactive:true должен уйти в теле POST /api/bots, false — по умолчанию.
+const lastPost = (url) => seen.filter((s) => s.method === "POST" && s.url === url).at(-1);
+await call("create_bot", { platform: "TELEGRAM", token: "tg-token-1" });
+check("create_bot без inactive → inactive:false в теле", lastPost("/api/bots")?.body?.inactive === false
+  && lastPost("/api/bots")?.body?.token === "tg-token-1");
+const inactiveResult = await call("create_bot", { platform: "TELEGRAM", token: "tg-token-2", inactive: true });
+check("create_bot inactive:true → уходит в теле POST /api/bots", lastPost("/api/bots")?.body?.inactive === true);
+check("create_bot inactive:true → ответ с подсказкой про bot_resume", /bot_resume/.test(textOf(inactiveResult)));
+await call("create_bot", { platform: "MAX", token: "max-token-1", inactive: true });
+check("create_bot MAX inactive:true → тоже уходит в теле", lastPost("/api/bots")?.body?.platform === "MAX"
+  && lastPost("/api/bots")?.body?.inactive === true);
+
 await call("kb_list", {});
 check("kb_list → GET /api/bots/kb", !!req("GET", "/api/bots/kb"));
 await call("kb_create", { name: "  Клиника  " });
