@@ -96,7 +96,7 @@ const check = (name, cond) => { console.log(`${cond ? "  ok " : "  FAIL"} ${name
 const tl = await rpc("tools/list", {});
 const toolNames = (tl?.result?.tools ?? []).map((t) => t.name);
 const NEW_TOOLS = [
-  "chain_list", "chain_get", "chain_graph_get", "chain_create", "chain_update", "chain_delete", "chain_enable", "chain_pause",
+  "chain_list", "chain_get", "chain_graph_get", "chain_create", "chain_create_draft", "chain_update", "chain_delete", "chain_enable", "chain_pause",
   "chain_runs", "chain_approve", "chain_reject", "chain_retry", "chain_validate", "chain_destinations_catalog",
   "site_analytics", "site_analytics_events", "bot_subscriber_analytics", "scenario_timeseries",
   "agent_tool_test", "site_lead_file_download",
@@ -112,6 +112,9 @@ const draft = { name: "TG→VK", source: { type: "TELEGRAM", chatId: "1" }, dest
 await call("chain_create", { chain: draft });
 check("chain_create → POST /api/bots/chains с телом chain", req("POST", "/api/bots/chains")?.body?.name === "TG→VK");
 check("chain_create без chain — ошибка до запроса", isErr(await call("chain_create", {})));
+await call("chain_create_draft", { name: "Черновик" });
+check("chain_create_draft → POST /api/bots/chains/draft с телом {name}", req("POST", "/api/bots/chains/draft")?.body?.name === "Черновик");
+check("chain_create_draft без name — ошибка до запроса", isErr(await call("chain_create_draft", {})));
 await call("chain_update", { chainId: CHAIN_ID, chain: draft });
 check("chain_update → PUT /api/bots/chains/{id}", req("PUT", `/api/bots/chains/${CHAIN_ID}`)?.body?.name === "TG→VK");
 check("chain_delete без confirm — ошибка до запроса", isErr(await call("chain_delete", { chainId: CHAIN_ID })));
