@@ -45,6 +45,21 @@ const srv = http.createServer((req, res) => {
     if (req.method === "GET" && req.url === `/api/bots/chains/${CHAIN_ID}/runs`) {
       return json(200, Array.from({ length: 5 }, (_, i) => ({ id: `job-${i}`, status: "DONE" })));
     }
+    if (req.method === "GET" && req.url === `/api/bots/chains/${CHAIN_ID}/graph`) {
+      return json(200, { nodes: [{ id: "s", type: "SOURCE" }, { id: "d1", type: "DESTINATION", destination: { id: "d1", type: "VK", accountId: "a1" } }], edges: [{ fromNodeId: "s", toNodeId: "d1" }] });
+    }
+    if (req.method === "GET" && req.url === "/api/bots") {
+      return json(200, [{ id: BOT_ID, name: "MyBot", platform: "TELEGRAM" }, { id: "max-bot-1", name: "MaxBot", platform: "MAX" }, { id: "web-bot-1", name: "Widget", platform: "WEB" }]);
+    }
+    if (req.method === "GET" && req.url === `/api/bots/${BOT_ID}/linked-chats`) {
+      return json(200, [{ chatId: 111, title: "Канал TG", type: "CHANNEL", status: "ADMIN" }]);
+    }
+    if (req.method === "GET" && req.url === "/api/bots/max-bot-1/linked-chats") {
+      return json(200, [{ chatId: 222, title: "Канал MAX", type: "CHANNEL", status: "ADMIN" }]);
+    }
+    if (req.method === "GET" && req.url === "/api/bots/vk/status") {
+      return json(200, { connected: true, accounts: [{ id: "a1", platform: "vk", label: "Моя группа", enabled: true, isDefault: true }] });
+    }
     json(200, { ok: true, id: "x1" });
     function json(code, obj) { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); }
   });
@@ -81,8 +96,8 @@ const check = (name, cond) => { console.log(`${cond ? "  ok " : "  FAIL"} ${name
 const tl = await rpc("tools/list", {});
 const toolNames = (tl?.result?.tools ?? []).map((t) => t.name);
 const NEW_TOOLS = [
-  "chain_list", "chain_get", "chain_create", "chain_update", "chain_delete", "chain_enable", "chain_pause",
-  "chain_runs", "chain_approve", "chain_reject", "chain_retry",
+  "chain_list", "chain_get", "chain_graph_get", "chain_create", "chain_update", "chain_delete", "chain_enable", "chain_pause",
+  "chain_runs", "chain_approve", "chain_reject", "chain_retry", "chain_validate", "chain_destinations_catalog",
   "site_analytics", "site_analytics_events", "bot_subscriber_analytics", "scenario_timeseries",
   "agent_tool_test", "site_lead_file_download",
 ];
@@ -117,6 +132,76 @@ await call("chain_reject", { jobId: JOB_ID });
 check("chain_reject → POST jobs/{id}/reject", !!req("POST", `/api/bots/chains/jobs/${JOB_ID}/reject`));
 await call("chain_retry", { jobId: JOB_ID });
 check("chain_retry → POST jobs/{id}/retry", !!req("POST", `/api/bots/chains/jobs/${JOB_ID}/retry`));
+
+// ---- chains-graph (DAG: chain_graph_get / chain_validate / chain_destinations_catalog) ----
+const graphRes = await call("chain_graph_get", { chainId: CHAIN_ID });
+check("chain_graph_get → GET /api/bots/chains/{id}/graph", !!req("GET", `/api/bots/chains/${CHAIN_ID}/graph`));
+const graphBody = JSON.parse(textOf(graphRes));
+check("chain_graph_get вернул {nodes, edges}", Array.isArray(graphBody.nodes) && Array.isArray(graphBody.edges));
+
+// валидный граф: 1 источник → общий AI_ADAPT → 2 назначения (разветвление, не merge)
+const goodGraph = {
+  nodes: [
+    { id: "s", type: "SOURCE" },
+    { id: "ai1", type: "AI_ADAPT", step: { type: "AI_ADAPT", aiMode: "LIGHT" } },
+    { id: "d1", type: "DESTINATION", destination: { id: "d1", type: "TELEGRAM", botId: BOT_ID, chatId: 1 } },
+    { id: "d2", type: "DESTINATION", destination: { id: "d2", type: "VK", accountId: "a1" } },
+  ],
+  edges: [{ fromNodeId: "s", toNodeId: "ai1" }, { fromNodeId: "ai1", toNodeId: "d1" }, { fromNodeId: "ai1", toNodeId: "d2" }],
+};
+const goodValidation = JSON.parse(textOf(await call("chain_validate", { nodes: goodGraph.nodes, edges: goodGraph.edges })));
+check("chain_validate: валидный граф с ветвлением (1 ИИ → 2 назначения) → valid:true", goodValidation.valid === true && goodValidation.errors.length === 0);
+const viaChainWrapper = JSON.parse(textOf(await call("chain_validate", { chain: goodGraph })));
+check("chain_validate: принимает chain:{nodes,edges} как альтернативу nodes/edges", viaChainWrapper.valid === true);
+
+// невалидные графы — каждое правило по отдельности, без обращения к бэкенду
+const noSource = JSON.parse(textOf(await call("chain_validate", { nodes: [{ id: "d1", type: "DESTINATION" }], edges: [] })));
+check("chain_validate: нет SOURCE → ошибка", noSource.valid === false && /источник/i.test(noSource.errors[0].message));
+
+const twoSources = JSON.parse(textOf(await call("chain_validate", { nodes: [{ id: "s1", type: "SOURCE" }, { id: "s2", type: "SOURCE" }], edges: [] })));
+check("chain_validate: больше одного SOURCE → ошибка", twoSources.valid === false && /больше одного источника/.test(twoSources.errors[0].message));
+
+const cycle = {
+  nodes: [{ id: "s", type: "SOURCE" }, { id: "a", type: "FILTER" }, { id: "b", type: "FILTER" }],
+  edges: [{ fromNodeId: "s", toNodeId: "a" }, { fromNodeId: "a", toNodeId: "b" }, { fromNodeId: "b", toNodeId: "a" }],
+};
+const cycleRes = JSON.parse(textOf(await call("chain_validate", { nodes: cycle.nodes, edges: cycle.edges })));
+check("chain_validate: цикл → ошибка (цикл делает b тоже >1 входящих, но и явный DFS-цикл срабатывает)", cycleRes.valid === false && cycleRes.errors.some((e) => /цикл/.test(e.message)));
+
+const destWithOutgoing = {
+  nodes: [{ id: "s", type: "SOURCE" }, { id: "d", type: "DESTINATION" }, { id: "extra", type: "FILTER" }],
+  edges: [{ fromNodeId: "s", toNodeId: "d" }, { fromNodeId: "d", toNodeId: "extra" }],
+};
+const destRes = JSON.parse(textOf(await call("chain_validate", { nodes: destWithOutgoing.nodes, edges: destWithOutgoing.edges })));
+check("chain_validate: у DESTINATION есть исходящее ребро → ошибка", destRes.valid === false && destRes.errors.some((e) => e.nodeId === "d" && /исходящих/.test(e.message)));
+
+const unreachableDest = {
+  nodes: [{ id: "s", type: "SOURCE" }, { id: "a", type: "FILTER" }, { id: "d", type: "DESTINATION" }],
+  edges: [{ fromNodeId: "s", toNodeId: "a" }],
+};
+// d не подключено к графу вообще — одновременно "нет входящего ребра" и "недостижимо"; проверяем сам факт невалидности и наличие кода про входящее ребро
+const unreachRes = JSON.parse(textOf(await call("chain_validate", { nodes: unreachableDest.nodes, edges: unreachableDest.edges })));
+check("chain_validate: недостижимый/неподключённый DESTINATION → ошибка", unreachRes.valid === false && unreachRes.errors.some((e) => e.nodeId === "d"));
+
+const danglingEdge = { nodes: [{ id: "s", type: "SOURCE" }], edges: [{ fromNodeId: "s", toNodeId: "ghost" }] };
+const danglingRes = JSON.parse(textOf(await call("chain_validate", { nodes: danglingEdge.nodes, edges: danglingEdge.edges })));
+check("chain_validate: ребро на несуществующий узел → ошибка", danglingRes.valid === false && danglingRes.errors.some((e) => /несуществующий узел/.test(e.message)));
+
+check("chain_validate без nodes/edges и без chain — ошибка до запроса", isErr(await call("chain_validate", {})));
+
+// ---- chain_destinations_catalog ----
+const catalog = JSON.parse(textOf(await call("chain_destinations_catalog", {})));
+check("chain_destinations_catalog → GET /api/bots (все боты владельца)", !!req("GET", "/api/bots"));
+check("chain_destinations_catalog → GET linked-chats для TELEGRAM-бота", !!req("GET", `/api/bots/${BOT_ID}/linked-chats`));
+check("chain_destinations_catalog → GET linked-chats для MAX-бота", !!req("GET", "/api/bots/max-bot-1/linked-chats"));
+check("chain_destinations_catalog → GET vk/status", !!req("GET", "/api/bots/vk/status"));
+check("chain_destinations_catalog: WEB-бот пропущен (не TG/MAX)", !req("GET", "/api/bots/web-bot-1/linked-chats"));
+check("chain_destinations_catalog: telegram[] содержит канал", catalog.telegram.length === 1 && catalog.telegram[0].chatId === 111 && catalog.telegram[0].botId === BOT_ID);
+check("chain_destinations_catalog: max[] содержит канал", catalog.max.length === 1 && catalog.max[0].chatId === 222);
+check("chain_destinations_catalog: vk[] содержит аккаунт", catalog.vk.length === 1 && catalog.vk[0].id === "a1");
+
+const filteredCatalog = JSON.parse(textOf(await call("chain_destinations_catalog", { botIds: [BOT_ID] })));
+check("chain_destinations_catalog с botIds: фильтрует по переданным ботам", filteredCatalog.telegram.length === 1 && filteredCatalog.max.length === 0);
 
 // ---- analytics ----
 await call("site_analytics", { siteId: SITE_ID, from: "2026-09-01", to: "2026-09-30" });

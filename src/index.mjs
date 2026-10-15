@@ -27,7 +27,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.24.0";
+const VERSION = "0.25.0";
 /** С чего начать пустой сайт (init у /document/ops; на сайте с черновиком игнорируется). */
 const SITE_INITS = ["starter", "blank", "mini-landing"];
 /** Безвредная операция, когда нужен только init: бэкенд не принимает пустой ops[]. */
@@ -488,6 +488,89 @@ async function migrationMultipart(path_, { filePath, platform, mapping }) {
 
 const okResult = (obj) => ({ content: [{ type: "text", text: typeof obj === "string" ? obj : JSON.stringify(obj, null, 2) }] });
 const errResult = (e) => ({ isError: true, content: [{ type: "text", text: "❌ " + (e?.message || String(e)) }] });
+
+// Чистое зеркало org.skiddgoddamn.service.bot.chain.ChainGraphValidator (backend/retensy-bots) —
+// см. мэппинг каждого блока на соответствующую проверку Java-оригинала. Не строже сервера: не
+// добавляй сюда правило, которого нет в Java-версии — сервер остаётся источником истины.
+function validateChainGraph(nodes, edges) {
+  const errors = [];
+  const push = (nodeId, message) => errors.push({ nodeId: nodeId ?? null, message });
+  const list = Array.isArray(nodes) ? nodes : [];
+  const edgeList = Array.isArray(edges) ? edges : [];
+
+  const sources = list.filter((n) => n?.type === "SOURCE");
+  if (sources.length === 0) { push(null, "В цепочке нет узла источника"); return { valid: false, errors }; }
+  if (sources.length > 1) {
+    for (const s of sources) push(s?.id, "В цепочке больше одного источника");
+    return { valid: false, errors };
+  }
+  const source = sources[0];
+
+  const byId = new Map();
+  const seenIds = new Set();
+  for (const n of list) {
+    if (!n?.id) { push(null, "У узла не задан id"); continue; }
+    if (seenIds.has(n.id)) push(n.id, `Повторяющийся id узла: ${n.id}`);
+    seenIds.add(n.id);
+    byId.set(n.id, n);
+  }
+
+  for (const e of edgeList) {
+    if (!byId.has(e?.fromNodeId)) push(e?.fromNodeId, `Ребро ссылается на несуществующий узел: ${e?.fromNodeId}`);
+    if (!byId.has(e?.toNodeId)) push(e?.toNodeId, `Ребро ссылается на несуществующий узел: ${e?.toNodeId}`);
+  }
+
+  const incoming = new Map();
+  const childrenOf = (id) => edgeList.filter((e) => e?.fromNodeId === id).map((e) => byId.get(e.toNodeId)).filter(Boolean);
+  for (const e of edgeList) incoming.set(e.toNodeId, (incoming.get(e.toNodeId) || 0) + 1);
+
+  for (const n of list) {
+    if (!n?.id) continue;
+    const inCount = incoming.get(n.id) || 0;
+    if (n.type === "SOURCE") {
+      if (inCount !== 0) push(n.id, "У источника не может быть входящих рёбер");
+    } else if (inCount === 0) {
+      push(n.id, "Узел не подключён к графу (нет входящего ребра)");
+    } else if (inCount > 1) {
+      push(n.id, "У узла больше одного входящего ребра — объединение путей не поддерживается");
+    }
+  }
+
+  const destinations = list.filter((n) => n?.type === "DESTINATION");
+  for (const d of destinations) {
+    if (childrenOf(d.id).length > 0) push(d.id, "У назначения не может быть исходящих рёбер");
+  }
+
+  // цикл: DFS с цветами (0=white,1=gray,2=black) от источника
+  const color = new Map();
+  const detectCycle = (id) => {
+    const c = color.get(id);
+    if (c === 1) return true;
+    if (c === 2) return false;
+    color.set(id, 1);
+    for (const child of childrenOf(id)) if (detectCycle(child.id)) return true;
+    color.set(id, 2);
+    return false;
+  };
+  if (source?.id && detectCycle(source.id)) push(null, "В графе цепочки есть цикл");
+
+  // достижимость от источника
+  const reachable = new Set();
+  const visiting = new Set();
+  const collectReachable = (id) => {
+    if (reachable.has(id)) return;
+    reachable.add(id);
+    if (visiting.has(id)) return;
+    visiting.add(id);
+    for (const child of childrenOf(id)) collectReachable(child.id);
+  };
+  if (source?.id) collectReachable(source.id);
+  for (const d of destinations) {
+    if (!reachable.has(d.id)) push(d.id, "Назначение не связано с источником путём обработки");
+  }
+
+  return { valid: errors.length === 0, errors };
+}
 
 function extractGraph(g) {
   if (!g || typeof g !== "object") throw new Error("graph должен быть объектом (контейнер retensy-bot-graph или {nodes,edges}).");
@@ -1040,11 +1123,12 @@ const TOOLS = [
   { name: "migration_commit", description: "Реальный импорт подписчиков из CSV тем же mapping, что подтвердил migration_preview (POST /api/bots/{botId}/migration/subscribers/commit, multipart) — тот же путь дедупа по chatId/лимита тарифа/«никогда не перезаписывать существующее», что у bot_users_import. Возвращает {totalRowsInFile, processedRows, truncated, result: ImportUsersResponse}.", inputSchema: { type: "object", properties: { botId: { type: "string" }, path: { type: "string" }, platform: { type: "string", enum: ["BOTHELP", "SALEBOT", "SENLER", "LEADTEH", "SMARTSENDER", "MANYCHAT", "GENERIC"] }, mapping: { type: "object", properties: { userIdColumn: { type: "string" }, usernameColumn: { type: "string" }, tagsColumn: { type: "string" }, tagsDelimiter: { type: "string" }, variableColumns: { type: "array", items: { type: "string" } } }, required: ["userIdColumn"] } }, required: ["botId", "path", "platform", "mapping"] } },
   { name: "bothelp_scenario_preview", description: "Dry-run конвертации ОДНОГО сценария BotHelp в граф Retensy (POST /api/bots/{botId}/migration/bothelp/scenario/preview) — НИЧЕГО не пишет в базу. scenarioFile — локальный JSON-дамп bots/<channel>/scenarios/<id>.json (как есть, с полями complexBot/steps); externalRequestsDir — опционально, папка bots/<channel>/external_requests/ (каждый *.json грузится под своим uuid — нужно для шагов make_external_request/send_lead_webhook). Возвращает {bothelpScenarioId, nodeCount, edgeCount, unsupportedCount, partialCount, notes: [{stepId, bothelpKind, severity, message}]} — notes с severity=UNSUPPORTED/PARTIAL перечисляют всё, что сконвертировано приближённо или узлом-заглушкой (см. docs/migration/bothelp/02-mapping.md, 03-gaps.md), прочитай их перед commit.", inputSchema: { type: "object", properties: { botId: { type: "string" }, scenarioFile: { type: "string", description: "Путь к scenarios/<id>.json" }, externalRequestsDir: { type: "string", description: "Путь к папке external_requests/ этого бота (опционально)" } }, required: ["botId", "scenarioFile"] } },
   { name: "bothelp_scenario_commit", description: "Реальный импорт: конвертирует сценарий BotHelp (как bothelp_scenario_preview) и сохраняет граф (POST /api/bots/{botId}/migration/bothelp/scenario/commit). Идемпотентно по (botId, bothelpScenarioId=scenario.complexBot.id) — повторный вызов с тем же файлом ОБНОВЛЯЕТ тот же граф вместо дубля (created=false, тот же graphId). Граф создаётся в статусе DRAFT — опубликуй его отдельно (publish_graph) после ручной сверки notes. Возвращает тот же отчёт, что preview, плюс {graphId, created}.", inputSchema: { type: "object", properties: { botId: { type: "string" }, scenarioFile: { type: "string" }, externalRequestsDir: { type: "string" } }, required: ["botId", "scenarioFile"] } },
-  // ---- Публикации: цепочки (автопостинг «Цепочки публикаций») ----
-  { name: "chain_list", description: "Цепочки публикаций пользователя (GET /api/bots/chains): автоматический репост source → destinations[] с шагами обработки (steps[]) и UTM. Цепочка привязана к владельцу, не к конкретному боту. Read-only.", inputSchema: { type: "object", properties: {} } },
-  { name: "chain_get", description: "Цепочка по id (GET /api/bots/chains/{id}). 404 — не своя/не найдена. Read-only.", inputSchema: { type: "object", properties: { chainId: { type: "string" } }, required: ["chainId"] } },
-  { name: "chain_create", description: "Создать цепочку публикаций (POST /api/bots/chains): chain — {name, enabled?, approvalMode?: NONE|AI_ONLY|ALL, source: {type: TELEGRAM|VK|RSS, botId?, chatId?, accountId?, rssUrl?}, destinations: [{type: TELEGRAM|MAX|VK|INSTAGRAM, botId?, chatId?, accountId?, utmOverride?}], steps?: [{type: FILTER|TEXT_TRANSFORM|AI_ADAPT|UTM|DELAY, ...поля шага}], utmDefaults?}. TELEGRAM-источник — свой канал бота (bot_channel_list/list_channels), VK-источник/назначение — подключённый аккаунт (vk_status). INSTAGRAM в destinations принимается моделью, но публикация требует медиа и подключённый Instagram-аккаунт — без них задание уходит в SKIPPED с причиной, не FAILED. HTTP 400 — не хватает полей или источник/назначение не найдены/не ваши; HTTP 409 — прямой цикл с другой вашей цепочкой (A→B при уже существующей B→A).", inputSchema: { type: "object", properties: { chain: { type: "object", description: "PublishChain draft — см. описание инструмента" } }, required: ["chain"] } },
-  { name: "chain_update", description: "Изменить цепочку целиком (PUT /api/bots/chains/{id}): chain — PublishChain draft (та же форма, что в chain_create), заменяет текущую конфигурацию полностью — сначала прочитай chain_get и поменяй нужное. Те же 400/409, что у chain_create.", inputSchema: { type: "object", properties: { chainId: { type: "string" }, chain: { type: "object", description: "PublishChain draft целиком" } }, required: ["chainId", "chain"] } },
+  // ---- Публикации: цепочки (автопостинг «Цепочки публикаций», граф DAG — режим «Схема») ----
+  { name: "chain_list", description: "Цепочки публикаций пользователя (GET /api/bots/chains): автоматический репост source → граф обработки/назначений. Цепочка привязана к владельцу, не к конкретному боту. Read-only.", inputSchema: { type: "object", properties: {} } },
+  { name: "chain_get", description: "Цепочка по id целиком, как хранится в базе — легаси-поля (source/steps/destinations) ИЛИ нативный граф (nodes/edges), смотря что заполнено (GET /api/bots/chains/{id}). Для гарантированно графовой формы (в т.ч. у старых линейных цепочек) используй chain_graph_get. 404 — не своя/не найдена. Read-only.", inputSchema: { type: "object", properties: { chainId: { type: "string" } }, required: ["chainId"] } },
+  { name: "chain_graph_get", description: "Граф цепочки В ЛЮБОМ случае (GET /api/bots/chains/{id}/graph): {nodes, edges} — если цепочка легаси (линейная), бэкенд синтезирует эквивалентный граф на лету (ничего не сохраняет). Используй это вместо самостоятельной сборки графа из steps/destinations. Read-only.", inputSchema: { type: "object", properties: { chainId: { type: "string" } }, required: ["chainId"] } },
+  { name: "chain_create", description: "Создать цепочку публикаций (POST /api/bots/chains): chain — PublishChain draft, {name, enabled?, approvalMode?: NONE|AI_ONLY|ALL, source: {type: TELEGRAM|VK|RSS, botId?, chatId?, accountId?, rssUrl?}, utmDefaults?, И ЛИБО легаси-поля (steps?, destinations?) ЛИБО нативный граф (nodes?, edges?)}. `source` ВСЕГДА отдельное top-level поле — даже в графовом режиме узел SOURCE в nodes его не дублирует, это просто маркер-корень графа. ГРАФ (nodes непустой — приоритетнее steps/destinations, которые тогда игнорируются): nodes — [{id, type: SOURCE|FILTER|TEXT_TRANSFORM|AI_ADAPT|UTM|DELAY|DESTINATION, x?, y?, step?: {...поля шага, форма как у steps[] в legacy, см. chain_update}, destination?: {id, type: TELEGRAM|MAX|VK|INSTAGRAM, botId?, chatId?, accountId?, utmOverride?} — только для type=DESTINATION}], edges — [{fromNodeId, toNodeId}]. Модель — дерево-с-ветвлением (out-tree), НЕ произвольный DAG: у любого не-SOURCE узла ровно ОДНО входящее ребро; ветвление — через НЕСКОЛЬКО исходящих у одного родителя (напр. один общий AI_ADAPT → много DESTINATION = «1 источник → общий ИИ → N каналов»); слияния путей (несколько родителей) нет. Перед сохранением сложного графа прогони chain_validate (клиентское зеркало серверных правил) и chain_destinations_catalog (список доступных назначений). ЛЕГАСИ (nodes пуст): destinations: [{type: TELEGRAM|MAX|VK|INSTAGRAM, botId?, chatId?, accountId?, utmOverride?}], steps?: [{type: FILTER|TEXT_TRANSFORM|AI_ADAPT|UTM|DELAY, ...поля шага}]. TELEGRAM/MAX источник или назначение — свой привязанный канал бота (bot_channel_list/list_channels), VK — подключённый аккаунт (vk_status); chain_destinations_catalog отдаёт оба списка сразу. INSTAGRAM в destinations принимается моделью, но публикация требует медиа и подключённый Instagram-аккаунт — без них задание уходит в SKIPPED с причиной, не FAILED. HTTP 400 — не хватает полей, источник/назначение не найдены/не ваши, ИЛИ (графовый режим) структурная ошибка графа: «Схема цепочки: <причины>» (нет/>1 SOURCE, цикл, узел без входящего ребра или с >1 входящих, DESTINATION с исходящими рёбрами, недостижимое DESTINATION) — ровно те же правила, что проверяет chain_validate. HTTP 409 — прямой цикл с другой вашей цепочкой (A→B при уже существующей B→A).", inputSchema: { type: "object", properties: { chain: { type: "object", description: "PublishChain draft — см. описание инструмента" } }, required: ["chain"] } },
+  { name: "chain_update", description: "Изменить цепочку целиком (PUT /api/bots/chains/{id}): chain — PublishChain draft (та же форма, что в chain_create, легаси ИЛИ граф), заменяет текущую конфигурацию полностью — сначала прочитай chain_get (или chain_graph_get, если нужен гарантированно графовый вид) и поменяй нужное. Те же 400/409, что у chain_create.", inputSchema: { type: "object", properties: { chainId: { type: "string" }, chain: { type: "object", description: "PublishChain draft целиком" } }, required: ["chainId", "chain"] } },
   { name: "chain_delete", description: "УДАЛИТЬ цепочку публикаций (DELETE /api/bots/chains/{id}). История заданий (chain_runs) теряется вместе с ней. Необратимо: только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { chainId: { type: "string" }, confirm: { type: "boolean" } }, required: ["chainId", "confirm"] } },
   { name: "chain_enable", description: "Включить цепочку (POST /api/bots/chains/{id}/enable) — начинает принимать новые посты источника (TELEGRAM — сразу по событию, VK/RSS — со следующего опроса, раз в 3 мин).", inputSchema: { type: "object", properties: { chainId: { type: "string" } }, required: ["chainId"] } },
   { name: "chain_pause", description: "Поставить цепочку на паузу (POST /api/bots/chains/{id}/pause) — перестаёт принимать новые посты источника (VK/RSS — опрос останавливается, TELEGRAM — события игнорируются); история и настройки сохраняются.", inputSchema: { type: "object", properties: { chainId: { type: "string" } }, required: ["chainId"] } },
@@ -1052,6 +1136,8 @@ const TOOLS = [
   { name: "chain_approve", description: "Согласовать задание, ждущее подтверждения (approvalMode AI_ONLY/ALL) — POST /api/bots/chains/jobs/{jobId}/approve: AWAITING_APPROVAL → PENDING, подхватится ближайшим тиком исполнения (раз в 15 сек). jobId — из chain_runs. HTTP 400 — задание сейчас не ждёт согласования.", inputSchema: { type: "object", properties: { jobId: { type: "string" } }, required: ["jobId"] } },
   { name: "chain_reject", description: "Отклонить задание, ждущее подтверждения — POST /api/bots/chains/jobs/{jobId}/reject: AWAITING_APPROVAL → SKIPPED, публикации не будет. jobId — из chain_runs. HTTP 400 — задание сейчас не ждёт согласования.", inputSchema: { type: "object", properties: { jobId: { type: "string" } }, required: ["jobId"] } },
   { name: "chain_retry", description: "Повторить проваленное задание вручную, минуя бэкофф (POST /api/bots/chains/jobs/{jobId}/retry): сбрасывает lastError, задание подхватится ближайшим тиком исполнения. jobId — из chain_runs (status FAILED).", inputSchema: { type: "object", properties: { jobId: { type: "string" } }, required: ["jobId"] } },
+  { name: "chain_validate", description: "Офлайн-проверка структуры графа цепочки (nodes/edges), БЕЗ запроса к бэкенду — зеркало серверного ChainGraphValidator (не строже сервера; сервер — последнее слово). Передай nodes/edges напрямую, либо chain — объект с полями nodes/edges (напр. результат chain_graph_get). Проверяет: ровно один SOURCE (без входящих рёбер), у любого другого узла ровно одно входящее ребро, DESTINATION без исходящих рёбер, нет циклов (DFS от источника), каждый DESTINATION достижим от SOURCE, рёбра не ссылаются на несуществующие id, нет дублей id узлов. Возвращает {valid, errors: [{nodeId, message}]}. Полезно перед chain_create/chain_update на сложном графе (общий AI_ADAPT → много DESTINATION и т.п.) — дешевле, чем ловить 400 от сервера.", inputSchema: { type: "object", properties: { nodes: { type: "array", items: { type: "object" } }, edges: { type: "array", items: { type: "object" } }, chain: { type: "object", description: "Альтернатива nodes/edges: объект с полями nodes/edges (напр. из chain_graph_get)" } } } },
+  { name: "chain_destinations_catalog", description: "Список площадок, которые можно подключить как source/destination цепочки, одним вызовом — чтобы не дёргать list_bots + list_channels по каждому боту + vk_status вручную при сборке «1 источник → N каналов». Агрегирует: TELEGRAM/MAX — по каждому боту владельца (list_bots) привязанные каналы (list_channels, т.е. GET /api/bots/{botId}/linked-chats, бот должен быть в них администратором); VK — подключённые сообщества/страницы (vk_status). Возвращает {telegram: [{botId, botName, chatId, title, type, status}], max: [{...то же}], vk: [{accountId, label, enabled, isDefault}]}. botId опционален — ограничить обход только этими ботами (иначе обходятся все боты владельца, может быть несколько запросов). Instagram сюда не входит (подключается только в браузере, см. create_bot). Read-only, чисто агрегация существующих read-only эндпоинтов — ничего не создаёт/не меняет.", inputSchema: { type: "object", properties: { botIds: { type: "array", items: { type: "string" }, description: "Ограничить обход этими botId (из list_bots); по умолчанию — все боты владельца" } } } },
   // ---- Аналитика (дашборд «/bots/analytics»: сайт/бот/сценарий/рассылка) ----
   { name: "site_analytics", description: "KPI+тренд сайта (GET /api/bots/pages/{siteId}/analytics?from&to): {pageViews, clicks, formSubmits, uniqueVisitors, leads, topPages, topReferrers, utmSources, trend:[{day,pageViews,clicks,formSubmits,uniqueVisitors}]}. from/to — ГГГГ-ММ-ДД, по умолчанию последние 30 дней UTC. uniqueVisitors — сумма дневных уников (не дедуп по всему периоду, это приближение). clicks считает только элементы с goalName, заданным в редакторе сайта (data-rs-track), а не любой клик. Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, from: { type: "string", description: "ГГГГ-ММ-ДД" }, to: { type: "string", description: "ГГГГ-ММ-ДД" } }, required: ["siteId"] } },
   { name: "site_analytics_events", description: "Сырые события аналитики сайта постранично (GET /api/bots/pages/{siteId}/analytics/events?from&to&page&size): {items:[{id, type: PAGE_VIEW|CLICK|FORM_SUBMIT, objectId, visitorId, page, referrer, utmSource/Medium/Campaign/Content/Term, props, createdAt}], total}. from/to — ГГГГ-ММ-ДД (по умолчанию последние 30 дней), page (с 0), size (по умолчанию 50). Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, from: { type: "string" }, to: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["siteId"] } },
@@ -2083,6 +2169,7 @@ async function handleCall(params) {
     // ---- Публикации: цепочки ----
     case "chain_list": return okResult(await api("/api/bots/chains"));
     case "chain_get": return okResult(await api(`/api/bots/chains/${uuidArg(a.chainId, "chainId")}`));
+    case "chain_graph_get": return okResult(await api(`/api/bots/chains/${uuidArg(a.chainId, "chainId")}/graph`));
     case "chain_create": {
       if (!a.chain || typeof a.chain !== "object") throw new Error("Передай chain — объект PublishChain (см. описание chain_create).");
       return okResult(await api("/api/bots/chains", { method: "POST", body: a.chain }));
@@ -2116,6 +2203,34 @@ async function handleCall(params) {
       const jobId = uuidArg(a.jobId, "jobId");
       await api(`/api/bots/chains/jobs/${jobId}/retry`, { method: "POST" });
       return okResult(`🔁 Задание ${jobId} поставлено на повтор.`);
+    }
+    case "chain_validate": {
+      const nodes = Array.isArray(a.nodes) ? a.nodes : Array.isArray(a.chain?.nodes) ? a.chain.nodes : null;
+      const edges = Array.isArray(a.edges) ? a.edges : Array.isArray(a.chain?.edges) ? a.chain.edges : null;
+      if (!nodes || !edges) throw new Error("Передай nodes и edges (массивы) напрямую, либо chain — объект с полями nodes/edges (см. chain_graph_get).");
+      return okResult(validateChainGraph(nodes, edges));
+    }
+    case "chain_destinations_catalog": {
+      const wanted = Array.isArray(a.botIds) && a.botIds.length ? new Set(a.botIds.map(String)) : null;
+      const [bots, vk] = await Promise.all([api("/api/bots"), api("/api/bots/vk/status")]);
+      const botList = (Array.isArray(bots) ? bots : []).filter((b) => (b?.platform === "TELEGRAM" || b?.platform === "MAX") && (!wanted || wanted.has(String(b?.id))));
+      const perBot = await Promise.all(botList.map(async (b) => {
+        try {
+          const chats = await api(`/api/bots/${b.id}/linked-chats`);
+          return { bot: b, chats: Array.isArray(chats) ? chats : [] };
+        } catch {
+          return { bot: b, chats: [] }; // чужой/недоступный бот — просто не попадёт в каталог, не валим весь вызов
+        }
+      }));
+      const telegram = [];
+      const max = [];
+      for (const { bot, chats } of perBot) {
+        const bucket = bot.platform === "MAX" ? max : telegram;
+        for (const c of chats) {
+          bucket.push({ botId: bot.id, botName: bot.name || bot.username || bot.id, chatId: c.chatId, title: c.title, type: c.type, status: c.status });
+        }
+      }
+      return okResult({ telegram, max, vk: Array.isArray(vk?.accounts) ? vk.accounts : [] });
     }
     // ---- Аналитика (дашборд) ----
     case "site_analytics": {
