@@ -27,7 +27,7 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.25.1";
+const VERSION = "0.26.0";
 /** С чего начать пустой сайт (init у /document/ops; на сайте с черновиком игнорируется). */
 const SITE_INITS = ["starter", "blank", "mini-landing"];
 /** Безвредная операция, когда нужен только init: бэкенд не принимает пустой ops[]. */
@@ -277,6 +277,8 @@ async function api(path_, { method = "GET", body, rawBody } = {}) {
       throw new Error(`Доступ отклонён (HTTP 401). Токен невалиден, отозван или истёк.\n` +
         `Создай новый на ${TOKENS_PAGE} и пришли мне — я сохраню через set_token.`);
     }
+    const scopeErr = scopeError(res.status, data);
+    if (scopeErr) throw scopeErr;
     if (res.status === 403) {
       // 403 бэкенд отдаёт и на «не твой бот/граф/подключение» — это не всегда про токен.
       const why = bodyReason(data);
@@ -287,6 +289,38 @@ async function api(path_, { method = "GET", body, rawBody } = {}) {
     throw httpError(method, path_, res.status, data);
   }
   return data;
+}
+
+/** Описания прав токена — те же имена, что у бэкенда (PatScope). */
+const SCOPE_TITLES = {
+  read: "чтение",
+  "write:bots": "изменение ботов и сценариев",
+  "write:sites": "изменение сайтов и лендингов",
+  crm: "работа с аудиторией (CRM)",
+  broadcast: "рассылки и сообщения подписчикам",
+  billing: "оплаты и платные ключи",
+  destructive: "удаление и выгрузка персональных данных",
+};
+
+/**
+ * 403 {error:"insufficient_scope"} — у токена нет нужного права (scopes проверяет сервер на каждом запросе).
+ * Это не «чужой объект» и не «токен сломан»: повторять запрос бессмысленно, нужен токен с этим правом.
+ */
+function scopeError(status, data) {
+  if (status !== 403 || !data || typeof data !== "object" || data.error !== "insufficient_scope") return null;
+  const scope = typeof data.requiredScope === "string" ? data.requiredScope : null;
+  const have = Array.isArray(data.tokenScopes) && data.tokenScopes.length ? ` Права токена сейчас: ${data.tokenScopes.join(", ")}.` : "";
+  const msg = scope
+    ? `Токену не хватает права «${scope}» (${SCOPE_TITLES[scope] || scope}) — сервер отклонил запрос (HTTP 403).${have} ` +
+      `Это ограничение токена, а не ошибка: попроси владельца добавить право «${scope}» токену на ${TOKENS_PAGE} ` +
+      `(кнопка «Изменить права», действует сразу) или выпустить новый токен с этим правом. Повторять запрос без этого бесполезно.`
+    : `Токену не хватает прав: этот запрос недоступен токену с ограниченными правами (HTTP 403).${have} ` +
+      `Попроси владельца выдать токену «Полный доступ» на ${TOKENS_PAGE} или выполни действие в кабинете.`;
+  const err = new Error(msg);
+  err.status = 403;
+  err.data = data;
+  err.requiredScope = scope;
+  return err;
 }
 
 /** Причина отказа из тела ответа: {error}/{message} или строка. */
@@ -365,6 +399,7 @@ async function uploadMedia({ filePath, url, filename }) {
   const text = await res.text();
   let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!res.ok) {
+    if (scopeError(res.status, data)) throw scopeError(res.status, data);
     if (res.status === 401 || res.status === 403) throw new Error(`Доступ отклонён (HTTP ${res.status}). Токен невалиден/отозван — создай новый на ${TOKENS_PAGE}.`);
     if (res.status === 402) throw new Error(`Лимит хранилища тарифа исчерпан (HTTP 402). Удали ненужные файлы (delete_file) или подними тариф: 🔗 ${SUBSCRIPTION_PAGE}`);
     if (res.status === 413) throw new Error("Файл больше 50 МБ (HTTP 413) — лимит Telegram для видео/документов.");
@@ -407,6 +442,7 @@ async function uploadSiteAsset(siteId, { filePath, url }) {
   const text = await res.text();
   let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!res.ok) {
+    if (scopeError(res.status, data)) throw scopeError(res.status, data);
     if (res.status === 401 || res.status === 403) throw new Error(`Доступ отклонён (HTTP ${res.status}). Токен невалиден/отозван — создай новый на ${TOKENS_PAGE}.`);
     if (res.status === 402) throw new Error(`Лимит хранилища тарифа исчерпан (HTTP 402). Подними тариф: 🔗 ${SUBSCRIPTION_PAGE}`);
     throw httpError("POST", `/api/bots/pages/${siteId}/upload`, res.status, data);
@@ -423,6 +459,7 @@ async function apiBinaryPost(path_, body) {
     const text = await res.text().catch(() => "");
     let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
     if (res.status === 401) throw new Error(`Доступ отклонён (HTTP 401). Токен невалиден/отозван — создай новый на ${TOKENS_PAGE}.`);
+    if (scopeError(res.status, data)) throw scopeError(res.status, data);
     if (res.status === 403) throw new Error(`Доступ отклонён (HTTP 403)${bodyReason(data) ? `: ${bodyReason(data)}` : ""}.`);
     if (res.status === 402) throw paymentError(data);
     throw httpError("POST", path_, res.status, data);
@@ -480,6 +517,7 @@ async function migrationMultipart(path_, { filePath, platform, mapping }) {
   const text = await res.text();
   let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
   if (!res.ok) {
+    if (scopeError(res.status, data)) throw scopeError(res.status, data);
     if (res.status === 401 || res.status === 403) throw new Error(`Доступ отклонён (HTTP ${res.status}). Токен невалиден/отозван — создай новый на ${TOKENS_PAGE}.`);
     throw httpError("POST", path_, res.status, data);
   }
