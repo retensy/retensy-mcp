@@ -22,7 +22,7 @@ PAT, инструмента нет; **PAT** — путь закрыт для т�
 | Боты: дополнительные Telegram-боты (мультиканальность) | `GET/POST /api/bots/{botId}/channels`, `DELETE /{botId}/channels/{channelId}` (ChannelController:37/47/60) | `bot_channel_list`, `bot_channel_add`, `bot_channel_delete` (новые, удаление — `confirm:true`) | есть |
 | Боты: совладельцы, приглашения, передача | BotCollaboratorController | — | PAT (закрыто намеренно, `isSharingPath`) |
 | Настройки виджета | `GET/PUT /api/bots/web/{id}/settings` | `web_widget_settings` | есть |
-| Графы/сценарии бота: CRUD, публикация, активный | TgGraphController | `list_graphs`, `get_graph`, `create_graph`, `update_graph`, `patch_graph`, `edit_graph_live`, `publish_graph`, `rename_graph`, `clone_graph`, `copy_graph`, `delete_graph`, `set_active_graph`, `import_funnel` | есть |
+| Графы/сценарии бота: CRUD, публикация, активный | TgGraphController | `list_graphs`, `get_graph`, `create_graph`, `update_graph`, `patch_graph`, `edit_graph_live`, `publish_graph` (+`secondary`), `unpublish_graph`, `rename_graph`, `clone_graph`, `copy_graph`, `delete_graph`, `set_active_graph`, `import_funnel` | есть |
 | Графы: шаблоны | `GET /api/bots/graph-templates`, `POST /{botId}/graphs/from-template` | `list_templates`, `create_graph_from_template` | есть |
 | Графы: dry-run | `POST /api/bots/graphs/{id}/dry-run` | `dry_run` | есть |
 | Графы: валидация без публикации, ИИ-помощник, граф из агента | `/validate`, `/ai-assist`, `/graphs/from-agent` | — (ошибки валидации отдаёт `publish_graph`) | нет |

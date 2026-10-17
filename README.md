@@ -48,7 +48,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 
 ---
 
-- 🤖 **Сценарии ботов**: `list_bots`, `list_graphs`, `list_channels`, `get_graph`, `create_graph`, `update_graph`, `edit_graph_live`, `patch_graph`, `dry_run`, `publish_graph`, `import_funnel`, `list_templates`, `create_graph_from_template`, `clone_graph`, `copy_graph`, `rename_graph`, `set_active_graph`, `delete_graph`, `upload_file`, `list_files`, `delete_file`, `graph_analytics`, `list_bot_users`, `list_links` (+ `setup`/`set_token`).
+- 🤖 **Сценарии ботов**: `list_bots`, `list_graphs`, `list_channels`, `get_graph`, `create_graph`, `update_graph`, `edit_graph_live`, `patch_graph`, `dry_run`, `publish_graph`, `unpublish_graph`, `import_funnel`, `list_templates`, `create_graph_from_template`, `clone_graph`, `copy_graph`, `rename_graph`, `set_active_graph`, `delete_graph`, `upload_file`, `list_files`, `delete_file`, `graph_analytics`, `list_bot_users`, `list_links` (+ `setup`/`set_token`).
 - 🔌 **Боты и сервисы**: `create_bot` (Telegram/MAX по токену), `bot_stop`/`bot_resume`, `connect_integration`/`disconnect_integration` (amoCRM, Битрикс24, GetCourse, Я.Метрика, ЮKassa; Google Таблицы — ссылкой на вход Google; креды хранятся зашифрованными и не возвращаются), `integration_catalog`/`integration_status`/`integration_test` (каталог Integration Core и живая проверка подключения), `integration_ingress_url` (URL ингресса «Внешних событий» — Tilda, JivoSite, WooCommerce, amoCRM, Битрикс24, GetCourse, CloudPayments, Robokassa, Т-Банк, Prodamus — для `TRIGGER_WEBHOOK`), `channel_post` (пост в канал Telegram/MAX).
 - 📣 **Рассылки**: `broadcast_preview` (размер аудитории), `broadcast_send` (сейчас или по расписанию, сразу по нескольким ботам; сообщения или запуск сценария; полный фильтр аудитории `audienceFilter`, дедуп `dedup` и распределённый запуск `stagger` по ботам), `broadcast_list`/`broadcast_get`/`broadcast_cancel`, повторяющиеся (`broadcast_recurring`), черновики (`broadcast_drafts`, `broadcast_duplicate`), мульти-бот группы (`broadcast_group` — preview/list/get/pause/resume/cancel) + скилл `send-broadcast`.
 - 👥 **Аудитория подписчиков**: `audience_search`/`audience_fields` — кросс-бот поиск и фильтр (теги, даты, статус, условия по переменным), `audience_tag_edit`/`audience_variable_edit` — массовое редактирование тегов/переменных, `audience_export` — потоковая выгрузка выборки в CSV/XLSX, `dialog_search` — поиск по «Диалогам» (включая текст сообщений).
@@ -204,7 +204,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `edit_graph_live(graphId, graphFile\|graph\|nodes,edges)` | правка живого графа НА МЕСТЕ + авто-бэкап (рекомендуется для прода) |
 | `patch_graph(graphId, replacements)` | строковые замены в JSON графа на сервере (для больших/живых графов) |
 | `dry_run(graphId, kind, value)` | прогон без публикации |
-| `publish_graph(graphId)` | публикация (вернёт `errors[]` при провале) |
+| `publish_graph(graphId, secondary?)` | публикация (вернёт `errors[]` при провале); `secondary: true` — дополнительный сценарий рядом с основным (запускают VK-лендинги и ссылки с `targetGraphId`) |
+| `unpublish_graph(graphId)` | снять дополнительный сценарий с публикации (основной — 409) |
 | `import_funnel(botId, name, graphFile\|graph)` | всё за раз: create → update → dry-run → publish |
 | `list_templates()` | готовые шаблоны воронок |
 | `create_graph_from_template(botId, templateId, name)` | граф из шаблона (DRAFT) |
