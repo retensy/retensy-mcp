@@ -184,7 +184,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 |---|---|
 | `setup` | статус авторизации + пошаговая инструкция подключения |
 | `set_token` | сохранить присланный токен `zmcp_…` (без env/рестарта) |
-| `list_bots` | список ботов (`pausedReason: TOKEN_CONFLICT` — бот на паузе: токен одновременно подключён в другом сервисе) |
+| `list_bots` | список ботов (`pausedReason: TOKEN_CONFLICT` / `pausedChannels` — бот или канал на паузе из-за вебхука другого сервиса на том же токене; `conflictWarning: TOKEN_CONFLICT_POLLING` — токен опрашивает кто-то ещё, бот работает, но теряет сообщения) |
 | `create_bot(platform, token?, name?)` | подключить бота Telegram/MAX по токену; `WEB` — чат-виджет для сайта без токена → botId, key, snippet (Instagram → ссылка на кабинет `/bots/instagram`, вход через Instagram) |
 | `web_widget_snippet(botId)` | код вставки чат-виджета на сайт |
 | `bot_stop(botId)` / `bot_resume(botId)` | остановить / запустить бота |
