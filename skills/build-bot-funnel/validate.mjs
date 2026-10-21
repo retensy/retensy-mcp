@@ -461,6 +461,25 @@ for (const n of nodes) {
         }
         if (a.kind === "gsheets_send" && (!a.googleEmail || !a.spreadsheetId || !Array.isArray(a.cells) || a.cells.length === 0))
           errors.push(`ACTION_GSHEETS_INCOMPLETE: ${who} — gsheets_send требует googleEmail + spreadsheetId + непустой cells[] (Google-аккаунт подключается в вебе /bots, не через MCP).`);
+        if (a.kind === "group_kick") {
+          // «Выгнать или забанить» (зеркало GraphValidator.validateGroupKick)
+          if (!blank(a.mode) && a.mode !== "kick" && a.mode !== "ban")
+            errors.push(`GROUP_KICK_BAD_MODE: ${who} — group_kick.mode ∈ kick | ban.`);
+          if (!blank(a.untilDays)) {
+            const u = String(a.untilDays).trim();
+            if (a.mode === "kick")
+              errors.push(`GROUP_KICK_UNTIL_WITH_KICK: ${who} — untilDays в режиме kick не действует: человек может вернуться сразу.`);
+            else if (!u.includes("{{")) {
+              const d = Number(u.replace(",", "."));
+              if (!(d >= 1 && d <= 366 && Number.isInteger(d))) errors.push(`GROUP_KICK_BAD_UNTIL: ${who} — untilDays: число дней от 1 до 366 (пусто = навсегда).`);
+            }
+          }
+          if (!blank(a.chatId)) {
+            const c = String(a.chatId).trim();
+            if (!c.includes("{{") && !/^(-?\d{1,20}|@[A-Za-z0-9_]{4,64}|https:\/\/t\.me\/[A-Za-z0-9_]{4,64})$/.test(c))
+              errors.push(`GROUP_KICK_BAD_CHAT: ${who} — chatId: числовой id, @username или шаблон {{var.*}}.`);
+          }
+        }
         if (a.kind === "send_email") {
           // «Отправить письмо» (TASK-4): один получатель — email не массив, список адресов сюда не идёт.
           if (blank(a.email)) errors.push(`ACTION_SEND_EMAIL_NO_RECIPIENT: ${who} — send_email требует email (адрес или {{var.*}}).`);
