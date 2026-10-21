@@ -292,11 +292,35 @@ for (const n of nodes) {
         if (!target) errors.push(`DELETE_NODE_MISSING: ${who} — nodeId должен указывать на узел этого сценария.`);
         else if (!SENDERS.includes(target.type)) errors.push(`DELETE_NODE_NOT_SENDER: ${who} — узел nodeId ничего не отправляет.`);
       }
+      // Зеркало FlowExecutor.deleteDelaySec: дробная пауза округляется вверх, потолок 24 часа.
       const delay = c.delay === undefined || c.delay === null ? 0 : Number(c.delay);
       const mult = c.unit === "HOURS" ? 3600 : c.unit === "MINUTES" ? 60 : 1;
+      const delaySec = Number.isFinite(delay) && delay > 0 ? Math.min(Math.ceil(delay * mult), 86400) : 0;
       if (!Number.isFinite(delay) || delay < 0) errors.push(`DELETE_BAD_DELAY: ${who} — delay должен быть числом не меньше 0.`);
-      else if (delay * mult >= 86400) errors.push(`DELETE_DELAY_TOO_LONG: ${who} — пауза должна быть меньше 24 часов.`);
-      else if (c.mode === "NEXT" && delay <= 0) errors.push(`DELETE_NEXT_NO_DELAY: ${who} — для mode NEXT нужен delay больше нуля.`);
+      else if (delaySec >= 86400) errors.push(`DELETE_DELAY_TOO_LONG: ${who} — пауза должна быть меньше 24 часов.`);
+      if (c.mode === "NEXT" && delaySec <= 0) errors.push(`DELETE_NEXT_NO_DELAY: ${who} — для mode NEXT нужен delay больше нуля.`);
+      if (c.mode === "NEXT") {
+        // Флаг «удалить следующее» живёт в одном прогоне: пауза (DELAY/SCHEDULE) до отправки его сжигает.
+        const SENDERS_NEXT = ["SEND_MESSAGE", "SEND_PHOTO", "SEND_VIDEO", "SEND_DOCUMENT", "SEND_VOICE", "SEND_VIDEO_NOTE",
+          "SEND_MEDIA_GROUP", "ASK_QUESTION", "AI_REPLY", "PAYMENT_LINK", "YOOKASSA_PAYMENT", "ACTIONS"];
+        const out = {};
+        for (const e of edges) (out[e.sourceNodeId] = out[e.sourceNodeId] || []).push(e.targetNodeId);
+        const seen = new Set();
+        const queue = [[n.id, false]];
+        let senderFound = false, parkedSender = false;
+        while (queue.length) {
+          const [id, parked] = queue.shift();
+          for (const t of out[id] || []) {
+            const tn = nodes.find((x) => x.id === t);
+            if (!tn || seen.has(`${t}:${parked}`)) continue;
+            seen.add(`${t}:${parked}`);
+            if (SENDERS_NEXT.includes(tn.type)) { senderFound = true; if (parked) parkedSender = true; }
+            else queue.push([t, parked || tn.type === "DELAY" || tn.type === "SCHEDULE"]);
+          }
+        }
+        if (parkedSender) warns.push(`DELETE_NEXT_PARKED: ${who} — между узлом и отправкой есть пауза (DELAY/SCHEDULE): сценарий паркуется, удаление следующего сообщения не сработает.`);
+        else if (!senderFound) warns.push(`DELETE_NEXT_NO_SENDER: ${who} — после узла нет блока, который отправляет сообщение.`);
+      }
       break;
     }
     case "STOP_AND_ERROR":

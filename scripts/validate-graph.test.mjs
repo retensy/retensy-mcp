@@ -85,6 +85,18 @@ for (const code of ["DELETE_NODE_NOT_SENDER", "DELETE_DELAY_TOO_LONG", "DELETE_N
 }
 check("DELETE_MESSAGE: неизвестный mode", run([trig, node("DELETE_MESSAGE", { mode: "ALL" })], []).out.includes("DELETE_BAD_MODE"));
 
+// NEXT через паузу: предупреждение (не ошибка); напрямую - без предупреждения; дробная пауза допустима
+const nxt = node("DELETE_MESSAGE", { mode: "NEXT", delay: 0.5, unit: "MINUTES" });
+const pause = node("DELAY", { kind: "FIXED", durationSec: 60 });
+const nxtSend = node("SEND_MESSAGE", { text: "Ссылка", parseMode: "PLAIN" });
+const parked = run([trig, nxt, pause, nxtSend], [edge(trig, nxt), edge(nxt, pause), edge(pause, nxtSend)]);
+check("DELETE_MESSAGE NEXT через DELAY: DELETE_NEXT_PARKED, exit 0", parked.code === 0 && parked.out.includes("DELETE_NEXT_PARKED"));
+const direct = run([trig, nxt, nxtSend], [edge(trig, nxt), edge(nxt, nxtSend)]);
+check("DELETE_MESSAGE NEXT напрямую: без предупреждения, дробная пауза ок", direct.code === 0 && !direct.out.includes("DELETE_NEXT_PARKED"));
+check("DELETE_MESSAGE NEXT без отправителя: DELETE_NEXT_NO_SENDER", run([trig, nxt], [edge(trig, nxt)]).out.includes("DELETE_NEXT_NO_SENDER"));
+const nxtZero = run([trig, linkMsg, node("DELETE_MESSAGE", { mode: "NEXT", delay: 0 })], [edge(trig, linkMsg), edge(linkMsg, trig)]);
+check("DELETE_MESSAGE NEXT delay 0: DELETE_NEXT_NO_DELAY", nxtZero.out.includes("DELETE_NEXT_NO_DELAY"));
+
 fs.rmSync(dir, { recursive: true, force: true });
 if (failed) { console.error(`validate-graph: провалов ${failed}`); process.exit(1); }
 console.log("validate-graph OK");
