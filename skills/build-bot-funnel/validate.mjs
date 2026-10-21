@@ -279,6 +279,26 @@ for (const n of nodes) {
       }
       break;
     }
+    case "DELETE_MESSAGE": {
+      // Зеркало GraphValidator.validateDeleteMessage (Java).
+      if (!["NODE", "PREVIOUS", "USER_LAST", "NEXT"].includes(c.mode)) {
+        errors.push(`DELETE_BAD_MODE: ${who} — mode ∈ {NODE,PREVIOUS,USER_LAST,NEXT}.`);
+        break;
+      }
+      if (c.mode === "NODE") {
+        const target = nodes.find((x) => x.id === c.nodeId);
+        const SENDERS = ["SEND_MESSAGE", "SEND_PHOTO", "SEND_VIDEO", "SEND_DOCUMENT", "SEND_VOICE", "SEND_VIDEO_NOTE",
+          "SEND_MEDIA_GROUP", "ASK_QUESTION", "AI_REPLY", "PAYMENT_LINK", "YOOKASSA_PAYMENT", "ACTIONS"];
+        if (!target) errors.push(`DELETE_NODE_MISSING: ${who} — nodeId должен указывать на узел этого сценария.`);
+        else if (!SENDERS.includes(target.type)) errors.push(`DELETE_NODE_NOT_SENDER: ${who} — узел nodeId ничего не отправляет.`);
+      }
+      const delay = c.delay === undefined || c.delay === null ? 0 : Number(c.delay);
+      const mult = c.unit === "HOURS" ? 3600 : c.unit === "MINUTES" ? 60 : 1;
+      if (!Number.isFinite(delay) || delay < 0) errors.push(`DELETE_BAD_DELAY: ${who} — delay должен быть числом не меньше 0.`);
+      else if (delay * mult >= 86400) errors.push(`DELETE_DELAY_TOO_LONG: ${who} — пауза должна быть меньше 24 часов.`);
+      else if (c.mode === "NEXT" && delay <= 0) errors.push(`DELETE_NEXT_NO_DELAY: ${who} — для mode NEXT нужен delay больше нуля.`);
+      break;
+    }
     case "STOP_AND_ERROR":
       // message необязателен (рантайм подставит свой текст), но безымянная ошибка в журнале бесполезна.
       if (blank(c.message)) warns.push(`${who}: STOP_AND_ERROR без message — в журнале будет обезличенное «Сценарий остановлен с ошибкой».`);

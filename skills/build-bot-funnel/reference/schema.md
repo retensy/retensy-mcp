@@ -155,6 +155,19 @@ IG-боты не поддерживают команды (`/start`). Вход �
 - `STOP_AND_ERROR` — `{ "message":"CRM не ответила: {{var.http_status}}" }`. Обрывает прогон и
   помечает его в журнале как ошибочный (`FAILED`), шаг — `ok:false` с этим текстом. Выходов нет,
   ничего подписчику не отправляет. Пустой `message` → «Сценарий остановлен с ошибкой».
+- `DELETE_MESSAGE` — `{ "mode":"PREVIOUS"|"NODE"|"USER_LAST"|"NEXT", "nodeId":"<id узла>", "delay":30, "unit":"SECONDS"|"MINUTES"|"HOURS" }`.
+  Удаляет сообщение у подписчика, выход один — `next`. `mode`: `PREVIOUS` — последнее сообщение бота перед этим
+  узлом; `NODE` — последнее сообщение узла `nodeId` (узел этого же сценария, который шлёт сообщение:
+  `SEND_*`, `ASK_QUESTION`, `AI_REPLY`, `ACTIONS`, оплата); `USER_LAST` — последнее сообщение подписчика
+  (только Telegram, в личке); `NEXT` — сообщение, которое отправит следующий отправляющий узел (нужен `delay` > 0).
+  `delay`+`unit` — пауза до удаления без остановки сценария (по умолчанию удаляет сразу), не больше 24 часов.
+  Пример «выгнали из канала и удалили сообщение со ссылкой»: `ACTIONS(invite_link_create)` → `ACTIONS(group_kick)` →
+  `DELETE_MESSAGE{mode:"NODE", nodeId:<id блока со ссылкой>}`. Сценарий НЕ падает, если удалить нельзя (Telegram даёт
+  48 часов на сообщения бота в личке, VK 24 часа, сообщение уже удалено или платформа не умеет): идёт дальше по
+  `next`, а шаг помечается ошибкой в журнале и аналитике. Валидатор режет: неизвестный `mode`
+  (`DELETE_BAD_MODE`), `NODE` без существующего узла (`DELETE_NODE_MISSING`) или с узлом, который ничего не шлёт
+  (`DELETE_NODE_NOT_SENDER`), пауза не число (`DELETE_BAD_DELAY`) или от 24 часов (`DELETE_DELAY_TOO_LONG`),
+  `NEXT` без паузы (`DELETE_NEXT_NO_DELAY`). Instagram узел не поддерживает.
 - `ASK_QUESTION` — вопрос со сбором ответа. `{ "promptText":"...","saveTo":"name","inputKind":"TEXT"|"PHOTO"|"DOCUMENT"|"CONTACT"|"LOCATION","validator":"ANY"|"PHONE"|"EMAIL"|"REGEX","regex":"...","retryText":"...","maxAttempts":3 }`. `inputKind` (по умолчанию `TEXT`) — что ждём в ответ (`CONTACT` → телефон: в Telegram показывается кнопка «Поделиться номером», в MAX/Instagram кнопки нет — номер вводится вручную и принимается как телефон на всех платформах; `LOCATION` → `lat,lon`, `PHOTO`/`DOCUMENT` → file_id). Выходы `valid` / `invalid`.
 - `END` — `{}` (конец ветки). **Не добавляй `END`**: ветка и так завершается на узле без исходящих рёбер; явный «конец сценария» бесполезен и убран из палитры редактора. Тип оставлен лишь для совместимости со старыми графами.
 
@@ -483,6 +496,7 @@ node validate.mjs graph.json --platform=INSTAGRAM
 | `ACTIONS` | `next`, плюс `error` — если внутри есть действие, которое может упасть (внешний запрос, CRM, Таблицы); `taken` — слот `booking_book` занят |
 | `SWITCH` | `case_<id>`, `default` |
 | `STOP_AND_ERROR` | выходов нет (терминатор) |
+| `DELETE_MESSAGE` | `next` (всегда, даже если удалить не вышло) |
 | `SCHEDULE` | `scheduled`, `past` |
 | `DELAY` | `next`; у `UNTIL` ещё `late` (момент уже прошёл) и `error` (шаблон не разобрался как дата) |
 | `AI_REPLY` (`mode` не задан/`simple`) | `next`, `error` |
