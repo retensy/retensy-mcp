@@ -97,6 +97,15 @@ check("DELETE_MESSAGE NEXT без отправителя: DELETE_NEXT_NO_SENDER"
 const nxtZero = run([trig, linkMsg, node("DELETE_MESSAGE", { mode: "NEXT", delay: 0 })], [edge(trig, linkMsg), edge(linkMsg, trig)]);
 check("DELETE_MESSAGE NEXT delay 0: DELETE_NEXT_NO_DELAY", nxtZero.out.includes("DELETE_NEXT_NO_DELAY"));
 
+// group_kick: режимы, срок, чат
+const kickOk = node("ACTIONS", { actions: [{ kind: "group_kick", mode: "kick", chatId: "-100123" }, { kind: "group_kick", mode: "ban", untilDays: "30", chatId: "@my_channel" }, { kind: "group_kick" }] });
+check("group_kick: корректные конфиги — exit 0", run([trig, kickOk], [edge(trig, kickOk)]).code === 0);
+const kickBad = node("ACTIONS", { actions: [{ kind: "group_kick", mode: "remove" }, { kind: "group_kick", mode: "ban", untilDays: "400" },
+  { kind: "group_kick", mode: "kick", untilDays: "5" }, { kind: "group_kick", mode: "kick", chatId: "канал" }] });
+const kickBadRun = run([trig, kickBad], [edge(trig, kickBad)]);
+for (const code of ["GROUP_KICK_BAD_MODE", "GROUP_KICK_BAD_UNTIL", "GROUP_KICK_UNTIL_WITH_KICK", "GROUP_KICK_BAD_CHAT"])
+  check(`group_kick — ${code}`, kickBadRun.out.includes(code));
+
 fs.rmSync(dir, { recursive: true, force: true });
 if (failed) { console.error(`validate-graph: провалов ${failed}`); process.exit(1); }
 console.log("validate-graph OK");
