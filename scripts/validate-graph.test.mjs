@@ -72,6 +72,31 @@ const commaActs = node("ACTIONS", { actions: [{ kind: "send_email", email: "a@b.
 const comma = run([trig, commaActs], [edge(trig, commaActs)]);
 check("send_email: запятая в адресе — ACTION_SEND_EMAIL_BAD_EMAIL", comma.out.includes("ACTION_SEND_EMAIL_BAD_EMAIL"));
 
+// DELETE_MESSAGE: хороший и плохой конфиги
+const linkMsg = node("SEND_MESSAGE", { text: "Ссылка", parseMode: "PLAIN" });
+const delOk = node("DELETE_MESSAGE", { mode: "NODE", nodeId: linkMsg.id, delay: 30, unit: "SECONDS" });
+const delGood = run([trig, linkMsg, delOk], [edge(trig, linkMsg), edge(linkMsg, delOk)]);
+check("DELETE_MESSAGE: корректный узел — exit 0", delGood.code === 0);
+const delBad = node("DELETE_MESSAGE", { mode: "NODE", nodeId: trig.id, delay: 25, unit: "HOURS" });
+const delBad2 = node("DELETE_MESSAGE", { mode: "NEXT" });
+const delBadRun = run([trig, linkMsg, delBad, delBad2], [edge(trig, linkMsg), edge(linkMsg, delBad), edge(delBad, delBad2)]);
+for (const code of ["DELETE_NODE_NOT_SENDER", "DELETE_DELAY_TOO_LONG", "DELETE_NEXT_NO_DELAY"]) {
+  check(`DELETE_MESSAGE: ${code}`, delBadRun.out.includes(code));
+}
+check("DELETE_MESSAGE: неизвестный mode", run([trig, node("DELETE_MESSAGE", { mode: "ALL" })], []).out.includes("DELETE_BAD_MODE"));
+
+// NEXT через паузу: предупреждение (не ошибка); напрямую - без предупреждения; дробная пауза допустима
+const nxt = node("DELETE_MESSAGE", { mode: "NEXT", delay: 0.5, unit: "MINUTES" });
+const pause = node("DELAY", { kind: "FIXED", durationSec: 60 });
+const nxtSend = node("SEND_MESSAGE", { text: "Ссылка", parseMode: "PLAIN" });
+const parked = run([trig, nxt, pause, nxtSend], [edge(trig, nxt), edge(nxt, pause), edge(pause, nxtSend)]);
+check("DELETE_MESSAGE NEXT через DELAY: DELETE_NEXT_PARKED, exit 0", parked.code === 0 && parked.out.includes("DELETE_NEXT_PARKED"));
+const direct = run([trig, nxt, nxtSend], [edge(trig, nxt), edge(nxt, nxtSend)]);
+check("DELETE_MESSAGE NEXT напрямую: без предупреждения, дробная пауза ок", direct.code === 0 && !direct.out.includes("DELETE_NEXT_PARKED"));
+check("DELETE_MESSAGE NEXT без отправителя: DELETE_NEXT_NO_SENDER", run([trig, nxt], [edge(trig, nxt)]).out.includes("DELETE_NEXT_NO_SENDER"));
+const nxtZero = run([trig, linkMsg, node("DELETE_MESSAGE", { mode: "NEXT", delay: 0 })], [edge(trig, linkMsg), edge(linkMsg, trig)]);
+check("DELETE_MESSAGE NEXT delay 0: DELETE_NEXT_NO_DELAY", nxtZero.out.includes("DELETE_NEXT_NO_DELAY"));
+
 fs.rmSync(dir, { recursive: true, force: true });
 if (failed) { console.error(`validate-graph: провалов ${failed}`); process.exit(1); }
 console.log("validate-graph OK");
