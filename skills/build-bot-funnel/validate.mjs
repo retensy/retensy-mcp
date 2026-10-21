@@ -471,7 +471,7 @@ for (const n of nodes) {
               errors.push(`GROUP_KICK_UNTIL_WITH_KICK: ${who} — untilDays в режиме kick не действует: человек может вернуться сразу.`);
             else if (!u.includes("{{")) {
               const d = Number(u.replace(",", "."));
-              if (!(d >= 1 && d <= 366)) errors.push(`GROUP_KICK_BAD_UNTIL: ${who} — untilDays: число дней от 1 до 366 (пусто = навсегда).`);
+              if (!(d >= 1 && d <= 366 && Number.isInteger(d))) errors.push(`GROUP_KICK_BAD_UNTIL: ${who} — untilDays: число дней от 1 до 366 (пусто = навсегда).`);
             }
           }
           if (!blank(a.chatId)) {
