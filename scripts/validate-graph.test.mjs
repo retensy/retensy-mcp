@@ -105,6 +105,16 @@ const kickBad = node("ACTIONS", { actions: [{ kind: "group_kick", mode: "remove"
 const kickBadRun = run([trig, kickBad], [edge(trig, kickBad)]);
 for (const code of ["GROUP_KICK_BAD_MODE", "GROUP_KICK_BAD_UNTIL", "GROUP_KICK_UNTIL_WITH_KICK", "GROUP_KICK_BAD_CHAT"])
   check(`group_kick — ${code}`, kickBadRun.out.includes(code));
+// RANDOM_TEXT: зеркало GraphValidator.validateRandomText
+const rtOk = node("RANDOM_TEXT", { texts: ["один", "два"], mode: "send", noRepeat: true });
+const rtGood = run([trig, rtOk], [edge(trig, rtOk)]);
+check("RANDOM_TEXT: корректный узел — без RANDOM_TEXT_*", !rtGood.out.includes("RANDOM_TEXT_"));
+const rtEmpty = node("RANDOM_TEXT", { texts: ["  "], mode: "variable" });
+const rtBad = run([trig, rtEmpty], [edge(trig, rtEmpty)]);
+check("RANDOM_TEXT: пусто — RANDOM_TEXT_NO_TEXTS", rtBad.out.includes("RANDOM_TEXT_NO_TEXTS"));
+check("RANDOM_TEXT: variable без saveTo — RANDOM_TEXT_BAD_SAVE_TO", rtBad.out.includes("RANDOM_TEXT_BAD_SAVE_TO"));
+const rtLong = node("RANDOM_TEXT", { texts: ["x".repeat(65537)] });
+check("RANDOM_TEXT: длинный текст — RANDOM_TEXT_TOO_LONG", run([trig, rtLong], [edge(trig, rtLong)]).out.includes("RANDOM_TEXT_TOO_LONG"));
 
 fs.rmSync(dir, { recursive: true, force: true });
 if (failed) { console.error(`validate-graph: провалов ${failed}`); process.exit(1); }

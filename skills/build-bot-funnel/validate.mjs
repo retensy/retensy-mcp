@@ -360,6 +360,16 @@ for (const n of nodes) {
     case "REMOVE_TAG":
       if (!TAG_RE.test(String(c.tag || ""))) errors.push(`TAG_BAD_NAME: ${who} — tag ∈ [a-z0-9_-]{1,64}.`);
       break;
+    case "RANDOM_TEXT": {
+      // Зеркало GraphValidator.validateRandomText: потолки 500 текстов / 65 536 на текст / 1 500 000 суммарно.
+      const texts = Array.isArray(c.texts) ? c.texts.filter((x) => typeof x === "string" && x.trim()) : [];
+      if (texts.length === 0) errors.push(`RANDOM_TEXT_NO_TEXTS: ${who} — нужен хотя бы один непустой текст в config.texts[].`);
+      if (texts.length > 500) errors.push(`RANDOM_TEXT_TOO_MANY: ${who} — текстов больше 500.`);
+      if (texts.some((x) => x.length > 65536)) errors.push(`RANDOM_TEXT_TOO_LONG: ${who} — текст длиннее 65 536 символов.`);
+      if (texts.reduce((a, x) => a + x.length, 0) > 1500000) errors.push(`RANDOM_TEXT_TOTAL_TOO_LONG: ${who} — тексты вместе длиннее 1 500 000 символов.`);
+      if (c.mode === "variable" && !VAR_RE.test(String(c.saveTo || ""))) errors.push(`RANDOM_TEXT_BAD_SAVE_TO: ${who} — в режиме variable saveTo ∈ [a-z_][a-z0-9_]{0,63}.`);
+      break;
+    }
     case "FORMULA":
       if (blank(c.expression)) errors.push(`FORMULA_NO_EXPRESSION: ${who} — нужен expression.`);
       if (!VAR_RE.test(String(c.saveTo || ""))) errors.push(`FORMULA_BAD_SAVE_TO: ${who} — saveTo ∈ [a-z_][a-z0-9_]{0,63}.`);

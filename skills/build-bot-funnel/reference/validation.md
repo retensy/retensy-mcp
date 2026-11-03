@@ -17,6 +17,12 @@
 - Кнопок недостаточно: сообщение только с `buttons` — пустое.
 - Пробелы/таб/перенос строки = пусто (`.isBlank()`).
 
+### `RANDOM_TEXT` — «Случайный текст»
+- `config.texts[]` — хотя бы один непустой текст (`RANDOM_TEXT_NO_TEXTS`); не больше 500 (`RANDOM_TEXT_TOO_MANY`),
+  каждый ≤ 65 536 знаков (`RANDOM_TEXT_TOO_LONG`), вместе ≤ 1 500 000 (`RANDOM_TEXT_TOTAL_TOO_LONG`) - иначе сценарий не влезет в 4 МБ.
+- `mode:"variable"` требует `saveTo` по `[a-z_][a-z0-9_]{0,63}` (`RANDOM_TEXT_BAD_SAVE_TO`).
+- Для IG-ботов тип не разрешён (`IG_NODE_UNSUPPORTED`).
+
 ### Длина текста
 - `text` ≤ 4096; если есть `photoUrl` (подпись) — ≤ 1024 (`SEND_TOO_LONG`).
 - При `parseMode:"HTML"` — текст должен быть безопасным Telegram-HTML, иначе `HTML_NOT_SAFE`. Разрешены только `b,strong,i,em,u,ins,s,strike,del,code,pre,a[href],tg-spoiler,br`. Если не уверен — `PLAIN`.

@@ -175,6 +175,17 @@ IG-боты не поддерживают команды (`/start`). Вход �
   (`DELETE_BAD_MODE`), `NODE` без существующего узла (`DELETE_NODE_MISSING`) или с узлом, который ничего не шлёт
   (`DELETE_NODE_NOT_SENDER`), пауза не число (`DELETE_BAD_DELAY`) или от 24 часов (`DELETE_DELAY_TOO_LONG`),
   `NEXT` без паузы (`DELETE_NEXT_NO_DELAY`). Instagram узел не поддерживает.
+- `RANDOM_TEXT` — **случайный текст из списка**, целиком. Нужен, когда клиент хочет выдавать подписчику
+  случайную историю/цитату/совет из набора дословно (база знаний агента для этого не годится: она режется
+  на фрагменты, и агент видит только найденные куски). `{ "texts":["Текст 1","Текст 2"], "mode":"send"|"variable",
+  "saveTo":"story", "noRepeat":false, "split":true, "parseMode":"HTML"? }`. `mode:"send"` (по умолчанию) отправляет
+  текст подписчику; текст длиннее лимита канала (TG 4096, MAX 4000, IG 1000) делится на сообщения по абзацам
+  (`split:false` - не делить, лишнее обрежется). `mode:"variable"` кладёт текст в `{{var.<saveTo>}}` (saveTo обязателен,
+  до 65 536 знаков), дальше его вставляют в любой `SEND_MESSAGE`. `noRepeat:true` - не повторять тексты у подписчика,
+  пока не выданы все, потом круг заново. В текстах работают `{{from.first_name}}` и `{{var.x}}`. Потолки: до 500 текстов,
+  до 65 536 знаков каждый, вместе до 1 500 000 (сценарий в целом ≤ 4 МБ). Выходы: `next`, `error` (пустой список, отказ
+  отправки, переменная не сохранилась). Не для Instagram (`IG_NODE_UNSUPPORTED`). Коды валидатора: `RANDOM_TEXT_NO_TEXTS`,
+  `RANDOM_TEXT_TOO_MANY`, `RANDOM_TEXT_TOO_LONG`, `RANDOM_TEXT_TOTAL_TOO_LONG`, `RANDOM_TEXT_BAD_SAVE_TO`.
 - `ASK_QUESTION` — вопрос со сбором ответа. `{ "promptText":"...","saveTo":"name","inputKind":"TEXT"|"PHOTO"|"DOCUMENT"|"CONTACT"|"LOCATION","validator":"ANY"|"PHONE"|"EMAIL"|"REGEX","regex":"...","retryText":"...","maxAttempts":3 }`. `inputKind` (по умолчанию `TEXT`) — что ждём в ответ (`CONTACT` → телефон: в Telegram показывается кнопка «Поделиться номером», в MAX/Instagram кнопки нет — номер вводится вручную и принимается как телефон на всех платформах; `LOCATION` → `lat,lon`, `PHOTO`/`DOCUMENT` → file_id). Выходы `valid` / `invalid`.
 - `END` — `{}` (конец ветки). **Не добавляй `END`**: ветка и так завершается на узле без исходящих рёбер; явный «конец сценария» бесполезен и убран из палитры редактора. Тип оставлен лишь для совместимости со старыми графами.
 
@@ -503,6 +514,7 @@ node validate.mjs graph.json --platform=INSTAGRAM
 | `CALL_WEBHOOK` | `ok`, `error` |
 | `ACTIONS` | `next`, плюс `error` — если внутри есть действие, которое может упасть (внешний запрос, CRM, Таблицы); `taken` — слот `booking_book` занят |
 | `SWITCH` | `case_<id>`, `default` |
+| `RANDOM_TEXT` | `next`, `error` |
 | `STOP_AND_ERROR` | выходов нет (терминатор) |
 | `DELETE_MESSAGE` | `next` (всегда, даже если удалить не вышло) |
 | `SCHEDULE` | `scheduled`, `past` |
