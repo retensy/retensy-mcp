@@ -149,6 +149,19 @@ check("ЮKassa-счёт + звёзды в одном блоке — INVOICE_DUPL
 const starsMax = run([trig, starsOk], [edge(trig, starsOk)], "MAX");
 check("issue_stars_invoice на MAX — STARS_TELEGRAM_ONLY", starsMax.code !== 0 && starsMax.out.includes("STARS_TELEGRAM_ONLY"));
 
+// Telegram Business: business_message - рабочее событие, business_connection - нет; условие BUSINESS
+const bizTrig = node("TRIGGER_TG_EVENT", { event: "business_message", filter: { text: "цена", textMode: "contains" } });
+const bizMsg = node("SEND_MESSAGE", { text: "Привет", cards: [{ type: "text", text: "Привет" }] });
+const bizRun = run([bizTrig, bizMsg], [edge(bizTrig, bizMsg)]);
+check("TG_EVENT business_message: допустим, без TG_EVENT_UNSUPPORTED и без предупреждения о фильтре", bizRun.code === 0 && !bizRun.out.includes("TG_EVENT_UNSUPPORTED") && !bizRun.out.includes("игнорируется"));
+const bizConn = node("TRIGGER_TG_EVENT", { event: "business_connection" });
+check("TG_EVENT business_connection: TG_EVENT_UNSUPPORTED", run([bizConn, bizMsg], [edge(bizConn, bizMsg)]).out.includes("TG_EVENT_UNSUPPORTED"));
+const bizCond = node("CONDITION", { match: "ALL", conditions: [{ kind: "BUSINESS", op: "IS" }] });
+const bizCondRun = run([trig, bizCond, bizMsg], [edge(trig, bizCond), edge(bizCond, bizMsg, "yes")]);
+check("CONDITION BUSINESS/IS: без предупреждения о kind/op", !bizCondRun.out.includes("неизвестный kind") && !bizCondRun.out.includes("не из {"));
+const bizCondBad = node("CONDITION", { match: "ALL", conditions: [{ kind: "BUSINESS", op: "MAYBE" }] });
+check("CONDITION BUSINESS/MAYBE: предупреждение об op", run([trig, bizCondBad, bizMsg], [edge(trig, bizCondBad), edge(bizCondBad, bizMsg, "yes")]).out.includes("не из {IS,IS_NOT}"));
+
 fs.rmSync(dir, { recursive: true, force: true });
 if (failed) { console.error(`validate-graph: провалов ${failed}`); process.exit(1); }
 console.log("validate-graph OK");

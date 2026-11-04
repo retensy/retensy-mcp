@@ -69,7 +69,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 
 | Платформа | Онбординг | Триггеры входа | Ограничения |
 |---|---|---|---|
-| **Telegram** | Токен бота (BotFather) → `create_bot` | `/start`, команды, callback, текст, рассылки | Полный функционал |
+| **Telegram** | Токен бота (BotFather) → `create_bot` | `/start`, команды, callback, текст, рассылки, **Telegram Business** (бот отвечает от имени аккаунта владельца: `business_message`, условие `BUSINESS`) | Полный функционал |
 | **MAX** | Токен бота (MasterBot в MAX) → `create_bot` | Команды, callback, текст | Без SUBSCRIBED/reply-клавиатур (мягкие предупреждения) |
 | **Instagram** | Вход через Instagram (OAuth) в кабинете `/bots/instagram` (без токена) — нужен Instagram-аккаунт Business или Creator | Комментарий/Direct/Ответ на историю/Упоминание | Ограниченный набор узлов; DELAY ≤ 24ч; ASK_QUESTION только TEXT/EMAIL/PHONE/NUMBER/CONTACT (CONTACT = ручной ввод номера); без рассылок |
 

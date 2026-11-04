@@ -60,15 +60,17 @@
   `callback_query`, `channel_post`, `edited_channel_post`, `chat_member`, `chat_join_request`,
   `my_chat_member`, `message_reaction`, `message_reaction_count`, `chat_boost`,
   `removed_chat_boost`, `poll`, `poll_answer`, `inline_query`, `chosen_inline_result`,
-  `shipping_query`, `pre_checkout_query`.
-  **НЕ работают** (Telegram их шлёт, но рантайм не разбирает): `business_*`, `chat_shared`,
-  `users_shared`, `write_access_allowed`, `purchased_paid_media` — такой триггер не сработает.
+  `shipping_query`, `pre_checkout_query`, а также Telegram Business: `business_message`,
+  `edited_business_message`, `deleted_business_messages` (см. «Telegram Business» ниже).
+  **НЕ работают** (Telegram их шлёт, но рантайм не разбирает): `business_connection` (подключения
+  бэкенд ведёт сам, в сценарий они не попадают), `chat_shared`, `users_shared`,
+  `write_access_allowed`, `purchased_paid_media` — такой триггер не сработает.
   `filter` (все условия по И, пустое = не задано):
   `{"status":"member"|"left"|"kicked"|…}` — только там, где есть `member.status`
   (`chat_member`, `my_chat_member`); `{"chatId":"-1001234567890"}` — конкретный чат/канал
   (сравнение строкой, id каналов не влезают в int), доступен у 12 событий с `chat`;
   `{"text":"купить","textMode":"contains"|"equals"}` — только `message`/`edited_message`/
-  `channel_post`/`edited_channel_post`. У `poll`/`poll_answer`/`inline_query`/
+  `channel_post`/`edited_channel_post`/`business_message`/`edited_business_message`. У `poll`/`poll_answer`/`inline_query`/
   `chosen_inline_result`/`shipping_query`/`pre_checkout_query` чата нет → фильтров тоже.
   Бот должен быть админом канала/группы, иначе события оттуда не придут.
 - `TRIGGER_ANY_UPDATE` — `{}`, ловит ЛЮБОЙ апдейт. Приоритет самый низкий: срабатывает, только
@@ -447,6 +449,7 @@ IG-боты не поддерживают команды (`/start`). Вход �
 | `USERNAME` | `EQUALS`, `CONTAINS` | `value` | @username пользователя Telegram |
 | `SUBSCRIBED` | `SUBSCRIBED`, `NOT_SUBSCRIBED` | `key` — **числовой** id канала/группы (напр. `-1001234567890`); узнать числовой id подключённых каналов: `list_channels(botId)` | подписан ли пользователь на канал бота |
 | `LINK_CLICKED` | `CLICKED`, `NOT_CLICKED` | `key` — **`id` узла-шага** с отслеживаемой URL-кнопкой (тот же UUID, что у `SEND_MESSAGE`) | кликал ли пользователь по ссылке этого шага |
+| `BUSINESS` | `IS`, `IS_NOT` | ничего не нужно | сообщение пришло через Telegram Business (сессия клиента бизнес-аккаунта) или нет |
 | `CURRENT_DATE` | `BEFORE`, `AFTER`, `EQUALS` | `value` — дата `YYYY-MM-DD` | сегодняшнюю дату (МСК) |
 | `CURRENT_TIME` | `BETWEEN` | `value`, `value2` — время `HH:mm` | текущее время в интервале (через полночь — если `value`>`value2`) |
 | `DAY_OF_WEEK` | `IN` | `days` — массив из `MON`,`TUE`,`WED`,`THU`,`FRI`,`SAT`,`SUN` | день недели (МСК) |
@@ -454,6 +457,8 @@ IG-боты не поддерживают команды (`/start`). Вход �
 Для `NOT_EMPTY`/`EMPTY` поле `value` не нужно. `UTM` без `key` всегда `false`.
 
 **`SUBSCRIBED`** работает только если бот **админ** в канале/группе и канал «привязан» (бот узнаёт о членстве через хук `my_chat_member` — добавь бота в канал админом). `key` должен парситься в число, иначе условие = `false`. Профильные поля (`NAME`/`EMAIL`/`PHONE`) и UTM заполняются по ходу воронки (`ASK_QUESTION`→`saveTo`, диплинк-клик с UTM).
+
+**Telegram Business** (только Telegram-боты). Владелец подключает бота сам: Настройки Telegram → Telegram для бизнеса → Чат-боты (нужен Premium) и даёт право «Отвечать на сообщения» (`can_reply`). Статус подключения виден в кабинете: Настройки бота → «Telegram Business». После этого `business_message` клиента запускает сценарий как обычное сообщение: работают `TRIGGER_COMMAND`/`TRIGGER_TEXT`/ИИ-агент/вопросы/задержки, а все ответы уходят от имени аккаунта владельца (`business_connection_id`). Клиент Business живёт в **отдельной сессии** (не склеивается с его личным чатом с ботом): переменные и метки двух диалогов не общие. Бот игнорирует сообщения самого владельца и своих ботов, а при отключённом подключении или без `can_reply` сценарий не запускается. Отличить такие чаты: условие `BUSINESS` или триггер `TRIGGER_TG_EVENT` с `event:"business_message"` (срабатывает только для бизнес-сообщений). Не поддерживается в бизнес-чатах: рассылки и ответы оператора из «Диалогов», удаление сообщений, оплата Stars; отвечать можно только в чатах, где клиент писал за последние 24 часа (ограничение Telegram).
 
 **`LINK_CLICKED`** проверяет факт клика по URL-кнопке конкретного шага. Чтобы условие работало: у нужного `SEND_MESSAGE` хотя бы одна кнопка `kind:"URL"` с `"track": true`, а в условии `key` = `id` этого узла-шага. Клик фиксируется через публичный редирект бота, поэтому условие имеет смысл ставить **после** `DELAY`/`ASK_QUESTION` (дай пользователю время кликнуть).
 
