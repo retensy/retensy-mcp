@@ -72,6 +72,17 @@ const commaActs = node("ACTIONS", { actions: [{ kind: "send_email", email: "a@b.
 const comma = run([trig, commaActs], [edge(trig, commaActs)]);
 check("send_email: запятая в адресе — ACTION_SEND_EMAIL_BAD_EMAIL", comma.out.includes("ACTION_SEND_EMAIL_BAD_EMAIL"));
 
+// DELAY: окно в поясе подписчика
+const okWinDelay = node("DELAY", { kind: "FIXED", durationSec: 3600, windowFrom: "09:00", windowTo: "21:00", windowTz: "subscriber" });
+const okWinTrig = node("TRIGGER_COMMAND", { command: "start" });
+const okWin = run([okWinTrig, okWinDelay], [edge(okWinTrig, okWinDelay)]);
+check("DELAY windowTz=subscriber - без DELAY_BAD_WINDOW_TZ", !okWin.out.includes("DELAY_BAD_WINDOW_TZ"));
+const okWinOffset = run([okWinTrig, node("DELAY", { kind: "FIXED", durationSec: 60, windowFrom: "09:00", windowTo: "21:00", windowTz: "UTC+3" })], []);
+check("DELAY windowTz=UTC+3 допустим", !okWinOffset.out.includes("DELAY_BAD_WINDOW_TZ"));
+const badWinDelay = node("DELAY", { kind: "FIXED", durationSec: 3600, windowFrom: "09:00", windowTo: "21:00", windowTz: "Mars/Olympus" });
+const badWin = run([okWinTrig, badWinDelay], [edge(okWinTrig, badWinDelay)]);
+check("DELAY windowTz мусор - DELAY_BAD_WINDOW_TZ", badWin.out.includes("DELAY_BAD_WINDOW_TZ"));
+
 // DELETE_MESSAGE: хороший и плохой конфиги
 const linkMsg = node("SEND_MESSAGE", { text: "Ссылка", parseMode: "PLAIN" });
 const delOk = node("DELETE_MESSAGE", { mode: "NODE", nodeId: linkMsg.id, delay: 30, unit: "SECONDS" });

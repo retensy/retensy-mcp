@@ -96,6 +96,11 @@ function validZone(z) {
   try { new Intl.DateTimeFormat("en", { timeZone: z }); return true; } catch { return false; }
 }
 
+// Пояс окна DELAY: IANA-имя или смещение UTC+3 / +03:00 (зеркало DeliveryTime.parseZone)
+function validWindowZone(z) {
+  return /^(?:UTC|GMT)?\s*[+-]\s*\d{1,2}(?::?\d{2})?$/i.test(String(z).trim()) || validZone(String(z).trim());
+}
+
 // Telegram-safe HTML — разрешённые теги (эвристика; бэкенд использует jsoup-clean)
 const HTML_OK_TAGS = new Set([
   "b", "strong", "i", "em", "u", "ins", "s", "strike", "del",
@@ -250,6 +255,7 @@ for (const n of nodes) {
       if (blank(c.url) || !/^https?:\/\//.test(c.url)) errors.push(`${who}: url обязателен и http(s)://.`);
       break;
     case "DELAY":
+      if (!blank(c.windowTz) && String(c.windowTz).trim().toLowerCase() !== "subscriber" && !validWindowZone(c.windowTz)) errors.push(`DELAY_BAD_WINDOW_TZ: ${who} - windowTz = "subscriber" или пояс (Europe/Moscow, UTC+3).`);
       if (c.kind === "FIXED") { if (!(Number(c.durationSec) > 0) && !(Number(c.duration) > 0)) errors.push(`${who}: FIXED требует durationSec>0 (или duration>0 + unit MINUTES|HOURS|DAYS).`); }
       else if (c.kind === "TOMORROW") { if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(String(c.time || ""))) errors.push(`${who}: TOMORROW требует time = HH:mm.`); }
       else if (c.kind === "UNTIL") {

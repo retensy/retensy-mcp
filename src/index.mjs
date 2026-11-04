@@ -898,6 +898,24 @@ function audienceFilterArg(v) {
   return v;
 }
 
+/** "HH:mm" (24ч) или ошибка; пусто -> undefined. */
+function hhmmArg(v, field) {
+  if (v == null || v === "") return undefined;
+  const s = String(v).trim();
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(s)) throw new Error(`${field}: формат HH:mm (24 часа), например 10:00.`);
+  return s;
+}
+
+/** Фильтр аудитории из segmentId (сохранённый сегмент бота) или audienceFilter; segmentId главнее. */
+async function segmentFilterArg(a, botId) {
+  if (!a.segmentId) return audienceFilterArg(a.audienceFilter);
+  if (!botId) throw new Error("segmentId: передай botId (сегменты общие для ботов владельца, читаются через любой его бот).");
+  const list = await api(`/api/bots/${botId}/segments`);
+  const seg = (Array.isArray(list) ? list : []).find((s) => String(s.id) === String(a.segmentId));
+  if (!seg) throw new Error(`Сегмент ${a.segmentId} не найден (audience_segments action=list).`);
+  return seg.filter;
+}
+
 /** У Instagram-ботов рассылок нет (окно 24 ч Meta) — отказываем до запроса. */
 async function assertBroadcastBots(botIds) {
   if (!botIds.length) throw new Error("Передай botIds — id ботов (list_bots), по которым рассылать.");
@@ -1107,7 +1125,7 @@ const TOOLS = [
   // ---- Рассылки ----
   { name: "broadcast_list", description: "Рассылки. Без botId — по всем ботам постранично (GET /api/bots/broadcasts): {counts: {drafts, scheduled, sent, recurring}, page: {content: [{id, botId, botUsername, name, status, direct, totalJobs, sentJobs, failedJobs, skippedByQuota, scheduledAt, createdAt}], totalElements…}}; group: scheduled (ещё не начали) | sent (идут/завершены). С botId — полная история одного бота. status: EXPANDING/MATERIALIZING/READY (ждёт) → RUNNING → DONE | CANCELLING → CANCELLED | FAILED. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, group: { type: "string", enum: ["scheduled", "sent"] }, page: { type: "number" }, size: { type: "number", description: "до 100, по умолчанию 20" } } } },
   { name: "broadcast_get", description: "Рассылка целиком по id (GET /api/bots/broadcasts/{id}): статус, счётчики отправки, фильтр аудитории, сообщения, время. При failedJobs > 0 — ещё errors: топ-5 причин ошибок [{error, count}] (GET …/{id}/errors; детали живут 30 дней). Read-only.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" } }, required: ["broadcastId"] } },
-  { name: "broadcast_preview", description: "Сколько подписчиков получат рассылку (POST /api/bots/{botId}/broadcasts/preview) — по каждому боту и всего. Фильтр по тегам: tagsAll — есть ВСЕ эти теги, tagsNone — нет НИ ОДНОГО; без тегов — все подписчики бота. Лимит — 50 000 получателей на бота. Ничего не отправляет.", inputSchema: { type: "object", properties: { botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } } } } },
+  { name: "broadcast_preview", description: "Оценить охват до отправки: сколько подписчиков получат рассылку (POST /api/bots/{botId}/broadcasts/preview) — по каждому боту и всего. Фильтр: tagsAll — есть ВСЕ эти теги, tagsNone — нет НИ ОДНОГО; без тегов — все подписчики бота; либо полный audienceFilter; либо segmentId — сохранённый сегмент (audience_segments). Лимит — 50 000 получателей на бота. Ничего не отправляет.", inputSchema: { type: "object", properties: { botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, audienceFilter: AUDIENCE_FILTER_SCHEMA, segmentId: { type: "string", description: "id сохранённого сегмента (audience_segments action=list); главнее audienceFilter и тегов" } } } },
   { name: "broadcast_send", description: "Отправить рассылку сейчас или запланировать (scheduledAt). " +
     "Прямая (по умолчанию, POST /api/bots/broadcasts/direct): name, botIds[] (1–20 ботов ОДНОГО владельца; по каждому создаётся своя рассылка), messages[] (1–5), tagsAll?/tagsNone? (фильтр по тегам). " +
     "Сообщение: {type, text?, mediaUrl?, mediaUrls?, buttons?}; type: TEXT (text обязателен, до 4096) · PHOTO | VIDEO | AUDIO | FILE | VOICE (mediaUrl обязателен, text — подпись до 1024) · VIDEONOTE (кружок: mediaUrl, без текста) · GALLERY (mediaUrls: 2–10 картинок, подпись, БЕЗ кнопок). " +
@@ -1115,8 +1133,12 @@ const TOOLS = [
     "По сценарию (graphId): POST /api/bots/{botId}/broadcasts — один botId, сценарий самого бота, entryNodeId? — с какого узла начать. " +
     "draftId — отправить черновик (поля черновика, переданные аргументы их перекрывают); после отправки черновик удаляется. " +
     "scheduledAt — ISO 8601 (без пояса — московское время); пусто — сразу. Немедленная резервирует квоту получателей тарифа, отложенная считает аудиторию в момент отправки. Рассылки только на платном тарифе — HTTP 402 со ссылкой. У Instagram-ботов рассылок нет. " +
-    "audienceFilter — полный фильтр аудитории вместо tagsAll/tagsNone (см. свойство ниже; если задан, tagsAll/tagsNone игнорируются). dedup:true — «отправить каждому человеку только один раз» среди нескольких botIds (ключ — platform+userId/chatId приватного чата; человек уходит ПЕРВОМУ боту по порядку botIds, где у него активная сессия). stagger — «распределить по ботам» (см. свойство ниже). Любое из dedup/stagger → ответ вместо {broadcastIds, totalAudience} отдаёт {group:{id, status, perBot[]...}, isGroup:true} — статус/прогресс дальше смотри broadcast_group {action:\"get\", groupId}. Без них — как раньше: {broadcastIds, totalAudience}.",
-    inputSchema: { type: "object", properties: { name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, audienceFilter: AUDIENCE_FILTER_SCHEMA, scheduledAt: { type: "string", description: "ISO 8601, напр. 2026-10-06T10:00:00+03:00; пусто — сразу" }, graphId: { type: "string", description: "рассылка запуском сценария бота вместо сообщений" }, entryNodeId: { type: "string" }, draftId: { type: "string" }, dedup: { type: "boolean", description: "Не отправлять дважды одному человеку среди нескольких botIds (мульти-бот)" }, stagger: STAGGER_SCHEMA } } },
+    "audienceFilter — полный фильтр аудитории вместо tagsAll/tagsNone (см. свойство ниже; если задан, tagsAll/tagsNone игнорируются). dedup:true — «отправить каждому человеку только один раз» среди нескольких botIds (ключ — platform+userId/chatId приватного чата; человек уходит ПЕРВОМУ боту по порядку botIds, где у него активная сессия). stagger — «распределить по ботам» (см. свойство ниже). Любое из dedup/stagger → ответ вместо {broadcastIds, totalAudience} отдаёт {group:{id, status, perBot[]...}, isGroup:true} — статус/прогресс дальше смотри broadcast_group {action:\"get\", groupId}. Без них — как раньше: {broadcastIds, totalAudience}. " +
+    "segmentId — сохранённый сегмент аудитории вместо audienceFilter (audience_segments). localTime \"HH:mm\" — слать КАЖДОМУ подписчику в это время по его часам (пояс из переменной timezone подписчика, иначе пояс бота; первый такой момент не раньше отправки/scheduledAt); не сочетается с dedup/stagger. Тихие часы бота (bot_delivery_window) применяются к рассылкам всегда: попавшие в окно получатели ждут его конца.",
+    inputSchema: { type: "object", properties: { name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, audienceFilter: AUDIENCE_FILTER_SCHEMA, scheduledAt: { type: "string", description: "ISO 8601, напр. 2026-10-06T10:00:00+03:00; пусто — сразу" }, graphId: { type: "string", description: "рассылка запуском сценария бота вместо сообщений" }, entryNodeId: { type: "string" }, draftId: { type: "string" }, segmentId: { type: "string", description: "id сохранённого сегмента аудитории (audience_segments); главнее audienceFilter и тегов" }, localTime: { type: "string", description: "HH:mm — слать каждому в это время по его часам (не с dedup/stagger)" }, dedup: { type: "boolean", description: "Не отправлять дважды одному человеку среди нескольких botIds (мульти-бот)" }, stagger: STAGGER_SCHEMA } } },
+  { name: "audience_segments", description: "Сохранённые сегменты аудитории рассылок (имя + фильтр; /api/bots/{botId}/segments; общие для всех ботов владельца, до 50). action: list — сегменты {id, name, filter}; create {name, audienceFilter | tagsAll/tagsNone} — сохранить фильтр под именем (до 60 символов); delete {segmentId}. Использовать: broadcast_send / broadcast_preview {segmentId}. botId — любой твой бот.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "create", "delete"] }, botId: { type: "string" }, name: { type: "string" }, audienceFilter: AUDIENCE_FILTER_SCHEMA, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, segmentId: { type: "string" } }, required: ["action", "botId"] } },
+  { name: "bot_delivery_window", description: "Тихие часы бота (/api/bots/{botId}/delivery-window): в окно quietFrom..quietTo (HH:mm, может переходить через полночь, например 22:00..09:00) рассылки не уходят, а переносятся на конец окна. Время считается по поясу подписчика (переменная timezone/tz), если неизвестен — по поясу бота timezone (IANA или UTC+3, пусто = Москва). По умолчанию выключено. action: get · set {enabled, quietFrom?, quietTo?, timezone?} (enabled:true требует quietFrom и quietTo, они должны различаться; enabled:false выключает, время сохраняется).", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["get", "set"] }, botId: { type: "string" }, enabled: { type: "boolean" }, quietFrom: { type: "string", description: "HH:mm" }, quietTo: { type: "string", description: "HH:mm" }, timezone: { type: "string", description: "IANA (Europe/Moscow) или UTC+3" } }, required: ["action", "botId"] } },
+  { name: "broadcast_test", description: "Отправить тест рассылки себе (POST /api/bots/{botId}/broadcasts/test): те же сообщения, что у broadcast_send, на твой привязанный Telegram (бот должен быть Telegram, а ты — нажать /start у этого бота; иначе 422 owner_chat_not_linked или 502 от Telegram) либо в чат подписчика chatId этого бота (так тестируют MAX/VK). Мимо квоты, очереди и тихих часов, подписчикам ничего не уходит.", inputSchema: { type: "object", properties: { botId: { type: "string" }, messages: { type: "array", items: {} }, chatId: { type: "number", description: "чат подписчика этого бота; пусто — привязанный Telegram владельца" } }, required: ["botId", "messages"] } },
   { name: "broadcast_cancel", description: "Отменить рассылку (POST /api/bots/broadcasts/{id}/cancel): запланированная не уйдёт, идущая остановится (статус CANCELLING → CANCELLED). Уже завершённую отменить нельзя — HTTP 409. Для группы (dedup/stagger) — broadcast_group {action:\"cancel\"}.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" } }, required: ["broadcastId"] } },
   { name: "broadcast_recurring", description: "Повторяющиеся рассылки (/api/bots/broadcasts/recurring). action: list — правила (активные и остановленные); create {name, botIds[], messages[], tagsAll?/tagsNone? или audienceFilter?, recurrence: DAILY|MONTHLY|YEARLY, firstRunAt, dedup?, stagger?} — сообщения и фильтр как в broadcast_send; dedup/stagger заданы — КАЖДЫЙ прогон правила порождает свою отдельную группу (своя дедупликация с нуля, аудитория у повтора может быть другой); firstRunAt — первый запуск в будущем (ISO 8601, без пояса — московское), дальше в то же время суток/число (Москва); stop {ruleId} — остановить правило (уже отправленные прогоны не трогаются). Нужен платный тариф (402 со ссылкой).", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "create", "stop"] }, ruleId: { type: "string" }, name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, audienceFilter: AUDIENCE_FILTER_SCHEMA, recurrence: { type: "string", enum: ["DAILY", "MONTHLY", "YEARLY"] }, firstRunAt: { type: "string" }, dedup: { type: "boolean" }, stagger: STAGGER_SCHEMA }, required: ["action"] } },
   { name: "broadcast_drafts", description: "Черновики рассылок (/api/bots/broadcasts/drafts) — те же, что в мастере кабинета. action: list · get {draftId} · create {name?, botIds?, messages?, tagsAll?, tagsNone?, scheduledAt?} · update {draftId, …те же поля — переданные заменяют, остальные остаются} · delete {draftId}. Черновик не проверяется на полноту; отправить — broadcast_send {draftId}. Лимит — 200 черновиков.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "get", "create", "update", "delete"] }, draftId: { type: "string" }, name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, scheduledAt: { type: "string" } }, required: ["action"] } },
@@ -2138,7 +2160,7 @@ async function handleCall(params) {
     case "broadcast_preview": {
       const ids = botIdsOf(a);
       await assertBroadcastBots(ids);
-      const filter = { tagsAll: strList(a.tagsAll), tagsNone: strList(a.tagsNone) };
+      const filter = (await segmentFilterArg(a, ids[0])) || { tagsAll: strList(a.tagsAll), tagsNone: strList(a.tagsNone) };
       const perBot = [];
       for (const id of ids) {
         const r = await api(`/api/bots/${id}/broadcasts/preview`, { method: "POST", body: filter });
@@ -2152,7 +2174,7 @@ async function handleCall(params) {
         if (ids.length !== 1) throw new Error("Рассылка по сценарию — ровно один botId (сценарий принадлежит боту).");
         await assertBroadcastBots(ids);
         if (!a.name) throw new Error("Передай name рассылки.");
-        const audienceFilter = audienceFilterArg(a.audienceFilter) || { tagsAll: strList(a.tagsAll), tagsNone: strList(a.tagsNone) };
+        const audienceFilter = (await segmentFilterArg(a, ids[0])) || { tagsAll: strList(a.tagsAll), tagsNone: strList(a.tagsNone) };
         const b = await api(`/api/bots/${ids[0]}/broadcasts`, { method: "POST", body: {
           name: a.name, audienceFilter,
           graphId: a.graphId, entryNodeId: a.entryNodeId || undefined, scheduledAt: toInstant(a.scheduledAt, "scheduledAt") } });
@@ -2165,9 +2187,11 @@ async function handleCall(params) {
       await assertBroadcastBots(ids);
       const name = String(pick("name") || "").trim();
       if (!name) throw new Error("Передай name рассылки (видно только тебе в списке рассылок).");
-      const audienceFilter = audienceFilterArg(a.audienceFilter);
+      const audienceFilter = await segmentFilterArg(a, ids[0]);
       const dedup = a.dedup === true;
       const stagger = staggerArg(a.stagger);
+      const localTime = hhmmArg(a.localTime, "localTime");
+      if (localTime && (dedup || stagger)) throw new Error("localTime не сочетается с dedup/stagger: время группы задаёт stagger.startAt.");
       const body = {
         name, botIds: ids,
         ...(audienceFilter ? { audienceFilter } : {
@@ -2178,6 +2202,7 @@ async function handleCall(params) {
         scheduledAt: toInstant(pick("scheduledAt"), "scheduledAt"),
         ...(dedup ? { dedup } : {}),
         ...(stagger ? { stagger } : {}),
+        ...(localTime ? { localTime } : {}),
       };
       if (body.scheduledAt && new Date(body.scheduledAt).getTime() <= Date.now()) {
         // Прошедшее время бэкенд молча считает «сейчас» — для черновика с устаревшей датой это сюрприз.
@@ -2190,6 +2215,44 @@ async function handleCall(params) {
       // dedup/stagger → бэкенд создаёт BroadcastGroup вместо прямых TgBroadcast (другая форма ответа: id/perBot[]/status вместо broadcastIds/totalAudience).
       if (dedup || stagger) return okResult({ group: r, isGroup: true, ...(a.draftId ? { draftDeleted } : {}) });
       return okResult({ ...r, scheduledAt: body.scheduledAt, ...(a.draftId ? { draftDeleted } : {}) });
+    }
+    case "audience_segments": {
+      const base = `/api/bots/${a.botId}/segments`;
+      if (!a.botId) throw new Error("Передай botId (любой твой бот, list_bots).");
+      if (a.action === "list") return okResult(await api(base));
+      if (a.action === "create") {
+        const name = String(a.name || "").trim();
+        if (!name || name.length > 60) throw new Error("name: 1–60 символов.");
+        const filter = audienceFilterArg(a.audienceFilter) || { tagsAll: strList(a.tagsAll), tagsNone: strList(a.tagsNone) };
+        return okResult(await api(base, { method: "POST", body: { name, filter } }));
+      }
+      if (a.action === "delete") {
+        if (!a.segmentId) throw new Error("Передай segmentId (audience_segments action=list).");
+        await api(`${base}/${a.segmentId}`, { method: "DELETE" });
+        return okResult(`Сегмент ${a.segmentId} удалён.`);
+      }
+      throw new Error("action: list | create | delete.");
+    }
+    case "bot_delivery_window": {
+      if (!a.botId) throw new Error("Передай botId (list_bots).");
+      const path = `/api/bots/${a.botId}/delivery-window`;
+      if (a.action === "get") return okResult(await api(path));
+      if (a.action === "set") {
+        if (typeof a.enabled !== "boolean") throw new Error("enabled: true/false.");
+        const quietFrom = hhmmArg(a.quietFrom, "quietFrom");
+        const quietTo = hhmmArg(a.quietTo, "quietTo");
+        if (a.enabled && (!quietFrom || !quietTo)) throw new Error("enabled:true требует quietFrom и quietTo (HH:mm).");
+        if (quietFrom && quietFrom === quietTo) throw new Error("quietFrom и quietTo должны различаться.");
+        const body = { enabled: a.enabled, quietFrom: quietFrom ?? null, quietTo: quietTo ?? null, timezone: a.timezone ? String(a.timezone).trim() : null };
+        return okResult(await api(path, { method: "PUT", body }));
+      }
+      throw new Error("action: get | set.");
+    }
+    case "broadcast_test": {
+      if (!a.botId) throw new Error("Передай botId (list_bots).");
+      const body = { messages: normalizeBroadcastMessages(a.messages), chatId: a.chatId == null ? null : Number(a.chatId) };
+      if (body.chatId != null && !Number.isFinite(body.chatId)) throw new Error("chatId — число.");
+      return okResult(await api(`/api/bots/${a.botId}/broadcasts/test`, { method: "POST", body }));
     }
     case "broadcast_cancel":
       await api(`/api/bots/broadcasts/${a.broadcastId}/cancel`, { method: "POST" });

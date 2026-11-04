@@ -32,6 +32,11 @@ const srv = http.createServer((req, res) => {
       if (body?.name === "quota") return json(402, { error: "broadcast_quota_exceeded", count: 7 });
       return json(200, { broadcastIds: ["bc1", "bc2"], totalAudience: 42 });
     }
+    if (req.method === "GET" && req.url === "/api/bots/b1/segments") return json(200, [{ id: "seg1", name: "VIP", filter: { tagsAll: ["vip"], tagsAny: [], tagsNone: [] } }]);
+    if (req.method === "POST" && req.url === "/api/bots/b1/segments") return json(200, { id: "seg2", name: body?.name, filter: body?.filter });
+    if (req.method === "PUT" && req.url === "/api/bots/b1/delivery-window") return json(200, body);
+    if (req.method === "POST" && req.url === "/api/bots/b1/broadcasts/test") return json(200, { sent: body?.messages?.length ?? 0 });
+    if (req.method === "POST" && req.url === "/api/bots/b1/broadcasts/preview") return json(200, { count: 5, limit: 50000 });
     if (req.method === "POST" && req.url === "/api/bots/google/auth-url?returnPath=%2Fbots%2Fintegrations") return json(200, { authUrl: AUTH_URL });
     if (req.method === "GET" && req.url === "/api/bots/google/identities") return json(200, ["owner@gmail.com"]);
     if (req.method === "POST" && req.url === "/api/bots/integrations") {
@@ -74,6 +79,24 @@ const send = await call("broadcast_send", {
     { type: "GALLERY", urls: ["https://cdn/1.jpg", "https://cdn/2.jpg"] }],
 });
 const direct = seen.find((s) => s.url === "/api/bots/broadcasts/direct")?.body;
+// 1b. Сегмент + localTime: фильтр сегмента уходит как audienceFilter, localTime в теле.
+const segSend = await call("broadcast_send", { name: "Сегмент", botIds: ["b1"], segmentId: "seg1", localTime: "10:00", messages: ["hi"] });
+const segBody = seen.filter((s) => s.url === "/api/bots/broadcasts/direct").pop()?.body;
+const badLocal = await call("broadcast_send", { name: "x", botIds: ["b1"], localTime: "25:61", messages: ["hi"] });
+const localWithStagger = await call("broadcast_send", { name: "x", botIds: ["b1"], localTime: "10:00", stagger: { intervalMinutes: 5 }, messages: ["hi"] });
+const noSeg = await call("broadcast_send", { name: "x", botIds: ["b1"], segmentId: "nope", messages: ["hi"] });
+const prevSeg = await call("broadcast_preview", { botId: "b1", segmentId: "seg1" });
+const prevBody = seen.filter((s) => s.url === "/api/bots/b1/broadcasts/preview").pop()?.body;
+// 1c. Сегменты, тихие часы, тест себе.
+const segList = await call("audience_segments", { action: "list", botId: "b1" });
+const segCreate = await call("audience_segments", { action: "create", botId: "b1", name: "Новички", tagsAll: ["new"] });
+const segCreateBody = seen.filter((s) => s.method === "POST" && s.url === "/api/bots/b1/segments").pop()?.body;
+const winOn = await call("bot_delivery_window", { action: "set", botId: "b1", enabled: true, quietFrom: "22:00", quietTo: "09:00", timezone: "Europe/Moscow" });
+const winBody = seen.filter((s) => s.method === "PUT" && s.url === "/api/bots/b1/delivery-window").pop()?.body;
+const winBad = await call("bot_delivery_window", { action: "set", botId: "b1", enabled: true, quietFrom: "22:00" });
+const winSame = await call("bot_delivery_window", { action: "set", botId: "b1", enabled: true, quietFrom: "10:00", quietTo: "10:00" });
+const testSend = await call("broadcast_test", { botId: "b1", messages: ["проверка"] });
+const testBody = seen.filter((s) => s.url === "/api/bots/b1/broadcasts/test").pop()?.body;
 // 2. Instagram-бот — отказ до запроса.
 const ig = await call("broadcast_send", { name: "x", botIds: ["ig"], messages: ["hi"] });
 // 3. Галерея с кнопками — понятная ошибка до запроса.
@@ -106,6 +129,18 @@ const checks = [
   ["send: пустая кнопка отброшена", direct?.messages?.[1]?.buttons?.length === 1],
   ["send: GALLERY urls → mediaUrls, без buttons", JSON.stringify(direct?.messages?.[2]?.mediaUrls) === '["https://cdn/1.jpg","https://cdn/2.jpg"]' && direct.messages[2].buttons === undefined],
   ["send: ответ API отдан", textOf(send).includes("totalAudience")],
+  ["segment: audienceFilter из сегмента", segBody?.audienceFilter?.tagsAll?.[0] === "vip" && segSend?.result?.isError !== true],
+  ["localTime уходит в теле", segBody?.localTime === "10:00"],
+  ["localTime: кривое время - ошибка", badLocal?.result?.isError === true && textOf(badLocal).includes("HH:mm")],
+  ["localTime + stagger - ошибка", localWithStagger?.result?.isError === true && textOf(localWithStagger).includes("stagger")],
+  ["неизвестный segmentId - ошибка", noSeg?.result?.isError === true && textOf(noSeg).includes("не найден")],
+  ["preview по сегменту: фильтр сегмента", prevSeg?.result?.isError !== true && prevBody?.tagsAll?.[0] === "vip" && textOf(prevSeg).includes('"total": 5')],
+  ["segments list", textOf(segList).includes("seg1")],
+  ["segments create: {name, filter}", segCreateBody?.name === "Новички" && segCreateBody?.filter?.tagsAll?.[0] === "new" && segCreate?.result?.isError !== true],
+  ["window set: PUT тело", winBody?.enabled === true && winBody?.quietFrom === "22:00" && winBody?.quietTo === "09:00" && winBody?.timezone === "Europe/Moscow" && winOn?.result?.isError !== true],
+  ["window: enabled без quietTo - ошибка", winBad?.result?.isError === true],
+  ["window: одинаковые границы - ошибка", winSame?.result?.isError === true && textOf(winSame).includes("различаться")],
+  ["broadcast_test: тело и ответ", testBody?.messages?.[0]?.text === "проверка" && testBody?.chatId === null && textOf(testSend).includes('"sent": 1')],
   ["instagram-рассылка: ошибка", ig?.result?.isError === true && textOf(ig).includes("Instagram")],
   ["галерея с кнопками: ошибка до запроса", gal?.result?.isError === true && textOf(gal).includes("GALLERY")],
   ["402: ссылка на тариф", quota?.result?.isError === true && textOf(quota).includes("HTTP 402") && textOf(quota).includes(`${BASE}/bots/subscription`) && textOf(quota).includes("квота")],
