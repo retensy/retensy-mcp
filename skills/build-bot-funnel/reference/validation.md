@@ -69,6 +69,11 @@
   - **счёт должен быть ПОСЛЕДНИМ действием в блоке** (`INVOICE_NOT_LAST`) и только один (`INVOICE_DUPLICATE`).
     Причина: при наличии ветки `paid` блок встаёт на паузу до вебхука кассы, а возобновиться
     с середины списка движок не умеет — действия после счёта молча не выполнились бы.
+- `ACTIONS` с действием `issue_stars_invoice` (счёт в Telegram Stars):
+  - `amount` обязателен (`STARS_NO_AMOUNT`), целое 1…10000 или шаблон (`STARS_BAD_AMOUNT`);
+  - `title` обязателен (`STARS_NO_TITLE`), не длиннее 32 (`STARS_TITLE_TOO_LONG`); `description` до 255 (`STARS_DESC_TOO_LONG`);
+  - только Telegram: на MAX/VK/Instagram/WEB — `STARS_TELEGRAM_ONLY` (при публикации; офлайн `validate.mjs --platform=MAX|INSTAGRAM` тоже);
+  - `timeoutMinutes` ∈ [1, 1440]; последний в блоке и единственный счёт (`INVOICE_NOT_LAST`/`INVOICE_DUPLICATE` считают оба вида счетов вместе).
 - `AI_REPLY` (`mode` не задан или `"simple"`): `userPromptTemplate` непустой (`AI_NO_PROMPT`); `temperature` ∈ [0.0, 2.0] (`AI_BAD_TEMPERATURE`); нужен `sendToUser:true` ИЛИ `saveTo` (`AI_NO_OUTPUT`).
 - `AI_REPLY` (`mode: "agent"`) — отдельный набор проверок, старые (`AI_NO_PROMPT` и т.п.) не применяются:
   - `strict` (по умолчанию `true`) без `knowledgeBaseId` → `AGENT_NO_KNOWLEDGE_BASE` (в строгом режиме без базы агент ответит «не знаю» на всё).

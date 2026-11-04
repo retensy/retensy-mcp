@@ -17,10 +17,10 @@ const dir = fs.mkdtempSync(join(os.tmpdir(), "retensy-mcp-vg-"));
 let failed = 0;
 const check = (name, cond) => { console.log(`${cond ? "  ok " : "  FAIL"} ${name}`); if (!cond) failed++; };
 
-function run(nodes, edges) {
+function run(nodes, edges, platform) {
   const file = join(dir, `${randomUUID()}.json`);
   fs.writeFileSync(file, JSON.stringify({ format: "retensy-bot-graph", version: 1, name: "t", nodes, edges, canvasMeta: {} }));
-  const r = spawnSync(process.execPath, [join(root, "skills", "build-bot-funnel", "validate.mjs"), file], { encoding: "utf8" });
+  const r = spawnSync(process.execPath, [join(root, "skills", "build-bot-funnel", "validate.mjs"), file, ...(platform ? [`--platform=${platform}`] : [])], { encoding: "utf8" });
   return { code: r.status, out: r.stdout + r.stderr };
 }
 const node = (type, config) => ({ id: randomUUID(), type, position: { x: 0, y: 0 }, config });
@@ -115,6 +115,28 @@ check("RANDOM_TEXT: пусто — RANDOM_TEXT_NO_TEXTS", rtBad.out.includes("RA
 check("RANDOM_TEXT: variable без saveTo — RANDOM_TEXT_BAD_SAVE_TO", rtBad.out.includes("RANDOM_TEXT_BAD_SAVE_TO"));
 const rtLong = node("RANDOM_TEXT", { texts: ["x".repeat(65537)] });
 check("RANDOM_TEXT: длинный текст — RANDOM_TEXT_TOO_LONG", run([trig, rtLong], [edge(trig, rtLong)]).out.includes("RANDOM_TEXT_TOO_LONG"));
+
+// issue_stars_invoice: зеркало GraphValidator.validateStarsInvoice (Telegram Stars, XTR)
+const starsOk = node("ACTIONS", { actions: [{ kind: "add_tag", tag: "buyer" }, { kind: "issue_stars_invoice", amount: "150", title: "Курс", description: "Доступ", timeoutMinutes: 30 }] });
+const starsGood = run([trig, starsOk], [edge(trig, starsOk)]);
+check("issue_stars_invoice: корректный счёт — exit 0, без STARS_*", starsGood.code === 0 && !starsGood.out.includes("STARS_") && !starsGood.out.includes("ACTION_UNKNOWN_KIND"));
+const starsTpl = node("ACTIONS", { actions: [{ kind: "issue_stars_invoice", amount: "{{var.price}}", title: "Курс {{var.n}}" }] });
+check("issue_stars_invoice: шаблоны в amount/title допустимы", run([trig, starsTpl], [edge(trig, starsTpl)]).code === 0);
+const starsBad = node("ACTIONS", { actions: [{ kind: "issue_stars_invoice", amount: "0", title: "x".repeat(33), description: "d".repeat(256) }] });
+const starsBadRun = run([trig, starsBad], [edge(trig, starsBad)]);
+for (const code of ["STARS_BAD_AMOUNT", "STARS_TITLE_TOO_LONG", "STARS_DESC_TOO_LONG"])
+  check(`issue_stars_invoice — ${code}`, starsBadRun.out.includes(code));
+const starsEmpty = node("ACTIONS", { actions: [{ kind: "issue_stars_invoice" }] });
+const starsEmptyRun = run([trig, starsEmpty], [edge(trig, starsEmpty)]);
+check("issue_stars_invoice: пусто — STARS_NO_AMOUNT и STARS_NO_TITLE", starsEmptyRun.out.includes("STARS_NO_AMOUNT") && starsEmptyRun.out.includes("STARS_NO_TITLE"));
+const starsFrac = node("ACTIONS", { actions: [{ kind: "issue_stars_invoice", amount: "1.5", title: "A" }, { kind: "issue_stars_invoice", amount: "10001", title: "A" }] });
+check("issue_stars_invoice: дробная и слишком большая сумма — STARS_BAD_AMOUNT", run([trig, starsFrac], [edge(trig, starsFrac)]).out.includes("STARS_BAD_AMOUNT"));
+const starsNotLast = node("ACTIONS", { actions: [{ kind: "issue_stars_invoice", amount: "5", title: "A" }, { kind: "add_tag", tag: "x" }] });
+check("issue_stars_invoice: не последний — INVOICE_NOT_LAST", run([trig, starsNotLast], [edge(trig, starsNotLast)]).out.includes("INVOICE_NOT_LAST"));
+const starsMixed = node("ACTIONS", { actions: [{ kind: "issue_invoice", connectionId: "c", amount: "5", description: "d" }, { kind: "issue_stars_invoice", amount: "5", title: "A" }] });
+check("ЮKassa-счёт + звёзды в одном блоке — INVOICE_DUPLICATE", run([trig, starsMixed], [edge(trig, starsMixed)]).out.includes("INVOICE_DUPLICATE"));
+const starsMax = run([trig, starsOk], [edge(trig, starsOk)], "MAX");
+check("issue_stars_invoice на MAX — STARS_TELEGRAM_ONLY", starsMax.code !== 0 && starsMax.out.includes("STARS_TELEGRAM_ONLY"));
 
 fs.rmSync(dir, { recursive: true, force: true });
 if (failed) { console.error(`validate-graph: провалов ${failed}`); process.exit(1); }

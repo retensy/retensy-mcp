@@ -69,7 +69,7 @@ const ACTION_KINDS = new Set([
   "add_tag", "remove_tag", "set_field", "stop_bot", "delete_step_message",
   "subscribe", "unsubscribe", "autoflow_add", "autoflow_remove",
   "subscriber_webhook", "external_request", "notify",
-  "subscriber_email", "agent_chat", "cancel_payment_subscription", "issue_invoice",
+  "subscriber_email", "agent_chat", "cancel_payment_subscription", "issue_invoice", "issue_stars_invoice",
   "getcourse_send", "getcourse_order", "amocrm_send", "amocrm_update", "bitrix24_call",
   "yametrika_event", "gsheets_send", "gsheets_get", "gsheets_update",
   "gsheets_write_cell", "gsheets_read_cell",
@@ -396,7 +396,7 @@ for (const n of nodes) {
       // Счёт ставит блок на паузу до вебхука кассы, а возобновиться с середины списка движок
       // не умеет — значит действия после счёта молча не выполнятся. Зеркало GraphValidator.
       {
-        const invIdx = c.actions.map((a, i) => (a && a.kind === "issue_invoice" ? i : -1)).filter((i) => i >= 0);
+        const invIdx = c.actions.map((a, i) => (a && (a.kind === "issue_invoice" || a.kind === "issue_stars_invoice") ? i : -1)).filter((i) => i >= 0);
         if (invIdx.length > 1) {
           errors.push(`INVOICE_DUPLICATE: ${who} — в блоке больше одного счёта, непонятно какой ждать.`);
         }
@@ -433,6 +433,23 @@ for (const n of nodes) {
             else if (n <= 0) errors.push(`YK_BAD_AMOUNT: ${who} — amount должна быть > 0.`);
           }
           if (blank(a.description)) errors.push(`YK_NO_DESC: ${who} — нужно description (за что платят).`);
+          if (a.timeoutMinutes != null) {
+            const t = Number(a.timeoutMinutes);
+            if (!Number.isFinite(t) || t < 1 || t > 1440) errors.push(`YK_BAD_TIMEOUT: ${who} — timeoutMinutes ∈ [1, 1440].`);
+          }
+        }
+        if (a.kind === "issue_stars_invoice") {
+          // Зеркало GraphValidator.validateStarsInvoice: Telegram Stars (XTR), только Telegram-боты.
+          const amount = String(a.amount == null ? "" : a.amount).trim();
+          if (blank(amount)) errors.push(`STARS_NO_AMOUNT: ${who} — нужна amount (целое число звёзд).`);
+          else if (!amount.includes("{{") && !(/^\d+$/.test(amount) && Number(amount) >= 1 && Number(amount) <= 10000))
+            errors.push(`STARS_BAD_AMOUNT: ${who} — amount должна быть целым числом звёзд от 1 до 10000.`);
+          if (blank(a.title)) errors.push(`STARS_NO_TITLE: ${who} — нужно title (название товара, до 32 знаков).`);
+          else if (!String(a.title).includes("{{") && String(a.title).trim().length > 32)
+            errors.push(`STARS_TITLE_TOO_LONG: ${who} — title не длиннее 32 символов.`);
+          if (!blank(a.description) && !String(a.description).includes("{{") && String(a.description).trim().length > 255)
+            errors.push(`STARS_DESC_TOO_LONG: ${who} — description не длиннее 255 символов.`);
+          if (platform !== "TELEGRAM") errors.push(`STARS_TELEGRAM_ONLY: ${who} — оплата звёздами доступна только в Telegram-ботах.`);
           if (a.timeoutMinutes != null) {
             const t = Number(a.timeoutMinutes);
             if (!Number.isFinite(t) || t < 1 || t > 1440) errors.push(`YK_BAD_TIMEOUT: ${who} — timeoutMinutes ∈ [1, 1440].`);

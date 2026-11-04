@@ -370,6 +370,18 @@ IG-боты не поддерживают команды (`/start`). Вход �
 - `YOOKASSA_PAYMENT` — узел оплаты. **В новых сценариях его не ставь**: выставление счёта — это
   действие, поэтому оно живёт действием `issue_invoice` внутри `ACTIONS` (см. ниже), а узла больше
   нет в палитре. Тип жив в рантайме только ради графов, где он уже стоит.
+- Действие **`issue_stars_invoice`** внутри `ACTIONS` — счёт в **Telegram Stars (XTR)**, только для
+  Telegram-ботов (на MAX/VK/Instagram/WEB — `STARS_TELEGRAM_ONLY`). Кассы нет, `connectionId` не нужен.
+  `{ "kind":"issue_stars_invoice", "amount":"150", "title":"Доступ к курсу", "description":"Что получит покупатель", "timeoutMinutes":60 }`.
+  - `amount` обязателен: целое число звёзд 1…10000 или шаблон `{{var.price}}` (`STARS_NO_AMOUNT`/`STARS_BAD_AMOUNT`).
+  - `title` обязателен, до 32 знаков (`STARS_NO_TITLE`/`STARS_TITLE_TOO_LONG`); `description` необязателен, до 255 (`STARS_DESC_TOO_LONG`), по умолчанию = title.
+  - Выходы, ожидание, `timeoutMinutes` и правила «последний/один счёт» (`INVOICE_NOT_LAST`/`INVOICE_DUPLICATE`)
+    те же, что у `issue_invoice`; в блоке не может быть вместе ЮKassa-счёта и счёта в звёздах.
+  - После оплаты: `{{var.stars_charge_id}}` (telegram_payment_charge_id, нужен для возврата), `{{var.stars_amount}}`,
+    `{{var.stars_paid_at}}`; `{{var.payment_id}}` при выставлении счёта = внутренний invoice payload.
+  - Платёж идемпотентен по `charge_id`; оплата после таймаута ветку `paid` не запускает, но видна в истории.
+    Возврат — из кабинета (`refundStarPayment`), через MCP не делается.
+  - Повторный проход по счёту выставляет НОВЫЙ счёт, прежний перестаёт приниматься (в отличие от ЮKassa, где та же ссылка).
 - Действие **`issue_invoice`** внутри `ACTIONS` — настоящий счёт на **кассу владельца бота**
   (деньги идут на его магазин, не на счёт сервиса) и, если нужно, ожидание оплаты.
   `{ "kind":"issue_invoice", "connectionId":"<id подключения ЮKassa>", "amount":"990",
