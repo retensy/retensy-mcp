@@ -1109,6 +1109,8 @@ const TOOLS = [
   { name: "kb_add_site", description: "Добавить сайт в базу знаний обходом страниц (POST /api/bots/kb/{kbId}/docs/site): url (http/https, не внутренняя сеть), schedule — расписание повторного обхода: NEVER|DAILY|WEEKLY|MONTHLY (по умолчанию NEVER). Обход уходит в фон; документ появится в kb_docs со статусом PENDING.", inputSchema: { type: "object", properties: { kbId: { type: "string" }, url: { type: "string" }, schedule: { type: "string", enum: ["NEVER", "DAILY", "WEEKLY", "MONTHLY"] } }, required: ["kbId", "url"] } },
   { name: "kb_reindex", description: "Переиндексировать документ-файл базы знаний из сохранённого оригинала (POST /api/bots/kb/{kbId}/docs/{docId}/reindex) — «Повторить» после ошибки. headerRow — необязательно, для табличных файлов: номер строки с шапкой (1..50), если автоопределение ошиблось. Только для источника FILE.", inputSchema: { type: "object", properties: { kbId: { type: "string" }, docId: { type: "string" }, headerRow: { type: "number" } }, required: ["kbId", "docId"] } },
   { name: "agent_unanswered", description: "Вопросы без ответа агента за период (GET /api/bots/agents/{agentId}/unanswered): days — 7|30|90 (по умолчанию 30). Группы вопросов, на которые агент не нашёл ответ в базе знаний — подсказка, что туда добавить. Read-only.", inputSchema: { type: "object", properties: { agentId: { type: "string" }, days: { type: "number", enum: [7, 30, 90] } }, required: ["agentId"] } },
+  { name: "agent_tests_run", description: "Проверка агента ИИ-клиентами (POST /api/bots/agents/{agentId}/ai-tests/runs): ИИ играет клиентов по сохранённым тест-кейсам (персона + цель + критерии), ведёт диалог с агентом в песочнице, ИИ-судья ставит PASS/FAIL с причиной и цитатой; результат сравнивается с прошлым прогоном (регрессии). ТРАТИТ бюджет ИИ (до 120 вызовов на прогон, до 10 кейсов, до 30 прогонов в сутки; пробные ответы не используются) — поэтому нужен confirm:true. caseIds — какие кейсы гнать (по умолчанию все, максимум 10). wait (по умолчанию true) — дождаться конца прогона (до timeoutSec, по умолчанию 240) и вернуть итог; wait:false вернёт id прогона сразу — дальше agent_tests_list с runId. Кейсы создаёт владелец во вкладке «Проверка» или generate:N (1–10): сначала создаст N кейсов с ИИ (ещё один вызов ИИ), потом прогонит.", inputSchema: { type: "object", properties: { agentId: { type: "string" }, confirm: { type: "boolean", description: "true — подтверждение расхода бюджета ИИ" }, caseIds: { type: "array", items: { type: "string" } }, generate: { type: "number", description: "Создать столько кейсов с ИИ перед прогоном (1–10)" }, wait: { type: "boolean" }, timeoutSec: { type: "number" } }, required: ["agentId", "confirm"] } },
+  { name: "agent_tests_list", description: "Кейсы проверки ИИ-клиентами и история прогонов агента (GET /api/bots/agents/{agentId}/ai-tests/cases, /runs, /runs/{runId}): cases — кейсы, history — последние 20 прогонов (итоги без диалогов), run — полный прогон (runId или последний): по каждому кейсу verdict PASS/FAIL/ERROR, reason, quote, диалог, previousVerdict и regression (раньше проходил, теперь нет). Ничего не тратит. Read-only.", inputSchema: { type: "object", properties: { agentId: { type: "string" }, runId: { type: "string" } }, required: ["agentId"] } },
   // ---- Боты ----
   { name: "create_bot", description: "Подключить бота по токену (POST /api/bots): platform TELEGRAM (токен от @BotFather) или MAX (токен от MasterBot в MAX). Вебхук настраивается сам; name — отображаемое имя (иначе @username). Возвращает бота с id. Число ботов ограничено тарифом — HTTP 402 со ссылкой на смену тарифа. platform WEB — чат-виджет для сайта без токена (POST /api/bots/web): вернёт botId, key и snippet — код вставки на сайт (у существующего виджета — web_widget_snippet). platform INSTAGRAM по токену не подключается — только входом через Instagram (OAuth) в кабинете (/bots/instagram), нужен Instagram-аккаунт Business или Creator — инструмент вернёт ссылку на кабинет вместо ошибки. platform VK — сообщество как полноценный канал (Callback API, НЕ путать с vk_connect — тот для публикаций на стену): token — токен СООБЩЕСТВА (Управление сообществом → Работа с API → Создать ключ, доступ «Сообщения сообщества»), groupId — числовой id сообщества (обязателен). После подключения нужно вручную включить Callback API в настройках сообщества — см. webhookSecret в ответе и URL /vk/hooks/{botId} (подробный чек-лист у разработчика). inactive (только TELEGRAM/MAX) — создать бота остановленным: токен проверяется безопасным getMe, вебхук/поллинг НЕ трогаются — живой вебхук бота в другом конструкторе (BotHelp и т.п.) не снимается. Нужно при переносе бота из другого сервиса: создай inactive:true, перенеси сценарии/подписчиков (migration_preview/migration_commit), потом bot_resume — это и есть переключение (cutover).", inputSchema: { type: "object", properties: { platform: { type: "string", enum: ["TELEGRAM", "MAX", "WEB", "INSTAGRAM", "VK"] }, token: { type: "string", description: "Токен бота/сообщества: 123456789:AA… (Telegram), токен MAX, или community token VK" }, groupId: { type: "string", description: "Только platform=VK: числовой id сообщества" }, name: { type: "string" }, inactive: { type: "boolean", description: "Только TELEGRAM/MAX: создать остановленным (перенос из другого конструктора) — включить потом через bot_resume" } }, required: ["platform"] } },
   // ---- VK-лендинги (growth tools, Mini App) ----
@@ -1598,6 +1600,29 @@ async function handleCall(params) {
     case "agent_unanswered": {
       const qs = a.days != null ? `?days=${encodeURIComponent(a.days)}` : "";
       return okResult(await api(`/api/bots/agents/${a.agentId}/unanswered${qs}`));
+    }
+    case "agent_tests_list": {
+      const base = `/api/bots/agents/${a.agentId}/ai-tests`;
+      const [cases, history] = await Promise.all([api(`${base}/cases`), api(`${base}/runs`)]);
+      const run = a.runId ? await api(`${base}/runs/${a.runId}`) : (await api(`${base}/runs/latest`)) || null;
+      return okResult({ cases, history, run });
+    }
+    case "agent_tests_run": {
+      if (a.confirm !== true) throw new Error("Проверка тратит бюджет ИИ (до 120 вызовов на прогон). Передай confirm:true, когда владелец согласен на расход.");
+      const base = `/api/bots/agents/${a.agentId}/ai-tests`;
+      if (a.generate != null) {
+        const n = Number(a.generate);
+        if (!Number.isInteger(n) || n < 1 || n > 10) throw new Error("generate — целое от 1 до 10.");
+        await api(`${base}/generate`, { method: "POST", body: { count: n, confirmed: true } });
+      }
+      let run = await api(`${base}/runs`, { method: "POST", body: { caseIds: a.caseIds, confirmed: true, trigger: "MCP" } });
+      if (a.wait === false) return okResult(run);
+      const deadline = Date.now() + Math.min(Math.max(Number(a.timeoutSec) || 240, 10), 600) * 1000;
+      while (run.status === "RUNNING" && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 3000));
+        run = await api(`${base}/runs/${run.id}`);
+      }
+      return okResult(run.status === "RUNNING" ? { ...run, note: "Прогон ещё идёт — смотри agent_tests_list с runId." } : run);
     }
     case "kb_delete_doc": {
       await api(`/api/bots/kb/${a.kbId}/docs/${a.docId}`, { method: "DELETE" });

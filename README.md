@@ -57,7 +57,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 - 📰 **Публикации и VK**: `publications_usage` — месячная квота (общая для Telegram/MAX/Instagram/VK), `vk_status`/`vk_connect`/`vk_disconnect`/`vk_post` — подключение VK-сообщества токеном и публикация на стену.
 - 🔗 **Ссылка вместо отказа**: что нельзя сделать через API (вход через Google/Instagram, оплата тарифа, вход в аккаунт) — инструмент возвращает прямую ссылку и одну строку, что сделать.
 - 📝 **Статьи блога** (тот же токен `zmcp_…`): `article_publish`, `article_update`, `article_list`, `article_get` — публикация статей в Markdown (как README на GitHub) в раздел **/articles**.
-- 🧠 **ИИ-агенты и база знаний**: `agent_list`/`agent_get`/`agent_create`/`agent_update`/`agent_publish`/`agent_health`/`agent_test_chat`/`agent_unanswered`, `agent_tool_calls`, `kb_docs`/`kb_add_qa`/`kb_add_text`/`kb_add_site`/`kb_reindex` — настройка ИИ-агента и его базы знаний (раздел «ИИ-агенты»).
+- 🧠 **ИИ-агенты и база знаний**: `agent_list`/`agent_get`/`agent_create`/`agent_update`/`agent_publish`/`agent_health`/`agent_test_chat`/`agent_unanswered`/`agent_tests_run`/`agent_tests_list`, `agent_tool_calls`, `kb_docs`/`kb_add_qa`/`kb_add_text`/`kb_add_site`/`kb_reindex` — настройка ИИ-агента и его базы знаний (раздел «ИИ-агенты»).
 - 📎 **Медиа**: `upload_file` грузит фото/видео/документы в библиотеку **/bots/files** (до 50 МБ) и возвращает публичный URL — его вставляешь в медиа-карточку сценария.
 - 🌐 **Сайты из блоков** (раздел «Страницы»): создание, правка операциями (блоки, Zero-блок со свободной вёрсткой, код блока, папки страниц, дизайны, шаблоны из библиотеки), публикация и откат, свои домены, заявки из форм и куда их доставлять — инструменты `site_*` + скилл `build-site`.
 - 🧠 **Скилл `build-bot-funnel`**: учит агента собирать корректный граф (типы узлов, ветки, кнопки, задержки) и проверять его перед публикацией. Поддерживает Telegram, MAX и Instagram.
@@ -135,7 +135,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | Право | Что разрешает | Примеры инструментов |
 |---|---|---|
 | `read` | любое чтение: списки, карточки, аналитика, превью, поиск, `dry_run`. **Включает персональные данные**: подписчики, переписка в диалогах, заявки с сайтов и их файлы | `list_bots`, `get_graph`, `site_leads`, `dialog_messages`, `broadcast_preview` |
-| `write:bots` | создание и изменение ботов, сценариев, цепочек, интеграций, ИИ-агентов, базы знаний, черновиков рассылок. Правка опубликованного сценария сразу меняет ответы бота подписчикам; можно сменить ключи и вебхуки интеграций; `agent_test_chat` тратит ИИ-бюджет, `integration_test` ходит во внешний сервис | `create_graph`, `publish_graph`, `chain_update`, `connect_integration`, `agent_test_chat` |
+| `write:bots` | создание и изменение ботов, сценариев, цепочек, интеграций, ИИ-агентов, базы знаний, черновиков рассылок. Правка опубликованного сценария сразу меняет ответы бота подписчикам; можно сменить ключи и вебхуки интеграций; `agent_test_chat` и `agent_tests_run` тратят ИИ-бюджет, `integration_test` ходит во внешний сервис | `create_graph`, `publish_graph`, `chain_update`, `connect_integration`, `agent_test_chat` |
 | `write:sites` | сайты, лиды, VK-лендинги, статьи | `site_create`, `site_edit`, `site_publish`, `vk_landing_update`, `article_publish` |
 | `crm` | теги/переменные подписчиков, импорт, передача диалога оператору, записи. `booking_confirm`/`booking_reject` отправляют клиенту сообщение | `audience_tag_edit`, `bot_users_import`, `dialog_handoff`, `booking_create` |
 | `broadcast` | всё, что доходит до живых людей без участия человека: рассылки, ответы, посты, а также **включённая цепочка без согласования постов** (approvalMode `NONE`/`AI_ONLY`) и **публикация/правка/активация сценария с `TRIGGER_SCHEDULE`** | `broadcast_send`, `dialog_reply`, `channel_post`, `vk_post`, `chain_approve`, `chain_enable` (без согласования) |
@@ -257,6 +257,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `agent_health(agentId)` | счётчики документов/фрагментов базы знаний |
 | `agent_test_chat(agentId, question, history?)` | проверить ответ в песочнице (**тратит бюджет ИИ** — не вызывай массово) |
 | `agent_unanswered(agentId, days?)` | вопросы без ответа за период (7\|30\|90, по умолчанию 30) |
+| `agent_tests_run(agentId, confirm, caseIds?, generate?, wait?, timeoutSec?)` | проверка агента ИИ-клиентами по тест-кейсам: диалог в песочнице, ИИ-судья (PASS/FAIL, причина, цитата), сравнение с прошлым прогоном. **Тратит бюджет ИИ** — нужен `confirm:true` |
+| `agent_tests_list(agentId, runId?)` | тест-кейсы, история прогонов и полный прогон (последний или по `runId`) с регрессиями; ничего не тратит |
 | `kb_docs(kbId)` | документы базы знаний агента (источник, статус, фрагменты) |
 | `kb_add_qa(kbId, pairs)` | добавить пары вопрос-ответ (`pairs: [{question, answer}]`, до 200 за раз) |
 | `kb_add_text(kbId, title, text)` | добавить источник «Текст/инструкция» |

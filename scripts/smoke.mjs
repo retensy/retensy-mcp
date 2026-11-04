@@ -33,7 +33,7 @@ function finish() {
   const ok =
     init?.result?.serverInfo?.name === "retensy-mcp" &&
     Array.isArray(tools) &&
-    tools.length === 180 && // 179 + 1: agent_tool_calls; 176 + 3: audience_segments, bot_delivery_window, broadcast_test (quiet hours / saved segments / test send); 174 + 2: graph_versions_list/graph_version_rollback (история версий) = 167 (master) + 5: vk_landing_list/get/create/update/delete (Направление B, VK Mini App-лендинги) + 1: chain_create_draft (POST /api/bots/chains/draft) + 1: unpublish_graph (дополнительные сценарии)
+    tools.length === 182 && // 180 + 2: agent_tests_run, agent_tests_list (проверка ИИ-клиентами); 179 + 1: agent_tool_calls; 176 + 3: audience_segments, bot_delivery_window, broadcast_test (quiet hours / saved segments / test send); 174 + 2: graph_versions_list/graph_version_rollback (история версий) = 167 (master) + 5: vk_landing_list/get/create/update/delete (Направление B, VK Mini App-лендинги) + 1: chain_create_draft (POST /api/bots/chains/draft) + 1: unpublish_graph (дополнительные сценарии)
     new Set(toolNames).size === toolNames.length &&
     toolNames.includes("list_channels") &&
     toolNames.includes("list_integrations") &&
@@ -51,7 +51,7 @@ function finish() {
       "broadcast_list", "broadcast_get", "broadcast_preview", "broadcast_send", "broadcast_cancel",
       "broadcast_recurring", "broadcast_drafts", "broadcast_duplicate",
       "agent_list", "agent_get", "agent_create", "agent_update", "agent_publish", "agent_health",
-      "agent_test_chat", "kb_docs", "kb_add_qa", "kb_add_text", "kb_add_site", "kb_reindex", "agent_unanswered",
+      "agent_test_chat", "kb_docs", "kb_add_qa", "kb_add_text", "kb_add_site", "kb_reindex", "agent_unanswered", "agent_tests_run", "agent_tests_list",
       "audience_fields", "audience_search", "audience_tag_edit", "audience_variable_edit", "audience_export",
       "dialog_search", "publications_usage", "vk_status", "vk_connect", "vk_disconnect", "vk_post",
       "migration_presets", "migration_preview", "migration_commit", "broadcast_group",
