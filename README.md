@@ -209,7 +209,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `graph_versions_list(graphId, [version], [compareTo])` | история версий сценария (снимки при публикации, правках живого графа, ручные); с `version:N` — сравнение с текущим графом или другой версией (`compareTo`). Право `read` |
 | `graph_version_rollback(graphId, version)` | откат сценария на версию = публикация снимка (проверки как у `edit_graph_live`, текущее состояние сохраняется отдельной версией). Право `write:bots` |
 | `import_funnel(botId, name, graphFile\|graph)` | всё за раз: create → update → dry-run → publish |
-| `list_templates()` | готовые шаблоны воронок |
+| `list_templates([niche], [channel], [query])` | готовые шаблоны воронок (~30, ниша и каналы в карточке; фильтры по нише, каналу, тексту); те же открыты публично на `/templates` |
 | `create_graph_from_template(botId, templateId, name)` | граф из шаблона (DRAFT) |
 | `clone_graph(graphId)` | копия графа в новый DRAFT |
 | `rename_graph(graphId, name)` | переименовать сценарий |

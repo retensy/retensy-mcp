@@ -1056,7 +1056,7 @@ const TOOLS = [
   { name: "graph_version_rollback", description: "Откатить сценарий на версию (POST /api/bots/graphs/{graphId}/versions/{version}/rollback). Откат = публикация снимка: у ЖИВОГО графа бот переходит на ту версию сразу, и она проходит те же проверки, что edit_graph_live (валидатор, платные блоки, лимит блоков, платформа) — при ошибках HTTP 422 со всеми code@nodeId, граф НЕ изменён. Состояние ДО отката сервер сам сохраняет отдельной версией (savedCurrentAs), результат — версией reason ROLLBACK (newVersion), так что откат обратим тем же инструментом. Узлы получают ТЕ ЖЕ id, что были в снимке. Это действие на живом боте: перед вызовом покажи пользователю graph_versions_list (version:N — что изменится) и получи согласие. Нужно право write:bots.", inputSchema: { type: "object", properties: { graphId: { type: "string" }, version: { type: "integer", description: "Номер версии из graph_versions_list" } }, required: ["graphId", "version"] } },
   { name: "unpublish_graph", description: "Снять ДОПОЛНИТЕЛЬНЫЙ сценарий с публикации (POST /api/bots/graphs/{graphId}/unpublish): он снова черновик, лендинги и ссылки на него ведут в основной сценарий, подписчики в нём возвращаются в основной, его задержки отменяются. Основной сценарий так не снимается — HTTP 409.", inputSchema: { type: "object", properties: { graphId: { type: "string" } }, required: ["graphId"] } },
   { name: "import_funnel", description: "Всё за раз: создать граф, залить узлы/рёбра, (опц.) dry-run /start, опубликовать. Граф можно передать инлайном (graph) или файлом (graphFile).", inputSchema: { type: "object", properties: { botId: { type: "string" }, name: { type: "string" }, graph: { type: "object" }, graphFile: { type: "string", description: "Путь к локальному JSON графа вместо инлайн graph; поддерживается ~" }, dryRun: { type: "boolean" }, publish: { type: "boolean" } }, required: ["botId"] } },
-  { name: "list_templates", description: "Список готовых шаблонов воронок (id, имя, описание). Можно стартовать граф из шаблона вместо сборки с нуля.", inputSchema: { type: "object", properties: {} } },
+  { name: "list_templates", description: "Список готовых шаблонов воронок (id, имя, описание, ниша, каналы, nameEn/descriptionEn, hasAi). Около 30 шаблонов под русские ниши (запись в салон и клинику, квалификация в недвижимости, лид-магнит школы, заказ в магазине, бронь в ресторане, сбор отзывов и др.) плюс универсальные. Можно сузить: niche (beauty, medical, realty, education, ecommerce, fitness, restaurant, auto, legal, reviews, universal), channel (TELEGRAM, MAX, VK), query (подстрока в названии и описании). Те же шаблоны открыты публично на /templates.", inputSchema: { type: "object", properties: { niche: { type: "string" }, channel: { type: "string" }, query: { type: "string" } } } },
   { name: "create_graph_from_template", description: "Создать граф (DRAFT) из шаблона (см. list_templates). Возвращает граф с id — дальше правь через update_graph.", inputSchema: { type: "object", properties: { botId: { type: "string" }, templateId: { type: "string" }, name: { type: "string" } }, required: ["botId", "templateId"] } },
   { name: "rename_graph", description: "Переименовать сценарий (работает и для опубликованных — имя не влияет на исполнение).", inputSchema: { type: "object", properties: { graphId: { type: "string" }, name: { type: "string" } }, required: ["graphId", "name"] } },
   { name: "clone_graph", description: "Склонировать граф в новый DRAFT «… (copy)» — безопасно итерировать поверх опубликованного. Клон сценария-вебхука получает собственный путь и секрет вебхука.", inputSchema: { type: "object", properties: { graphId: { type: "string" } }, required: ["graphId"] } },
@@ -1443,7 +1443,15 @@ async function handleCall(params) {
       }
       return okResult({ graphId, steps });
     }
-    case "list_templates": return okResult(await api("/api/bots/graph-templates"));
+    case "list_templates": {
+      const all = await api("/api/bots/graph-templates");
+      if (!Array.isArray(all) || !(a.niche || a.channel || a.query)) return okResult(all);
+      const q = String(a.query || "").trim().toLowerCase();
+      return okResult(all.filter((t) =>
+        (!a.niche || t.niche === a.niche)
+        && (!a.channel || (Array.isArray(t.channels) && t.channels.includes(String(a.channel).toUpperCase())))
+        && (!q || `${t.name} ${t.description} ${t.nameEn || ""} ${t.descriptionEn || ""}`.toLowerCase().includes(q))));
+    }
     case "create_graph_from_template":
       return okResult(await api(`/api/bots/${a.botId}/graphs/from-template`, { method: "POST", body: { templateId: a.templateId, name: a.name } }));
     case "rename_graph":

@@ -542,3 +542,7 @@ node validate.mjs graph.json --platform=INSTAGRAM
 
 ## Подстановки в тексте
 `{{from.first_name}}`, `{{from.username}}`, `{{var.<имя>}}`, либо `{Имя}` как плейсхолдер. Имена переменных/меток: `[a-z_][a-z0-9_]{0,63}` (var) и `[a-z0-9_-]{1,64}` (tag).
+
+## Готовые шаблоны (list_templates)
+
+Шаблоны лежат в бэкенде как JSON `{id, name, description, icon, niche, channels, en:{name,description}, graph:{name,nodes,edges}}` и проходят тот же `GraphValidator`, что и ваши графы. Это обычный граф формата выше, без новых типов узлов: id узлов `tpl_*`, кнопки `CALLBACK` с пустым `value` и рёбрами `btn_N`, вопросы с рёбрами `valid`/`invalid`. Платных узлов (`AI_REPLY`, `CALL_WEBHOOK`) в нише-шаблонах нет, кроме универсального `ai-agent` (у него `hasAi:true`). Ниша: beauty, medical, realty, education, ecommerce, fitness, restaurant, auto, legal, reviews, universal. Каналы: TELEGRAM, MAX, VK.
