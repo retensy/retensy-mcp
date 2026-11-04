@@ -57,7 +57,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 - 📰 **Публикации и VK**: `publications_usage` — месячная квота (общая для Telegram/MAX/Instagram/VK), `vk_status`/`vk_connect`/`vk_disconnect`/`vk_post` — подключение VK-сообщества токеном и публикация на стену.
 - 🔗 **Ссылка вместо отказа**: что нельзя сделать через API (вход через Google/Instagram, оплата тарифа, вход в аккаунт) — инструмент возвращает прямую ссылку и одну строку, что сделать.
 - 📝 **Статьи блога** (тот же токен `zmcp_…`): `article_publish`, `article_update`, `article_list`, `article_get` — публикация статей в Markdown (как README на GitHub) в раздел **/articles**.
-- 🧠 **ИИ-агенты и база знаний**: `agent_list`/`agent_get`/`agent_create`/`agent_update`/`agent_publish`/`agent_health`/`agent_test_chat`/`agent_unanswered`, `kb_docs`/`kb_add_qa`/`kb_add_text`/`kb_add_site`/`kb_reindex` — настройка ИИ-агента и его базы знаний (раздел «ИИ-агенты»).
+- 🧠 **ИИ-агенты и база знаний**: `agent_list`/`agent_get`/`agent_create`/`agent_update`/`agent_publish`/`agent_health`/`agent_test_chat`/`agent_unanswered`, `agent_tool_calls`, `kb_docs`/`kb_add_qa`/`kb_add_text`/`kb_add_site`/`kb_reindex` — настройка ИИ-агента и его базы знаний (раздел «ИИ-агенты»).
 - 📎 **Медиа**: `upload_file` грузит фото/видео/документы в библиотеку **/bots/files** (до 50 МБ) и возвращает публичный URL — его вставляешь в медиа-карточку сценария.
 - 🌐 **Сайты из блоков** (раздел «Страницы»): создание, правка операциями (блоки, Zero-блок со свободной вёрсткой, код блока, папки страниц, дизайны, шаблоны из библиотеки), публикация и откат, свои домены, заявки из форм и куда их доставлять — инструменты `site_*` + скилл `build-site`.
 - 🧠 **Скилл `build-bot-funnel`**: учит агента собирать корректный граф (типы узлов, ветки, кнопки, задержки) и проверять его перед публикацией. Поддерживает Telegram, MAX и Instagram.
@@ -319,7 +319,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `site_analytics_events(siteId, from?, to?, page?, size?)` | сырые события сайта постранично (`PAGE_VIEW`\|`CLICK`\|`FORM_SUBMIT`, UTM) |
 | `bot_subscriber_analytics(botId, from, to)` | новые подписчики/активность бота по дням (дашборд аналитики, диапазон до 92 дней) |
 | `scenario_timeseries(graphId, from, to)` | дневной ряд прогонов сценария `{ok, failed, other}` (по узлам — `graph_analytics`) |
-| `agent_tool_test(agentId, toolId, params?)` | проверить инструмент агента (`AMO_LOOKUP`/`SHEETS_LOOKUP`/`HTTP_API`) напрямую, без модели — бюджет ИИ не тратится |
+| `agent_tool_test(agentId, toolId, params?, live?)` | проверить инструмент агента напрямую, без модели — бюджет ИИ не тратится. Чтение: `AMO_LOOKUP`/`SHEETS_LOOKUP`/`HTTP_API`. Запись (`AMO_CREATE_LEAD`, `AMO_UPDATE_LEAD`, `AMO_UPDATE_CONTACT`, `SHEETS_APPEND`, `HTTP_POST`, `SET_FIELD`, `ADD_TAG`, `HANDOFF`): по умолчанию песочница (ничего не уходит вовне), `live:true` отправляет по-настоящему |
+| `agent_tool_calls(agentId, toolId?, limit?)` | журнал вызовов инструментов записи агента: кто/когда/аргументы без секретов/результат |
 | `site_lead_file_download(siteId, leadId, fileId)` | метаданные вложения заявки + ссылка на скачивание (сам файл через MCP не передаётся — HEAD-запрос, не GET) |
 | `scenario_list()` | сценарии автора, включая вебхук-сценарии (`sourceType: WEBHOOK`\|`BOT`) — в `list_graphs` вебхук-сценарии не входят |
 | `scenario_create(name, botId?)` | создать сценарий: без `botId` — вебхук-сценарий (сервер сам выпускает путь входа и секрет), с `botId` — бот-сценарий, сразу привязанный к боту |
@@ -481,3 +482,8 @@ RETENSY_MCP_TOKEN=zmcp_... node src/index.mjs   # стартует stdio MCP-с�
 ## Лицензия
 
 MIT — см. [LICENSE](LICENSE).
+
+
+## Инструменты агента на запись
+
+`agent_update {patch:{tools:[...]}}` включает агенту инструменты записи по одному: создать/обновить сделку и контакт в amoCRM (через подключение из «Подключений»), добавить строку в Google Таблицу, POST на свой API (SSRF-защита, без редиректов), сохранить поле/тег подписчика, передать оператору. У каждого — JSON-схема аргументов (`argsSchema`), шаблоны `{аргумент}`, подтверждение у пользователя (`confirmBeforeRun`, по умолчанию включено для внешних записей), лимиты на диалог и сутки, идемпотентность. Список проверяется локально до отправки. Проверка — `agent_tool_test` (песочница по умолчанию), журнал — `agent_tool_calls`. Не работает в публичном веб-чате агента.
