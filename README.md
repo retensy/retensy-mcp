@@ -206,6 +206,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `dry_run(graphId, kind, value)` | прогон без публикации |
 | `publish_graph(graphId, secondary?)` | публикация (вернёт `errors[]` при провале); `secondary: true` — дополнительный сценарий рядом с основным (запускают VK-лендинги и ссылки с `targetGraphId`) |
 | `unpublish_graph(graphId)` | снять дополнительный сценарий с публикации (основной — 409) |
+| `graph_versions_list(graphId, [version], [compareTo])` | история версий сценария (снимки при публикации, правках живого графа, ручные); с `version:N` — сравнение с текущим графом или другой версией (`compareTo`). Право `read` |
+| `graph_version_rollback(graphId, version)` | откат сценария на версию = публикация снимка (проверки как у `edit_graph_live`, текущее состояние сохраняется отдельной версией). Право `write:bots` |
 | `import_funnel(botId, name, graphFile\|graph)` | всё за раз: create → update → dry-run → publish |
 | `list_templates()` | готовые шаблоны воронок |
 | `create_graph_from_template(botId, templateId, name)` | граф из шаблона (DRAFT) |
