@@ -282,6 +282,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `bot_channel_list(botId)` / `bot_channel_add(botId, token, name?)` / `bot_channel_delete(botId, channelId, confirm:true)` | дополнительные Telegram-боты (мультиканальность); каналы/группы для постинга — `list_channels` |
 | `link_create(botId, name?, targetNodeId?)` / `link_delete(linkId, confirm:true)` | стартовая ссылка (диплинк на узел) / удаление; список — `list_links` |
 | `utm_sources(botId)` / `ab_results(graphId, branchNodeId, period?)` | UTM-источники подписчиков / итоги A/B-развилки (`period`: `24h`, `7d`, `30d`) |
+| `source_revenue(botId, from, to)` | Отчёт источник -> подписчики/покупатели/выручка (RUB + Stars)/конверсия, даты YYYY-MM-DD |
 | `kb_delete(kbId, confirm:true)` | удалить базу знаний целиком (база агента — только вместе с агентом) |
 | `agent_unpublish(agentId)` / `agent_delete(agentId, confirm:true)` | снять агента с публикации / удалить (409 `AGENT_IN_USE`, пока подключён к сценариям) |
 | `site_leads_mark_read(siteId)` / `site_lead_delete(siteId, leadId, confirm:true)` / `site_leads_export(siteId, savePath?)` | заявки сайта: всё прочитано / удалить заявку / CSV |

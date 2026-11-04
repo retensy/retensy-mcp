@@ -125,6 +125,8 @@ check("link_delete confirm → DELETE /api/bots/links/{id}", !!req("DELETE", `/a
 // ---- аналитика ----
 await call("utm_sources", { botId: B });
 check("utm_sources → GET utm-sources", !!req("GET", `/api/bots/${B}/utm-sources`));
+await call("source_revenue", { botId: B, from: "2026-10-01", to: "2026-10-31" });
+check("source_revenue → GET source-revenue", !!req("GET", `/api/bots/${B}/analytics/source-revenue?from=2026-10-01&to=2026-10-31`));
 await call("ab_results", { graphId: G, branchNodeId: N, period: "30d" });
 check("ab_results → GET ?branchNodeId&period", !!req("GET", `/api/bots/graphs/${G}/ab-results?branchNodeId=${N}&period=30d`));
 check("ab_results без branchNodeId — ошибка", isErr(await call("ab_results", { graphId: G })));
