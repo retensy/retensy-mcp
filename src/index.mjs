@@ -27,7 +27,9 @@ import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
 
-const VERSION = "0.26.0";
+const VERSION = JSON.parse(
+  fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8")
+).version;
 /** С чего начать пустой сайт (init у /document/ops; на сайте с черновиком игнорируется). */
 const SITE_INITS = ["starter", "blank", "mini-landing"];
 /** Безвредная операция, когда нужен только init: бэкенд не принимает пустой ops[]. */
