@@ -267,6 +267,30 @@ for (const n of nodes) {
       if (blank(c.promptText)) errors.push(`${who}: нужен promptText.`);
       if (c.saveTo && !VAR_RE.test(c.saveTo)) errors.push(`${who}: saveTo «${c.saveTo}» не матчит [a-z_][a-z0-9_]{0,63}.`);
       break;
+    case "TRIGGER_WEBHOOK": {
+      // config.mappings [{path,saveTo}]: JsonPath из тела входящего запроса -> переменная подписчика.
+      if (c.mappings != null && !Array.isArray(c.mappings)) { errors.push(`WEBHOOK_BAD_MAPPINGS: ${who} - mappings - массив [{path,saveTo}].`); break; }
+      (c.mappings || []).forEach((m, j) => {
+        if (blank(m?.path) || !String(m.path).trim().startsWith("$")) errors.push(`WEBHOOK_BAD_MAPPING_PATH: ${who} - mappings #${j + 1}: path - JsonPath, начинается с $ (например $.data.email).`);
+        if (blank(m?.saveTo) || !VAR_RE.test(String(m.saveTo))) errors.push(`WEBHOOK_BAD_MAPPING_SAVE_TO: ${who} - mappings #${j + 1}: saveTo ∈ [a-z_][a-z0-9_]{0,63}.`);
+      });
+      break;
+    }
+    case "ACCESS_GATE": {
+      // Зеркало GraphValidator.validateAccessGate: проверка доступа, выходы allowed / denied.
+      if (c.match != null && !["ANY", "ALL"].includes(c.match)) errors.push(`ACCESS_GATE_BAD_MATCH: ${who} - match ∈ {ANY, ALL}.`);
+      const rules = Array.isArray(c.rules) ? c.rules : [];
+      if (rules.length === 0) errors.push(`ACCESS_GATE_NO_RULES: ${who} - нужно хотя бы одно правило в rules.`);
+      const GATE_KINDS = ["ALLOWLIST", "TG_ID", "USERNAME", "PHONE", "TAG", "SEGMENT", "PAID_SUBSCRIPTION", "VARIABLE"];
+      rules.forEach((r, j) => {
+        const k = r?.kind;
+        if (!GATE_KINDS.includes(k)) { errors.push(`ACCESS_GATE_BAD_KIND: ${who} - правило #${j + 1}: kind «${k}» не из {${GATE_KINDS.join(",")}}.`); return; }
+        if (["TG_ID", "USERNAME", "PHONE"].includes(k) && blank(r.value)) errors.push(`ACCESS_GATE_NO_VALUE: ${who} - правило #${j + 1} (${k}) требует value.`);
+        if (k === "SEGMENT" && blank(r.value)) errors.push(`ACCESS_GATE_NO_SEGMENT: ${who} - правило #${j + 1} (SEGMENT) требует value (id сегмента, audience_segments).`);
+        if (k === "VARIABLE" && blank(r.key)) errors.push(`ACCESS_GATE_NO_KEY: ${who} - правило #${j + 1} (VARIABLE) требует key.`);
+      });
+      break;
+    }
     case "CALL_WEBHOOK":
       if (blank(c.url) || !/^https?:\/\//.test(c.url)) errors.push(`${who}: url обязателен и http(s)://.`);
       break;

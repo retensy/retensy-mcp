@@ -1143,6 +1143,12 @@ const TOOLS = [
     inputSchema: { type: "object", properties: { name: { type: "string" }, botIds: { type: "array", items: { type: "string" } }, botId: { type: "string" }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, audienceFilter: AUDIENCE_FILTER_SCHEMA, scheduledAt: { type: "string", description: "ISO 8601, напр. 2026-10-06T10:00:00+03:00; пусто — сразу" }, graphId: { type: "string", description: "рассылка запуском сценария бота вместо сообщений" }, entryNodeId: { type: "string" }, draftId: { type: "string" }, segmentId: { type: "string", description: "id сохранённого сегмента аудитории (audience_segments); главнее audienceFilter и тегов" }, localTime: { type: "string", description: "HH:mm — слать каждому в это время по его часам (не с dedup/stagger)" }, dedup: { type: "boolean", description: "Не отправлять дважды одному человеку среди нескольких botIds (мульти-бот)" }, stagger: STAGGER_SCHEMA } } },
   { name: "audience_segments", description: "Сохранённые сегменты аудитории рассылок (имя + фильтр; /api/bots/{botId}/segments; общие для всех ботов владельца, до 50). action: list — сегменты {id, name, filter}; create {name, audienceFilter | tagsAll/tagsNone} — сохранить фильтр под именем (до 60 символов); delete {segmentId}. Использовать: broadcast_send / broadcast_preview {segmentId}. botId — любой твой бот.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "create", "delete"] }, botId: { type: "string" }, name: { type: "string" }, audienceFilter: AUDIENCE_FILTER_SCHEMA, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, segmentId: { type: "string" } }, required: ["action", "botId"] } },
   { name: "bot_delivery_window", description: "Тихие часы бота (/api/bots/{botId}/delivery-window): в окно quietFrom..quietTo (HH:mm, может переходить через полночь, например 22:00..09:00) рассылки не уходят, а переносятся на конец окна. Время считается по поясу подписчика (переменная timezone/tz), если неизвестен — по поясу бота timezone (IANA или UTC+3, пусто = Москва). По умолчанию выключено. action: get · set {enabled, quietFrom?, quietTo?, timezone?} (enabled:true требует quietFrom и quietTo, они должны различаться; enabled:false выключает, время сохраняется).", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["get", "set"] }, botId: { type: "string" }, enabled: { type: "boolean" }, quietFrom: { type: "string", description: "HH:mm" }, quietTo: { type: "string", description: "HH:mm" }, timezone: { type: "string", description: "IANA (Europe/Moscow) или UTC+3" } }, required: ["action", "botId"] } },
+  { name: "bot_access", description: "Закрытый бот и список доступа (/api/bots/{botId}/access). action: get {q?, page?, size?} - настройки (privateBot, deniedMessage) и записи; settings {privateBot, deniedMessage?} - включить/выключить закрытый режим и текст отказа; add {items:[{kind:\"TG_ID\"|\"USERNAME\"|\"PHONE\", value, note?}]} или {text} (многострочный импорт, по записи в строке) - добавить; remove {entryId} - удалить запись; clear {confirm:true} - очистить весь список (без confirm не выполняется). Проверка в сценарии - узел ACCESS_GATE (правило ALLOWLIST смотрит этот список).", inputSchema: { type: "object", properties: { botId: { type: "string" }, action: { type: "string", enum: ["get", "settings", "add", "remove", "clear"] }, privateBot: { type: "boolean" }, deniedMessage: { type: "string" }, items: { type: "array", items: { type: "object", properties: { kind: { type: "string", enum: ["TG_ID", "USERNAME", "PHONE"] }, value: { type: "string" }, note: { type: "string" } }, required: ["kind", "value"] } }, text: { type: "string", description: "многострочный импорт записей" }, entryId: { type: "string" }, confirm: { type: "boolean", description: "обязателен для action=clear" }, q: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["botId", "action"] } },
+  { name: "preset_list", description: "Пресеты блоков (сохранённые настройки узла: /api/block-presets). Без botId - пресеты аккаунта; с botId - ещё и пресеты этого бота. Секретные значения заголовков (Authorization, токены, ключи) хранятся зашифрованно и возвращаются только ссылками \"preset-secret:<id>:<Header>\" - такую ссылку можно подставлять как значение заголовка в headersJson узла графа, но не открытым текстом.", inputSchema: { type: "object", properties: { botId: { type: "string" } } } },
+  { name: "preset_save", description: "Сохранить пресет блока: POST /api/block-presets (новый) или PUT /api/block-presets/{presetId} (обновить). name, nodeType (тип узла, напр. CALL_WEBHOOK), config (настройки узла), description?, botId? (пусто = пресет аккаунта, иначе только этого бота). Секретные заголовки в config.headersJson (Authorization, токены, ключи) сервер шифрует и отдаёт только ссылками \"preset-secret:<id>:<Header>\"; ссылку используй как значение заголовка в headersJson графа, не открытый текст. Инструмент не печатает секреты в своём выводе.", inputSchema: { type: "object", properties: { presetId: { type: "string", description: "есть - обновление (PUT)" }, name: { type: "string" }, description: { type: "string" }, nodeType: { type: "string" }, config: { type: "object" }, botId: { type: "string", description: "пусто = пресет аккаунта" } }, required: ["name", "nodeType", "config"] } },
+  { name: "preset_delete", description: "Удалить пресет блока (DELETE /api/block-presets/{presetId}). Графы, где уже вставлен блок, не меняются.", inputSchema: { type: "object", properties: { presetId: { type: "string" } }, required: ["presetId"] } },
+  { name: "webhook_requests", description: "Входящие запросы сценария-вебхука (/api/bots/graphs/{graphId}/webhook-requests): последние 50 за 7 дней, секреты замаскированы. action: list (по умолчанию) - показать; listen - включить режим прослушивания (POST .../webhook-listen): открывается тестовый URL /api/webhooks/t/<path>, запрос на него сохраняется и не запускает сценарий; stop - выключить прослушивание (DELETE .../webhook-listen); clear {confirm:true} - стереть журнал. Используй, чтобы увидеть реальное тело запроса и составить TRIGGER_WEBHOOK config.mappings [{path,saveTo}].", inputSchema: { type: "object", properties: { graphId: { type: "string" }, action: { type: "string", enum: ["list", "listen", "stop", "clear"] }, confirm: { type: "boolean", description: "обязателен для action=clear" } }, required: ["graphId"] } },
+  { name: "http_test", description: "Тестовый HTTP-запрос с сервера (POST /api/http-test; защита от SSRF, таймаут до 15 с, ответ до 1 МБ). url, method? (GET по умолчанию), headersJson? (JSON-строка), bodyTemplate?, timeoutMs?, vars? (подстановки {{var.x}}). Возвращает status, headers, body и fields - список JsonPath-полей ответа: их подставляй в extract:[{path,saveTo}] действия external_request (ACTIONS) или в mappings вебхука. Секреты заголовков в ответе не печатаются.", inputSchema: { type: "object", properties: { url: { type: "string" }, method: { type: "string", enum: ["GET", "POST", "PUT", "PATCH", "DELETE"] }, headersJson: { type: "string" }, bodyTemplate: { type: "string" }, timeoutMs: { type: "number" }, vars: { type: "object" } }, required: ["url"] } },
   { name: "broadcast_test", description: "Отправить тест рассылки себе (POST /api/bots/{botId}/broadcasts/test): те же сообщения, что у broadcast_send, на твой привязанный Telegram (бот должен быть Telegram, а ты — нажать /start у этого бота; иначе 422 owner_chat_not_linked или 502 от Telegram) либо в чат подписчика chatId этого бота (так тестируют MAX/VK). Мимо квоты, очереди и тихих часов, подписчикам ничего не уходит.", inputSchema: { type: "object", properties: { botId: { type: "string" }, messages: { type: "array", items: {} }, chatId: { type: "number", description: "чат подписчика этого бота; пусто — привязанный Telegram владельца" } }, required: ["botId", "messages"] } },
   { name: "broadcast_undo", description: "Отменить УЖЕ ОТПРАВЛЕННУЮ рассылку у получателей — удалить сообщения (фоновая операция с прогрессом и лимитами). Окна: Telegram 48 ч (старше — заглушка «Сообщение удалено», если placeholderForExpired не false), VK 24 ч, MAX без срока. action: preview (по умолчанию; сколько сообщений удалится/просрочено, ничего не меняет) | start (запустить, нужен confirm:true; 202 {opId}) | status (opId; прогресс done/failed/expired/gone/blocked) | pause|resume|cancel (opId). Запланированную/идущую рассылку останавливает broadcast_cancel.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" }, action: { type: "string", enum: ["preview", "start", "status", "pause", "resume", "cancel"] }, opId: { type: "string" }, confirm: { type: "boolean" }, placeholderForExpired: { type: "boolean" } } } },
   { name: "broadcast_cancel", description: "Отменить рассылку (POST /api/bots/broadcasts/{id}/cancel): запланированная не уйдёт, идущая остановится (статус CANCELLING → CANCELLED). Уже завершённую отменить нельзя — HTTP 409. Для группы (dedup/stagger) — broadcast_group {action:\"cancel\"}.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" } }, required: ["broadcastId"] } },
@@ -2324,6 +2330,74 @@ async function handleCall(params) {
         return okResult(await api(path, { method: "PUT", body }));
       }
       throw new Error("action: get | set.");
+    }
+    case "bot_access": {
+      const botId = uuidArg(a.botId, "botId");
+      const base = `/api/bots/${botId}/access`;
+      if (a.action === "get") {
+        const q = [];
+        if (a.q) q.push(`q=${encodeURIComponent(a.q)}`);
+        if (a.page != null) q.push(`page=${encodeURIComponent(a.page)}`);
+        if (a.size != null) q.push(`size=${encodeURIComponent(a.size)}`);
+        return okResult(await api(base + (q.length ? `?${q.join("&")}` : "")));
+      }
+      if (a.action === "settings") {
+        if (typeof a.privateBot !== "boolean") throw new Error("privateBot: true/false.");
+        return okResult(await api(`${base}/settings`, { method: "PUT", body: { privateBot: a.privateBot, deniedMessage: a.deniedMessage ?? null } }));
+      }
+      if (a.action === "add") {
+        const hasItems = Array.isArray(a.items) && a.items.length > 0;
+        if (!hasItems && !String(a.text || "").trim()) throw new Error("Передай items [{kind,value,note?}] или text (по записи в строке).");
+        for (const [i, it] of (hasItems ? a.items : []).entries()) {
+          if (!["TG_ID", "USERNAME", "PHONE"].includes(it?.kind) || !String(it?.value ?? "").trim()) throw new Error(`items[${i}]: kind ∈ TG_ID|USERNAME|PHONE и непустой value.`);
+        }
+        return okResult(await api(`${base}/entries`, { method: "POST", body: hasItems ? { items: a.items } : { text: String(a.text) } }));
+      }
+      if (a.action === "remove") {
+        const entryId = uuidArg(a.entryId, "entryId");
+        return okResult((await api(`${base}/entries/${entryId}`, { method: "DELETE" })) ?? `Запись ${entryId} удалена.`);
+      }
+      if (a.action === "clear") {
+        if (a.confirm !== true) throw new Error("clear удаляет весь список доступа - передай confirm:true.");
+        return okResult((await api(`${base}/entries`, { method: "DELETE" })) ?? "Список доступа очищен.");
+      }
+      throw new Error("action: get | settings | add | remove | clear.");
+    }
+    case "preset_list": {
+      const qs = a.botId ? `?botId=${uuidArg(a.botId, "botId")}` : "";
+      return okResult(withoutSecrets(await api(`/api/block-presets${qs}`)));
+    }
+    case "preset_save": {
+      if (!String(a.name || "").trim()) throw new Error("name обязателен.");
+      if (!String(a.nodeType || "").trim()) throw new Error("nodeType обязателен (например CALL_WEBHOOK).");
+      if (!a.config || typeof a.config !== "object" || Array.isArray(a.config)) throw new Error("config - объект настроек узла.");
+      const body = { name: String(a.name).trim(), description: a.description ?? null, nodeType: String(a.nodeType).trim(), config: a.config, botId: a.botId ? uuidArg(a.botId, "botId") : null };
+      const r = a.presetId
+        ? await api(`/api/block-presets/${uuidArg(a.presetId, "presetId")}`, { method: "PUT", body })
+        : await api("/api/block-presets", { method: "POST", body });
+      return okResult(withoutSecrets(r));
+    }
+    case "preset_delete": {
+      const id = uuidArg(a.presetId, "presetId");
+      await api(`/api/block-presets/${id}`, { method: "DELETE" });
+      return okResult(`Пресет ${id} удалён.`);
+    }
+    case "webhook_requests": {
+      const base = `/api/bots/graphs/${uuidArg(a.graphId, "graphId")}`;
+      const act = a.action || "list";
+      if (act === "list") return okResult(await api(`${base}/webhook-requests`));
+      if (act === "listen") return okResult(await api(`${base}/webhook-listen`, { method: "POST" }));
+      if (act === "stop") return okResult((await api(`${base}/webhook-listen`, { method: "DELETE" })) ?? "Прослушивание выключено.");
+      if (act === "clear") {
+        if (a.confirm !== true) throw new Error("clear стирает журнал запросов - передай confirm:true.");
+        return okResult((await api(`${base}/webhook-requests`, { method: "DELETE" })) ?? "Журнал очищен.");
+      }
+      throw new Error("action: list | listen | stop | clear.");
+    }
+    case "http_test": {
+      if (!/^https?:\/\//i.test(String(a.url || ""))) throw new Error("url обязателен и начинается с http(s)://.");
+      const body = { url: a.url, method: a.method || "GET", headersJson: a.headersJson ?? null, bodyTemplate: a.bodyTemplate ?? null, timeoutMs: a.timeoutMs ?? null, vars: a.vars ?? {} };
+      return okResult(await api("/api/http-test", { method: "POST", body }));
     }
     case "broadcast_test": {
       if (!a.botId) throw new Error("Передай botId (list_bots).");

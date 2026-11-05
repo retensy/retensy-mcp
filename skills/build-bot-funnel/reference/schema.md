@@ -75,7 +75,8 @@
   Бот должен быть админом канала/группы, иначе события оттуда не придут.
 - `TRIGGER_ANY_UPDATE` — `{}`, ловит ЛЮБОЙ апдейт. Приоритет самый низкий: срабатывает, только
   если не подошёл ни один конкретный триггер. Удобен как «ничего не понял» / отладка.
-- `TRIGGER_WEBHOOK` — `{}`, точка входа сценария с источником WEBHOOK (не бот); у графа БОТ-сценария
+- `ACCESS_GATE` — проверка доступа, выходы `allowed` / `denied`. `{ "match":"ANY"|"ALL", "rules":[{ "kind": ALLOWLIST|TG_ID|USERNAME|PHONE|TAG|SEGMENT|PAID_SUBSCRIPTION|VARIABLE, "value"?, "op"?, "key"? }] }`. `ALLOWLIST` смотрит список доступа бота (`bot_access`); `TG_ID`/`USERNAME`/`PHONE` требуют `value`; `TAG` — `value` = тег; `SEGMENT` — `value` = id сегмента (`audience_segments`); `VARIABLE` — `key` (+`op`, `value`, как в CONDITION); `PAID_SUBSCRIPTION` — активная платная подписка. Не для Instagram.
+- `TRIGGER_WEBHOOK` — `{}` (необязательно `mappings:[{path,saveTo}]`: JsonPath из тела входящего запроса `$.data.email` → переменная подписчика; реальное тело смотри `webhook_requests`), точка входа сценария с источником WEBHOOK (не бот); у графа БОТ-сценария
   этот триггер не сработает. Такой сценарий создаётся `scenario_create(name)` без `botId` — сервер сам
   выпускает путь входа и секрет (видны в `scenario_get` → `source.config`, ротируются `scenario_rotate_secret`);
   узлы/рёбра — как у обычного графа, через `update_graph`/`edit_graph_live`/`patch_graph` по вернувшемуся id.
@@ -535,8 +536,9 @@ node validate.mjs graph.json --platform=INSTAGRAM
 | `BRANCH` | `case_<id>`, `default` |
 | `ASK_QUESTION` | `valid`, `invalid` |
 | `SEND_MESSAGE` с `awaitReply:true` | `valid`, `invalid` (+ `btn_N` для кнопок) |
-| `CALL_WEBHOOK` | `ok`, `error` |
-| `ACTIONS` | `next`, плюс `error` — если внутри есть действие, которое может упасть (внешний запрос, CRM, Таблицы); `taken` — слот `booking_book` занят |
+| `CALL_WEBHOOK` | `ok`, `error`, необязательный `timeout` (запрос не уложился в `timeoutMs`; без ребра идёт в `error`) |
+| `ACCESS_GATE` | `allowed`, `denied` |
+| `ACTIONS` | `next`, плюс `timeout` (необязательный: `external_request` не уложился в таймаут) и `error` — если внутри есть действие, которое может упасть (внешний запрос, CRM, Таблицы); `taken` — слот `booking_book` занят |
 | `SWITCH` | `case_<id>`, `default` |
 | `RANDOM_TEXT` | `next`, `error` |
 | `STOP_AND_ERROR` | выходов нет (терминатор) |

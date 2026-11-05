@@ -184,6 +184,22 @@ check("CONDITION BUSINESS/IS: без предупреждения о kind/op", !
 const bizCondBad = node("CONDITION", { match: "ALL", conditions: [{ kind: "BUSINESS", op: "MAYBE" }] });
 check("CONDITION BUSINESS/MAYBE: предупреждение об op", run([trig, bizCondBad, bizMsg], [edge(trig, bizCondBad), edge(bizCondBad, bizMsg, "yes")]).out.includes("не из {IS,IS_NOT}"));
 
+// ACCESS_GATE и маппинг TRIGGER_WEBHOOK
+const gateOk = node("ACCESS_GATE", { match: "ANY", rules: [{ kind: "ALLOWLIST" }, { kind: "TG_ID", value: "123" }, { kind: "TAG", value: "vip" }, { kind: "SEGMENT", value: "s1" }, { kind: "VARIABLE", key: "plan", op: "EQUALS", value: "pro" }] });
+const gateRun = run([trig, gateOk, bizMsg], [edge(trig, gateOk), edge(gateOk, bizMsg, "allowed")]);
+check("ACCESS_GATE: корректный узел без ошибок ACCESS_GATE_*", !gateRun.out.includes("ACCESS_GATE_"));
+const gateBad = (cfg) => run([trig, node("ACCESS_GATE", cfg)], []).out;
+check("ACCESS_GATE: без правил - ACCESS_GATE_NO_RULES", gateBad({ match: "ANY", rules: [] }).includes("ACCESS_GATE_NO_RULES"));
+check("ACCESS_GATE: неизвестный kind", gateBad({ rules: [{ kind: "FOO" }] }).includes("ACCESS_GATE_BAD_KIND"));
+check("ACCESS_GATE: TG_ID/USERNAME/PHONE без value", ["TG_ID", "USERNAME", "PHONE"].every((k) => gateBad({ rules: [{ kind: k, value: " " }] }).includes("ACCESS_GATE_NO_VALUE")));
+check("ACCESS_GATE: SEGMENT без value", gateBad({ rules: [{ kind: "SEGMENT" }] }).includes("ACCESS_GATE_NO_SEGMENT"));
+check("ACCESS_GATE: VARIABLE без key", gateBad({ rules: [{ kind: "VARIABLE" }] }).includes("ACCESS_GATE_NO_KEY"));
+check("ACCESS_GATE: плохой match", gateBad({ match: "SOME", rules: [{ kind: "ALLOWLIST" }] }).includes("ACCESS_GATE_BAD_MATCH"));
+const whBad = (cfg) => run([node("TRIGGER_WEBHOOK", cfg)], []).out;
+check("TRIGGER_WEBHOOK mappings: корректные без ошибок", !whBad({ mappings: [{ path: "$.data.email", saveTo: "email" }] }).includes("WEBHOOK_BAD_MAPPING"));
+check("TRIGGER_WEBHOOK mappings: path без $", whBad({ mappings: [{ path: "data.email", saveTo: "email" }] }).includes("WEBHOOK_BAD_MAPPING_PATH"));
+check("TRIGGER_WEBHOOK mappings: плохое saveTo", whBad({ mappings: [{ path: "$.a", saveTo: "Bad-Name" }] }).includes("WEBHOOK_BAD_MAPPING_SAVE_TO"));
+
 fs.rmSync(dir, { recursive: true, force: true });
 if (failed) { console.error(`validate-graph: провалов ${failed}`); process.exit(1); }
 console.log("validate-graph OK");
