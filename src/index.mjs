@@ -1193,6 +1193,8 @@ const TOOLS = [
   { name: "link_delete", description: "Удалить стартовую ссылку (DELETE /api/bots/links/{linkId}); id — из list_links. Разосланные ссылки перестанут считаться. Только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { linkId: { type: "string" }, confirm: { type: "boolean" } }, required: ["linkId", "confirm"] } },
   { name: "utm_sources", description: "UTM-источники подписчиков бота (GET /api/bots/{botId}/utm-sources): по каким меткам utm_* люди входили в сценарии и сколько их. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   { name: "source_revenue", description: "Отчёт источник -> выручка по боту (GET /api/bots/{botId}/analytics/source-revenue): по каждому источнику (UTM или стартовая ссылка) подписчики периода, покупатели, выручка (RUB копейки revenueKop + Stars revenueStars), конверсия. Когорта: подписчики за from..to и все их оплаты. Даты YYYY-MM-DD, окно до 92 дней. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, from: { type: "string", description: "YYYY-MM-DD" }, to: { type: "string", description: "YYYY-MM-DD" } }, required: ["botId", "from", "to"] } },
+  { name: "bot_health", description: "Здоровье бота: статус OK/WARN/CRIT и список проблем с подсказками что делать (GET /api/bots/{botId}/health, свежий расчёт). Коды: TOKEN_REVOKED (токен отозван), TOKEN_CONFLICT (409, токен занят другим сервисом), POLLING_FAILURE (сбои getUpdates), SCENARIO_ERRORS (много упавших прогонов за сутки), PAYMENT_WEBHOOK_FAILURE (сбой обработки платежа), CONVERSION_DROP (конверсия старт->оплата ниже половины недельной нормы), AGENT_UNANSWERED_SPIKE (всплеск вопросов без ответа у ИИ-агента). Без botId - сохранённый статус всех ботов (GET /api/bots/health). Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string", description: "Пусто - статус всех ботов из последнего обхода монитора" } } } },
+  { name: "unsubscribe_reasons", description: "Причины отписки подписчиков бота за период (GET /api/bots/{botId}/unsubscribe-reasons?days): {total, answered, byCode:[{code,count}] (blocked, unspecified, too_often, not_relevant, not_interested, found_other, other), clusters:[{label,count,samples}] (темы свободных ответов, группирует ИИ раз в неделю), recentTexts}. Спрос причины включается в настройках бота (Здоровье и отписки). days 1..365, по умолчанию 30. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, days: { type: "number", description: "1..365, по умолчанию 30" } }, required: ["botId"] } },
   { name: "ab_results", description: "Результаты A/B-теста (GET /api/bots/graphs/{graphId}/ab-results?branchNodeId&period): статистика по вариантам узла-развилки. branchNodeId — id узла A/B в графе; period — «24h», «7d», «30d» (по умолчанию 7d). Read-only.", inputSchema: { type: "object", properties: { graphId: { type: "string" }, branchNodeId: { type: "string" }, period: { type: "string" } }, required: ["graphId", "branchNodeId"] } },
   { name: "kb_delete", description: "УДАЛИТЬ базу знаний целиком со всеми документами (DELETE /api/bots/kb/{kbId}). База ИИ-агента так не удаляется (ошибка KB_OWNED_BY_AGENT) — удаляй агента. Необратимо: только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { kbId: { type: "string" }, confirm: { type: "boolean" } }, required: ["kbId", "confirm"] } },
   { name: "agent_unpublish", description: "Снять ИИ-агента с публикации (POST /api/bots/agents/{agentId}/unpublish): агент возвращается в черновик и перестаёт отвечать. В ответе — agent и сценарии, которые сейчас на нём работают (их стоит проверить).", inputSchema: { type: "object", properties: { agentId: { type: "string" } }, required: ["agentId"] } },
@@ -1875,6 +1877,19 @@ async function handleCall(params) {
       if (a.confirm !== true) throw new Error("Удаление ссылки необратимо. Спроси пользователя и повтори с confirm:true.");
       await api(`/api/bots/links/${linkId}`, { method: "DELETE" });
       return okResult(`🗑️ Ссылка ${linkId} удалена.`);
+    }
+    case "bot_health": {
+      if (a.botId == null || a.botId === "") return okResult(await api("/api/bots/health"));
+      return okResult(await api(`/api/bots/${uuidArg(a.botId, "botId")}/health`));
+    }
+    case "unsubscribe_reasons": {
+      const botId = uuidArg(a.botId, "botId");
+      let days = 30;
+      if (a.days != null && a.days !== "") {
+        days = Number(a.days);
+        if (!Number.isInteger(days) || days < 1 || days > 365) throw new Error("days: целое число от 1 до 365.");
+      }
+      return okResult(await api(`/api/bots/${botId}/unsubscribe-reasons?days=${days}`));
     }
     case "source_revenue": {
       const d = (v, n) => { if (typeof v !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error(`${n}: нужна дата YYYY-MM-DD`); return v; };

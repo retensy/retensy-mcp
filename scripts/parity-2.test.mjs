@@ -132,6 +132,16 @@ check("ab_results → GET ?branchNodeId&period", !!req("GET", `/api/bots/graphs/
 check("ab_results без branchNodeId — ошибка", isErr(await call("ab_results", { graphId: G })));
 check("ab_results period=week — ошибка", isErr(await call("ab_results", { graphId: G, branchNodeId: N, period: "week" })));
 
+// ---- здоровье бота и причины отписки ----
+await call("bot_health", { botId: B });
+check("bot_health botId → GET /api/bots/{id}/health", !!req("GET", `/api/bots/${B}/health`));
+await call("bot_health", {});
+check("bot_health без botId → GET /api/bots/health", !!req("GET", "/api/bots/health"));
+check("bot_health кривой botId — ошибка", isErr(await call("bot_health", { botId: "x" })));
+await call("unsubscribe_reasons", { botId: B, days: 7 });
+check("unsubscribe_reasons → GET ?days=7", !!req("GET", `/api/bots/${B}/unsubscribe-reasons?days=7`));
+check("unsubscribe_reasons days=0 — ошибка", isErr(await call("unsubscribe_reasons", { botId: B, days: 0 })));
+
 // ---- база знаний и агент ----
 check("kb_delete без confirm — ошибка до запроса", isErr(await call("kb_delete", { kbId: "kb1" })) && !req("DELETE", "/api/bots/kb/kb1"));
 await call("kb_delete", { kbId: "kb1", confirm: true });
