@@ -2717,6 +2717,8 @@ const catalog = createCatalog({
   enabled: (process.env.RETENSY_MCP_CATALOG || "on").trim().toLowerCase() !== "off",
 });
 
+const LOCAL_TOOL_NAMES = new Set(TOOLS.map((t) => t.name));
+
 /** Инструмент каталога: сервер сам проверит права токена, тариф и подтверждение. */
 async function callCatalog(params) {
   try {
@@ -2755,7 +2757,7 @@ rl.on("line", async (line) => {
     } else if (method === "tools/call") {
       let result;
       try {
-        result = isAuthed() && catalog.has(params?.name) ? await callCatalog(params) : await handleCall(params);
+        result = isAuthed() && catalog.has(params?.name) && !LOCAL_TOOL_NAMES.has(params?.name) ? await callCatalog(params) : await handleCall(params);
         if (params?.name === "set_token") refreshCatalog(); // новый токен — другой набор прав и действий
       } catch (e) {
         result = errResult(e);
