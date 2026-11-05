@@ -89,6 +89,7 @@
   `amount` (`YK_NO_AMOUNT`/`YK_BAD_AMOUNT`), `description` (`YK_NO_DESC`).
 - `TRIGGER_BOOKING`: `events` непустой список из booked|confirmed|cancelled|reminder|after_visit (`BOOKING_TRIGGER_NO_EVENTS`, `BOOKING_TRIGGER_BAD_EVENT`);
   `calendarId` UUID или пусто (`BOOKING_TRIGGER_BAD_CALENDAR`); `hoursBefore` 1..720, `hoursAfter` 1..168 (`BOOKING_TRIGGER_BAD_HOURS`).
+- `TRIGGER_LINK_CLICK`: `sourceNodeId` (если задан) - UUID шага (`LINK_CLICK_BAD_SOURCE`), `buttonIdx` (если задан) - целое 0..99 (`LINK_CLICK_BAD_BUTTON`).
 - `start_broadcast` (в `ACTIONS`): `draftId` UUID (`BROADCAST_BAD_DRAFT`), `segmentId` UUID или пусто (`BROADCAST_BAD_SEGMENT`),
   `minIntervalHours` целое 1..720 (`BROADCAST_BAD_INTERVAL`).
 - `TRIGGER_PAYMENT`: обязательных полей нет. Фильтры `minAmount`/`descriptionContains`

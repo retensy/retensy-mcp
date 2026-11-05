@@ -104,6 +104,7 @@
   `hoursBefore` 1..720 для `reminder`, `hoursAfter` 1..168 для `after_visit` (`BOOKING_TRIGGER_BAD_HOURS`). Если запись сделана через бота,
   сценарий идёт в диалоге клиента; иначе без получателя. Переменные: `{{booking.id}}`, `{{booking.event}}`, `{{booking.calendar}}`,
   `{{booking.start}}`, `{{booking.end}}`, `{{booking.label}}`, `{{booking.name}}`, `{{booking.phone}}`. Каждое событие на запись срабатывает один раз.
+- `TRIGGER_LINK_CLICK` — подписчик первый раз нажал отслеживаемую URL-кнопку (кнопка с `track:true`) в сообщении: `{ "sourceNodeId": "<uuid шага, необязательно = любой>", "buttonIdx": 0 }` (buttonIdx с нуля, необязательно). Сценарий идёт в диалоге кликнувшего; в шаблонах `{{link_click.url}}`, `{{link_click.buttonIdx}}`. Только основной сценарий бота.
 - `TRIGGER_SITE_FORM` — `{ "siteId": "<uuid сайта>", "formId": "<id формы>" }` — заявка с формы
   опубликованного сайта владельца. `formId` пустой/нет = любая форма сайта. `siteId` обязателен
   (`SITE_FORM_NO_SITE`), сайт должен быть свой (`SITE_FORM_FOREIGN_SITE`). Переменные: поля формы
