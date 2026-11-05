@@ -1,8 +1,10 @@
 // Проверка tools[] агента до отправки в agent_update: зеркало AiAgentService.tools + AgentWriteToolConfig
 // на бэкенде (не строже его — иначе MCP отвергнет то, что сервер принял бы). Возвращает список ошибок.
 
-const READ = ["AMO_LOOKUP", "SHEETS_LOOKUP", "HTTP_API"];
-const WRITE = ["AMO_CREATE_LEAD", "AMO_UPDATE_LEAD", "AMO_UPDATE_CONTACT", "SHEETS_APPEND", "HTTP_POST", "SET_FIELD", "ADD_TAG", "HANDOFF"];
+const READ = ["AMO_LOOKUP", "SHEETS_LOOKUP", "HTTP_API", "BOOKING_SLOTS"];
+const WRITE = ["AMO_CREATE_LEAD", "AMO_UPDATE_LEAD", "AMO_UPDATE_CONTACT", "SHEETS_APPEND", "HTTP_POST", "SET_FIELD", "ADD_TAG", "HANDOFF", "BOOKING_BOOK", "PAYMENT_LINK", "PUBLISH_POST"];
+// схема аргументов этих инструментов фиксирована сервером
+const FIXED_SCHEMA = ["SET_FIELD", "ADD_TAG", "HANDOFF", "BOOKING_BOOK", "PAYMENT_LINK", "PUBLISH_POST"];
 const ARG_NAME = /^[A-Za-z_][A-Za-z0-9_]{0,39}$/;
 const PROP_KEYS = new Set(["type", "description", "enum", "pattern", "maxLength", "minLength", "minimum", "maximum"]);
 const SCHEMA_KEYS = new Set(["type", "properties", "required", "description"]);
@@ -54,16 +56,28 @@ export function validateAgentTools(tools) {
     ids.add(t.id);
     if (!t.title) errs.push(`${id}: нужен title`);
     if (![...READ, ...WRITE].includes(t.type)) { errs.push(`${id}: неизвестный type ${t.type}`); continue; }
+    if (t.type === "BOOKING_SLOTS" && !t.bookingCalendarId) errs.push(`${id}: нужен bookingCalendarId (booking_calendar_list)`);
     if (!WRITE.includes(t.type)) continue;
     for (const [k, max] of [["limitPerConversation", 20], ["limitPerDay", 1000]]) {
       if (t[k] != null && !(Number.isInteger(t[k]) && t[k] >= 1 && t[k] <= max)) errs.push(`${id}: ${k} — число от 1 до ${max}`);
     }
     let known = new Set();
-    if (!["SET_FIELD", "ADD_TAG", "HANDOFF"].includes(t.type)) known = schemaErrors(t.argsSchema, errs, id);
+    if (!FIXED_SCHEMA.includes(t.type)) known = schemaErrors(t.argsSchema, errs, id);
     if (t.type.startsWith("AMO_") && !t.amoConnectionId) errs.push(`${id}: нужен amoConnectionId (подключение amoCRM)`);
     if (t.type === "AMO_CREATE_LEAD" && !t.amoLeadName) errs.push(`${id}: нужен amoLeadName`);
     if (t.type === "AMO_UPDATE_LEAD" && !t.amoLeadId) errs.push(`${id}: нужен amoLeadId`);
     if (t.type === "AMO_UPDATE_CONTACT" && !t.amoContactId) errs.push(`${id}: нужен amoContactId`);
+    if (t.type === "BOOKING_BOOK" && !t.bookingCalendarId) errs.push(`${id}: нужен bookingCalendarId (booking_calendar_list)`);
+    if (t.type === "PAYMENT_LINK") {
+      if (!t.payConnectionId) errs.push(`${id}: нужен payConnectionId (подключение ЮKassa)`);
+      if (!(Number(String(t.payAmount ?? "").replace(",", ".")) > 0)) errs.push(`${id}: payAmount — положительная сумма`);
+      if (!t.payDescription) errs.push(`${id}: нужен payDescription`);
+    }
+    if (t.type === "PUBLISH_POST") {
+      if (t.publishTarget === "vk") { if (!t.publishAccountId) errs.push(`${id}: нужен publishAccountId (vk_status)`); }
+      else if (t.publishTarget === "channel") { if (!t.publishBotId || t.publishChatId == null) errs.push(`${id}: нужны publishBotId и publishChatId (bot_channel_list)`); }
+      else errs.push(`${id}: publishTarget — channel|vk`);
+    }
     if (t.type === "SHEETS_APPEND") {
       if (!t.sheetsEmail || !t.sheetsSpreadsheetId) errs.push(`${id}: нужны sheetsEmail и sheetsSpreadsheetId`);
       if (!Array.isArray(t.sheetsRowTemplate) || t.sheetsRowTemplate.length === 0) errs.push(`${id}: нужен sheetsRowTemplate (ячейки)`);

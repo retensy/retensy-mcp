@@ -74,6 +74,21 @@ for (const code of ["PUBLISH_NO_DESTINATION", "CHAIN_ENQUEUE_BAD_CHAIN", "CHAIN_
 const pubOk = node("ACTIONS", { actions: [{ kind: "publish_post", target: "vk", accountId: "a1", text: "x" }, { kind: "chain_enqueue", chainId: randomUUID(), text: "y" }] });
 check("публикации: корректные действия проходят", run([trig, pubOk], [edge(trig, pubOk)]).code === 0);
 
+// start_broadcast и TRIGGER_BOOKING
+const bcBad = node("ACTIONS", { actions: [{ kind: "start_broadcast", draftId: "nope", segmentId: "x", minIntervalHours: 0 }] });
+const bcb = run([trig, bcBad], [edge(trig, bcBad)]);
+for (const code of ["BROADCAST_BAD_DRAFT", "BROADCAST_BAD_SEGMENT", "BROADCAST_BAD_INTERVAL"]) check(`start_broadcast — ${code}`, bcb.out.includes(code));
+const bcOk = node("ACTIONS", { actions: [{ kind: "start_broadcast", draftId: randomUUID(), minIntervalHours: 24, idempotencyKey: "promo-{{var.id}}" }] });
+check("start_broadcast: корректное действие проходит", run([trig, bcOk], [edge(trig, bcOk)]).code === 0);
+const bkTrig = node("TRIGGER_BOOKING", { events: [] });
+const bkMsg = node("SEND_MESSAGE", { text: "Запись {{booking.label}}", cards: [{ type: "text", text: "Запись {{booking.label}}" }] });
+check("TRIGGER_BOOKING без событий — BOOKING_TRIGGER_NO_EVENTS", run([bkTrig, bkMsg], [edge(bkTrig, bkMsg)]).out.includes("BOOKING_TRIGGER_NO_EVENTS"));
+const bkBad = node("TRIGGER_BOOKING", { events: ["booked", "oops"], calendarId: "x", hoursBefore: 999 });
+const bkb = run([bkBad, bkMsg], [edge(bkBad, bkMsg)]);
+for (const code of ["BOOKING_TRIGGER_BAD_EVENT", "BOOKING_TRIGGER_BAD_CALENDAR", "BOOKING_TRIGGER_BAD_HOURS"]) check(`TRIGGER_BOOKING — ${code}`, bkb.out.includes(code));
+const bkOk = node("TRIGGER_BOOKING", { events: ["booked", "reminder"], hoursBefore: 24 });
+check("TRIGGER_BOOKING: корректный проходит", run([bkOk, bkMsg], [edge(bkOk, bkMsg)]).code === 0);
+
 // fix-раунд 1, Minor: запятая/несколько адресов не должны проходить как один получатель
 const commaActs = node("ACTIONS", { actions: [{ kind: "send_email", email: "a@b.c,admin@evil.com", text: "Текст" }] });
 const comma = run([trig, commaActs], [edge(trig, commaActs)]);

@@ -79,7 +79,7 @@ const ACTION_KINDS = new Set([
   "yookassa_charge_saved",
   "booking_slots", "booking_book", "booking_cancel", "lead_link_contact", "sla_check",
   "call_scenario",
-  "publish_post", "chain_enqueue",
+  "publish_post", "chain_enqueue", "start_broadcast",
   "send_email",
   // Integration Core (провайдеры из integration_catalog) — бэкенд узнаёт их через реестр, здесь — известные:
   "meta_capi_event",
@@ -246,6 +246,20 @@ for (const n of nodes) {
       else if (!UUID_RE.test(String(c.siteId).trim())) errors.push(`SITE_FORM_NO_SITE: ${who} — siteId «${c.siteId}» не UUID сайта (site_list).`);
       if (c.formId != null && typeof c.formId !== "string") errors.push(`${who}: formId — строка (id формы из site_get) или пусто = любая форма.`);
       break;
+    case "TRIGGER_BOOKING": {
+      const EVENTS = ["booked", "confirmed", "cancelled", "reminder", "after_visit"];
+      if (!Array.isArray(c.events) || c.events.length === 0) {
+        errors.push(`BOOKING_TRIGGER_NO_EVENTS: ${who} — events: непустой список из ${EVENTS.join("|")}.`);
+      } else {
+        for (const e of c.events) if (!EVENTS.includes(e)) errors.push(`BOOKING_TRIGGER_BAD_EVENT: ${who} — неизвестное событие «${e}» (${EVENTS.join("|")}).`);
+      }
+      if (!blank(c.calendarId) && !UUID_RE.test(String(c.calendarId).trim()))
+        errors.push(`BOOKING_TRIGGER_BAD_CALENDAR: ${who} — calendarId = UUID календаря (booking_calendar_list) или пусто = любой.`);
+      const hrs = (k, max) => c[k] != null && !(Number.isInteger(c[k]) && c[k] >= 1 && c[k] <= max);
+      if (hrs("hoursBefore", 720)) errors.push(`BOOKING_TRIGGER_BAD_HOURS: ${who} — hoursBefore — целое 1..720 (по умолчанию 24).`);
+      if (hrs("hoursAfter", 168)) errors.push(`BOOKING_TRIGGER_BAD_HOURS: ${who} — hoursAfter — целое 1..168 (по умолчанию 2).`);
+      break;
+    }
     case "TRIGGER_COMMENT":
       errors.push(`TRIGGER_COMMENT_DEAD: ${who} — этот тип триггера не сработает никогда (рантайм не выставляет event=comment). Для Instagram используй TRIGGER_IG_COMMENT.`);
       break;
@@ -431,6 +445,16 @@ for (const n of nodes) {
           else if (blank(a.target === "vk" ? a.accountId : a.chatId))
             errors.push(`PUBLISH_NO_DESTINATION: ${who} — publish_post.${a.target === "vk" ? "accountId" : "chatId"} обязателен.`);
           if (blank(a.text) && blank(a.mediaUrl)) errors.push(`PUBLISH_EMPTY: ${who} — publish_post требует text или mediaUrl.`);
+        }
+        if (a.kind === "start_broadcast") {
+          if (!UUID_RE.test(String(a.draftId || "").trim()))
+            errors.push(`BROADCAST_BAD_DRAFT: ${who} — start_broadcast.draftId = UUID черновика рассылки (broadcast_drafts).`);
+          if (!blank(a.segmentId) && !UUID_RE.test(String(a.segmentId).trim()))
+            errors.push(`BROADCAST_BAD_SEGMENT: ${who} — start_broadcast.segmentId = UUID сохранённого сегмента (audience_segments) или пусто.`);
+          if (a.minIntervalHours != null && !(Number.isInteger(a.minIntervalHours) && a.minIntervalHours >= 1 && a.minIntervalHours <= 720))
+            errors.push(`BROADCAST_BAD_INTERVAL: ${who} — start_broadcast.minIntervalHours — целое 1..720 (по умолчанию 24).`);
+          if (a.idempotencyKey != null && (typeof a.idempotencyKey !== "string" || a.idempotencyKey.length > 100))
+            errors.push(`${who}: start_broadcast.idempotencyKey — строка до 100 символов.`);
         }
         if (a.kind === "chain_enqueue") {
           if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(a.chainId || "").trim()))
