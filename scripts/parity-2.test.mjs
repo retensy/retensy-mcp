@@ -57,7 +57,7 @@ const BASE = `http://127.0.0.1:${srv.address().port}`;
 
 const home = fs.mkdtempSync(join(os.tmpdir(), "retensy-mcp-p2-"));
 const child = spawn(process.execPath, [join(root, "src", "index.mjs")], {
-  env: { ...process.env, HOME: home, USERPROFILE: home, RETENSY_BASE_URL: BASE, RETENSY_MCP_TOKEN: "zmcp_test_p2",
+  env: { RETENSY_MCP_CATALOG: "off", ...process.env, HOME: home, USERPROFILE: home, RETENSY_BASE_URL: BASE, RETENSY_MCP_TOKEN: "zmcp_test_p2",
     RETENSY_MCP_TELEMETRY: "off", RETENSY_MCP_AUTOUPDATE: "0" },
   stdio: ["pipe", "pipe", "ignore"],
 });

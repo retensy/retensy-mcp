@@ -57,7 +57,7 @@ await new Promise((r) => srv.listen(0, "127.0.0.1", r));
 
 const home = fs.mkdtempSync(join(os.tmpdir(), "retensy-mcp-422-"));
 const child = spawn(process.execPath, [join(root, "src", "index.mjs")], {
-  env: {
+  env: { RETENSY_MCP_CATALOG: "off",
     ...process.env,
     HOME: home, USERPROFILE: home,          // изолируем файл токена от реального
     RETENSY_BASE_URL: `http://127.0.0.1:${srv.address().port}`,

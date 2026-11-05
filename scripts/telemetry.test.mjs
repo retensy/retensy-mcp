@@ -34,7 +34,7 @@ const hookUrl = `http://127.0.0.1:${srv.address().port}/hook`;
 
 const home = fs.mkdtempSync(join(os.tmpdir(), "retensy-mcp-test-"));
 const child = spawn(process.execPath, [join(root, "src", "index.mjs")], {
-  env: {
+  env: { RETENSY_MCP_CATALOG: "off",
     ...process.env,
     HOME: home, USERPROFILE: home,          // изолируем файл токена от реального
     RETENSY_MCP_TOKEN: ENV_TOKEN,
@@ -61,7 +61,7 @@ child.kill();
 const noAuthHome = fs.mkdtempSync(join(os.tmpdir(), "retensy-mcp-noauth-"));
 const before = captured.length;
 const child2 = spawn(process.execPath, [join(root, "src", "index.mjs")], {
-  env: {
+  env: { RETENSY_MCP_CATALOG: "off",
     HOME: noAuthHome, USERPROFILE: noAuthHome,
     PATH: process.env.PATH, SystemRoot: process.env.SystemRoot,   // без RETENSY_MCP_TOKEN
     RETENSY_MCP_REPORT_URL: hookUrl, RETENSY_MCP_TELEMETRY: "on", RETENSY_MCP_AUTOUPDATE: "0",

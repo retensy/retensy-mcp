@@ -22,6 +22,7 @@
 
 import { createInterface } from "node:readline";
 import { validateAgentTools } from "./agent-tools.mjs";
+import { createCatalog, mergeTools, confirmationText } from "./catalog.mjs";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import os from "node:os";
@@ -2708,6 +2709,32 @@ async function handleCall(params) {
   }
 }
 
+// ---- Единый каталог действий (тот же, что у «Чата с ИИ» в кабинете) ----
+const catalog = createCatalog({
+  base: BASE,
+  headers: authHeaders,
+  configDir: CONFIG_DIR,
+  enabled: (process.env.RETENSY_MCP_CATALOG || "on").trim().toLowerCase() !== "off",
+});
+
+/** Инструмент каталога: сервер сам проверит права токена, тариф и подтверждение. */
+async function callCatalog(params) {
+  try {
+    return okResult(await api("/api/agent-tools/invoke", { method: "POST", body: { name: params.name, args: params.arguments || {} } }));
+  } catch (e) {
+    const text = e?.status === 409 ? confirmationText(e.data) : null;
+    if (text) return okResult(text);
+    throw e;
+  }
+}
+
+function notifyListChanged() { send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" }); }
+/** Обновить каталог в фоне; изменился набор — сказать клиенту перечитать tools/list. */
+function refreshCatalog() {
+  if (!isAuthed()) return;
+  catalog.refresh().then((changed) => { if (changed) notifyListChanged(); }).catch(() => {});
+}
+
 // ---- JSON-RPC stdio (MCP) ----
 function send(msg) { process.stdout.write(JSON.stringify(msg) + "\n"); }
 
@@ -2720,13 +2747,16 @@ rl.on("line", async (line) => {
   const { id, method, params } = req;
   try {
     if (method === "initialize") {
-      send({ jsonrpc: "2.0", id, result: { protocolVersion: "2024-11-05", capabilities: { tools: {} }, serverInfo: { name: "retensy-mcp", version: VERSION } } });
+      send({ jsonrpc: "2.0", id, result: { protocolVersion: "2024-11-05", capabilities: { tools: { listChanged: true } }, serverInfo: { name: "retensy-mcp", version: VERSION } } });
+      refreshCatalog();
     } else if (method === "tools/list") {
-      send({ jsonrpc: "2.0", id, result: { tools: TOOLS } });
+      send({ jsonrpc: "2.0", id, result: { tools: mergeTools(TOOLS, catalog.tools()) } });
+      if (catalog.stale()) refreshCatalog();
     } else if (method === "tools/call") {
       let result;
       try {
-        result = await handleCall(params);
+        result = isAuthed() && catalog.has(params?.name) ? await callCatalog(params) : await handleCall(params);
+        if (params?.name === "set_token") refreshCatalog(); // новый токен — другой набор прав и действий
       } catch (e) {
         result = errResult(e);
         // Единая точка: сюда приходит ЛЮБАЯ неудача инструмента — в т.ч. «Неизвестный

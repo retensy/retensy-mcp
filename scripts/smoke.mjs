@@ -9,7 +9,7 @@ import { dirname, join } from "node:path";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const child = spawn(process.execPath, [join(root, "src", "index.mjs")], {
-  env: { ...process.env, RETENSY_MCP_TOKEN: "zmcp_smoke" },
+  env: { ...process.env, RETENSY_MCP_TOKEN: "zmcp_smoke", RETENSY_MCP_CATALOG: "off" },
   stdio: ["pipe", "pipe", "inherit"],
 });
 

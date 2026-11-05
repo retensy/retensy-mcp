@@ -31,7 +31,7 @@ const srv = http.createServer((req, res) => {
 await new Promise((r) => srv.listen(0, "127.0.0.1", r));
 
 const child = spawn(process.execPath, [join(root, "src", "index.mjs")], {
-  env: {
+  env: { RETENSY_MCP_CATALOG: "off",
     ...process.env,
     RETENSY_BASE_URL: `http://127.0.0.1:${srv.address().port}`,
     RETENSY_MCP_TOKEN: "zmcp_test_agents", RETENSY_MCP_TELEMETRY: "off", RETENSY_MCP_AUTOUPDATE: "0",
