@@ -79,6 +79,7 @@ const ACTION_KINDS = new Set([
   "yookassa_charge_saved",
   "booking_slots", "booking_book", "booking_cancel", "lead_link_contact", "sla_check",
   "call_scenario",
+  "publish_post", "chain_enqueue",
   "send_email",
   // Integration Core (провайдеры из integration_catalog) — бэкенд узнаёт их через реестр, здесь — известные:
   "meta_capi_event",
@@ -424,6 +425,18 @@ for (const n of nodes) {
           errors.push(`ACTION_BOOKING_NO_CALENDAR: ${who} — ${a.kind} требует calendarId (booking_calendar_list).`);
         if (["booking_slots", "booking_book"].includes(a.kind) && !blank(a.saveTo) && !VAR_RE.test(String(a.saveTo)))
           errors.push(`ACTION_BAD_KEY: ${who} — ${a.kind}.saveTo ∈ [a-z_][a-z0-9_]{0,63}.`);
+        if (a.kind === "publish_post") {
+          if (a.target !== "channel" && a.target !== "vk")
+            errors.push(`PUBLISH_BAD_TARGET: ${who} — publish_post.target ∈ channel|vk.`);
+          else if (blank(a.target === "vk" ? a.accountId : a.chatId))
+            errors.push(`PUBLISH_NO_DESTINATION: ${who} — publish_post.${a.target === "vk" ? "accountId" : "chatId"} обязателен.`);
+          if (blank(a.text) && blank(a.mediaUrl)) errors.push(`PUBLISH_EMPTY: ${who} — publish_post требует text или mediaUrl.`);
+        }
+        if (a.kind === "chain_enqueue") {
+          if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(a.chainId || "").trim()))
+            errors.push(`CHAIN_ENQUEUE_BAD_CHAIN: ${who} — chain_enqueue.chainId = UUID цепочки (chain_list).`);
+          if (blank(a.text) && blank(a.mediaUrl)) errors.push(`CHAIN_ENQUEUE_EMPTY: ${who} — chain_enqueue требует text или mediaUrl.`);
+        }
         if (["add_tag", "remove_tag", "autoflow_add", "autoflow_remove"].includes(a.kind) && !TAG_RE.test(String(a.tag || "")))
           errors.push(`ACTION_BAD_TAG: ${who} — ${a.kind}.tag ∈ [a-z0-9_-]{1,64}.`);
         if (a.kind === "set_field" && !VAR_RE.test(String(a.key || "")))

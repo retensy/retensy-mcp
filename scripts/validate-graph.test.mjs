@@ -67,6 +67,13 @@ for (const code of ["SCHEDULE_TRIGGER_BAD_CRON", "SCHEDULE_TRIGGER_BAD_TIMEZONE"
   check(`плохой граф — ${code}`, bad.out.includes(code));
 }
 
+// публикации из сценария
+const pubBad = node("ACTIONS", { actions: [{ kind: "publish_post", target: "channel", text: "x" }, { kind: "chain_enqueue", chainId: "nope" }] });
+const pb = run([trig, pubBad], [edge(trig, pubBad)]);
+for (const code of ["PUBLISH_NO_DESTINATION", "CHAIN_ENQUEUE_BAD_CHAIN", "CHAIN_ENQUEUE_EMPTY"]) check(`публикации — ${code}`, pb.out.includes(code));
+const pubOk = node("ACTIONS", { actions: [{ kind: "publish_post", target: "vk", accountId: "a1", text: "x" }, { kind: "chain_enqueue", chainId: randomUUID(), text: "y" }] });
+check("публикации: корректные действия проходят", run([trig, pubOk], [edge(trig, pubOk)]).code === 0);
+
 // fix-раунд 1, Minor: запятая/несколько адресов не должны проходить как один получатель
 const commaActs = node("ACTIONS", { actions: [{ kind: "send_email", email: "a@b.c,admin@evil.com", text: "Текст" }] });
 const comma = run([trig, commaActs], [edge(trig, commaActs)]);
