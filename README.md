@@ -257,6 +257,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `agent_health(agentId)` | счётчики документов/фрагментов базы знаний |
 | `agent_test_chat(agentId, question, history?)` | проверить ответ в песочнице (**тратит бюджет ИИ** — не вызывай массово) |
 | `agent_unanswered(agentId, days?)` | вопросы без ответа за период (7\|30\|90, по умолчанию 30) |
+| `analytics_ask(question)` | вопрос к аналитике по-русски: бэкенд переводит его в вызов белого списка запросов по данным владельца, ответ с числом, таблицей и «как посчитано»; тратит квоту ИИ |
+| `faq_suggestions(agentId, action, suggestionId?, question?, answer?)` | авто-FAQ: list / generate / approve (в базу знаний как QA) / dismiss |
 | `agent_tests_run(agentId, confirm, caseIds?, generate?, wait?, timeoutSec?)` | проверка агента ИИ-клиентами по тест-кейсам: диалог в песочнице, ИИ-судья (PASS/FAIL, причина, цитата), сравнение с прошлым прогоном. **Тратит бюджет ИИ** — нужен `confirm:true` |
 | `agent_tests_list(agentId, runId?)` | тест-кейсы, история прогонов и полный прогон (последний или по `runId`) с регрессиями; ничего не тратит |
 | `kb_docs(kbId)` | документы базы знаний агента (источник, статус, фрагменты) |

@@ -33,7 +33,7 @@ function finish() {
   const ok =
     init?.result?.serverInfo?.name === "retensy-mcp" &&
     Array.isArray(tools) &&
-    tools.length === 184 && // 183 + 1: broadcast_undo; 182 + 1: source_revenue; 180 + 2: agent_tests_run, agent_tests_list (проверка ИИ-клиентами); 179 + 1: agent_tool_calls; 176 + 3: audience_segments, bot_delivery_window, broadcast_test (quiet hours / saved segments / test send); 174 + 2: graph_versions_list/graph_version_rollback (история версий) = 167 (master) + 5: vk_landing_list/get/create/update/delete (Направление B, VK Mini App-лендинги) + 1: chain_create_draft (POST /api/bots/chains/draft) + 1: unpublish_graph (дополнительные сценарии)
+    tools.length === 186 && // 184 + 2: analytics_ask, faq_suggestions; 183 + 1: broadcast_undo; 182 + 1: source_revenue; 180 + 2: agent_tests_run, agent_tests_list (проверка ИИ-клиентами); 179 + 1: agent_tool_calls; 176 + 3: audience_segments, bot_delivery_window, broadcast_test (quiet hours / saved segments / test send); 174 + 2: graph_versions_list/graph_version_rollback (история версий) = 167 (master) + 5: vk_landing_list/get/create/update/delete (Направление B, VK Mini App-лендинги) + 1: chain_create_draft (POST /api/bots/chains/draft) + 1: unpublish_graph (дополнительные сценарии)
     new Set(toolNames).size === toolNames.length &&
     toolNames.includes("list_channels") &&
     toolNames.includes("list_integrations") &&

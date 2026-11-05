@@ -15,7 +15,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const AGENT_TOOLS = [
   "agent_list", "agent_get", "agent_create", "agent_update", "agent_publish", "agent_health",
-  "agent_test_chat", "kb_docs", "kb_add_qa", "kb_add_text", "kb_add_site", "kb_reindex", "agent_unanswered",
+  "agent_test_chat", "kb_docs", "kb_add_qa", "kb_add_text", "kb_add_site", "kb_reindex", "agent_unanswered", "analytics_ask", "faq_suggestions",
 ];
 
 const seen = [];
@@ -71,13 +71,16 @@ await call(10, "kb_add_text", { kbId: "kb1", title: "Правила", text: "Т�
 await call(11, "kb_add_site", { kbId: "kb1", url: "https://example.com", schedule: "WEEKLY" });
 await call(12, "kb_reindex", { kbId: "kb1", docId: "d1", headerRow: 2 });
 await call(13, "agent_unanswered", { agentId: "a1", days: 7 });
+await call(14, "analytics_ask", { question: "сколько подписчиков за неделю" });
+await call(15, "faq_suggestions", { agentId: "a1", action: "approve", suggestionId: "s1", answer: "Ответ" });
+await call(16, "faq_suggestions", { agentId: "a1", action: "list" });
 
 child.kill();
 srv.close();
 
 const req = (url) => seen.find((s) => s.url.split("?")[0] === url);
 const checks = [
-  ["все 13 инструментов в tools/list", AGENT_TOOLS.every((n) => toolNames.includes(n))],
+  ["все 15 инструментов в tools/list", AGENT_TOOLS.every((n) => toolNames.includes(n))],
   ["agent_list -> GET /api/bots/agents", req("/api/bots/agents")?.method === "GET"],
   ["agent_get -> GET /api/bots/agents/a1", req("/api/bots/agents/a1")?.method === "GET"],
   ["agent_create -> POST /api/bots/agents {name,description}",
@@ -102,6 +105,12 @@ const checks = [
     seen.find((s) => s.method === "POST" && s.url === "/api/bots/kb/kb1/docs/d1/reindex")?.body?.headerRow === 2],
   ["agent_unanswered -> GET /api/bots/agents/a1/unanswered?days=7",
     seen.find((s) => s.method === "GET" && s.url === "/api/bots/agents/a1/unanswered?days=7") != null],
+  ["analytics_ask -> POST /api/bots/analytics/ask {question}",
+    seen.find((s) => s.method === "POST" && s.url === "/api/bots/analytics/ask")?.body?.question === "сколько подписчиков за неделю"],
+  ["faq_suggestions approve -> POST .../faq/s1/approve {answer}",
+    seen.find((s) => s.method === "POST" && s.url === "/api/bots/agents/a1/faq/s1/approve")?.body?.answer === "Ответ"],
+  ["faq_suggestions list -> GET .../faq",
+    seen.find((s) => s.method === "GET" && s.url === "/api/bots/agents/a1/faq") != null],
 ];
 let failed = 0;
 for (const [name, ok] of checks) {
