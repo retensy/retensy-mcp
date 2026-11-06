@@ -17,6 +17,11 @@
 - Кнопок недостаточно: сообщение только с `buttons` — пустое.
 - Пробелы/таб/перенос строки = пусто (`.isBlank()`).
 
+### `AI_CLASSIFY` — «ИИ-разбор»
+- `mode` ∈ `classify|yesno|extract` (`AI_CLASSIFY_BAD_MODE`); `instruction` обязательна и ≤ 1000 знаков для classify/yesno.
+- classify: 2-10 категорий с уникальными непустыми `id` (`AI_CLASSIFY_FEW_CATEGORIES`, `AI_CLASSIFY_BAD_CATEGORIES`), у каждой есть ребро `cat_<id>` (`AI_CLASSIFY_CATEGORY_UNCONNECTED`, проверяет бэкенд).
+- extract: нужны `field` и `saveTo` (`AI_CLASSIFY_NO_FIELD`, `AI_CLASSIFY_NO_SAVE_TO`). `saveTo` ∈ `[a-z_][a-z0-9_]{0,63}`.
+
 ### `RANDOM_TEXT` — «Случайный текст»
 - `config.texts[]` — хотя бы один непустой текст (`RANDOM_TEXT_NO_TEXTS`); не больше 500 (`RANDOM_TEXT_TOO_MANY`),
   каждый ≤ 65 536 знаков (`RANDOM_TEXT_TOO_LONG`), вместе ≤ 1 500 000 (`RANDOM_TEXT_TOTAL_TOO_LONG`) - иначе сценарий не влезет в 4 МБ.

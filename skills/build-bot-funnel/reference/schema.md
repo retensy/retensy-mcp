@@ -161,6 +161,16 @@ IG-боты не поддерживают команды (`/start`). Вход �
   (`SWITCH_NO_EXPRESSION`), нет случаев (`SWITCH_NO_CASES`), пустое `value` (`SWITCH_EMPTY_VALUE`),
   повтор значения (`SWITCH_DUPLICATE_VALUE`), случай без ребра (`SWITCH_CASE_UNCONNECTED`).
   Ребро на `default` необязательно.
+- `AI_CLASSIFY` — **ИИ-разбор свободного текста без диалога**: понять, чего хочет клиент, ответить «да/нет» или достать
+  значение (телефон, бюджет) в переменную. Не путать с `AI_REPLY` (ответ клиенту). Расходует ИИ-токены тарифа (вид расхода CLASSIFY).
+  `{ "mode":"classify"|"yesno"|"extract", "instruction":"Определи намерение клиента", "input":"{{last_text}}" (по умолчанию),
+  "categories":[{"id":"buy","label":"Хочет купить"},{"id":"ask","label":"Вопрос"}] (только classify, 2-10),
+  "field":"номер телефона" (только extract), "saveTo":"intent" }`. Выходы: classify - `cat_<id>` + `other`;
+  yesno - `yes`, `no`, `other`; extract - `found`, `other`; везде ещё `error` (сбой модели). В `saveTo` ложится
+  id категории, `yes`/`no`/`other` или найденное значение. Кончились ИИ-токены или текст пустой - выход `other`.
+  Валидатор: `AI_CLASSIFY_BAD_MODE`, `AI_CLASSIFY_NO_INSTRUCTION`, `AI_CLASSIFY_FEW_CATEGORIES`, `AI_CLASSIFY_BAD_CATEGORIES`,
+  `AI_CLASSIFY_CATEGORY_UNCONNECTED` (категория без ребра), `AI_CLASSIFY_NO_FIELD`, `AI_CLASSIFY_NO_SAVE_TO`,
+  `AI_CLASSIFY_BAD_SAVE_TO`, `AI_CLASSIFY_LONG_INSTRUCTION`. Не для Instagram.
 - `STOP_AND_ERROR` — `{ "message":"CRM не ответила: {{var.http_status}}" }`. Обрывает прогон и
   помечает его в журнале как ошибочный (`FAILED`), шаг — `ok:false` с этим текстом. Выходов нет,
   ничего подписчику не отправляет. Пустой `message` → «Сценарий остановлен с ошибкой».
@@ -448,7 +458,7 @@ IG-боты не поддерживают команды (`/start`). Вход �
 
 | `kind` | `op` (допустимые) | Поля | Что проверяет |
 |---|---|---|---|
-| `TAG` | `HAS`, `NOT_HAS` | `value` — метка `[a-z0-9_-]{1,64}` | есть ли у пользователя тег |
+| `TAG` | `HAS`, `NOT_HAS`, `OLDER_THAN`, `WITHIN` | `value` — метка `[a-z0-9_-]{1,64}`; для `OLDER_THAN`/`WITHIN` ещё `tagDays` 1..3650 | есть ли тег; `OLDER_THAN` — метка стоит не меньше `tagDays` дней, `WITHIN` — выдана за последние `tagDays` дней (у меток без записанной даты выдачи — «нет»; `CONDITION_BAD_TAG_DAYS`) |
 | `VARIABLE` | `EQUALS`, `NOT_EQUALS`, `CONTAINS`, `NOT_EMPTY`, `EMPTY`, `GT`, `LT` | `key` — имя переменной `[a-z_][a-z0-9_]{0,63}`, `value` | значение переменной (`GT`/`LT` — числовое сравнение) |
 | `UTM` | `EQUALS`, `CONTAINS`, `NOT_EMPTY`, `EMPTY` | `key` ∈ `source`/`medium`/`campaign`/`content`/`term`, `value` | UTM-метку клика (`utm_<key>`), регистронезависимо |
 | `NAME` | `EQUALS`, `CONTAINS`, `NOT_EMPTY`, `EMPTY` | `value` | имя из профиля, регистронезависимо |
@@ -541,6 +551,7 @@ node validate.mjs graph.json --platform=INSTAGRAM
 | `ACCESS_GATE` | `allowed`, `denied` |
 | `ACTIONS` | `next`, плюс `timeout` (необязательный: `external_request` не уложился в таймаут) и `error` — если внутри есть действие, которое может упасть (внешний запрос, CRM, Таблицы); `taken` — слот `booking_book` занят |
 | `SWITCH` | `case_<id>`, `default` |
+| `AI_CLASSIFY` | classify: `cat_<id>`, `other`, `error`; yesno: `yes`, `no`, `other`, `error`; extract: `found`, `other`, `error` |
 | `RANDOM_TEXT` | `next`, `error` |
 | `STOP_AND_ERROR` | выходов нет (терминатор) |
 | `DELETE_MESSAGE` | `next` (всегда, даже если удалить не вышло) |

@@ -325,6 +325,30 @@ for (const n of nodes) {
       }
       break;
     }
+    case "AI_CLASSIFY": {
+      // Зеркало GraphValidator.validateAiClassify(): ИИ-разбор текста (classify / yesno / extract).
+      const mode = c.mode;
+      if (!["classify", "yesno", "extract"].includes(mode)) {
+        errors.push(`AI_CLASSIFY_BAD_MODE: ${who} — mode ∈ {classify,yesno,extract}.`);
+        break;
+      }
+      if (typeof c.instruction === "string" && c.instruction.length > 1000) errors.push(`AI_CLASSIFY_LONG_INSTRUCTION: ${who} — instruction длиннее 1000 знаков.`);
+      if (!blank(c.saveTo) && !VAR_RE.test(String(c.saveTo))) errors.push(`AI_CLASSIFY_BAD_SAVE_TO: ${who} — saveTo ∈ [a-z_][a-z0-9_]{0,63}.`);
+      if (mode === "extract") {
+        if (blank(c.field)) errors.push(`AI_CLASSIFY_NO_FIELD: ${who} — для extract нужно field (что достать).`);
+        if (blank(c.saveTo)) errors.push(`AI_CLASSIFY_NO_SAVE_TO: ${who} — для extract нужен saveTo, иначе значение теряется.`);
+        break;
+      }
+      if (blank(c.instruction)) errors.push(`AI_CLASSIFY_NO_INSTRUCTION: ${who} — нужна instruction.`);
+      if (mode === "classify") {
+        const cats = Array.isArray(c.categories) ? c.categories : [];
+        const ids = cats.map((x) => String((x && x.id) ?? "").trim());
+        const uniq = new Set(ids.filter(Boolean));
+        if (uniq.size < 2) errors.push(`AI_CLASSIFY_FEW_CATEGORIES: ${who} — нужно минимум 2 категории с уникальными id.`);
+        else if (cats.length > uniq.size || cats.length > 10) errors.push(`AI_CLASSIFY_BAD_CATEGORIES: ${who} — id категорий уникальные и непустые, не больше 10.`);
+      }
+      break;
+    }
     case "DELETE_MESSAGE": {
       // Зеркало GraphValidator.validateDeleteMessage (Java).
       if (!["NODE", "PREVIOUS", "USER_LAST", "NEXT"].includes(c.mode)) {
@@ -384,6 +408,8 @@ for (const n of nodes) {
         const kind = cond.kind;
         // Бэкенд блокирует публикацию только для TAG.value и VARIABLE.key:
         if (kind === "TAG" && !TAG_RE.test(String(cond.value || ""))) errors.push(`CONDITION_BAD_TAG: ${who} — TAG.value ∈ [a-z0-9_-]{1,64}.`);
+        if (kind === "TAG" && (cond.op === "OLDER_THAN" || cond.op === "WITHIN")
+            && !(Number.isFinite(cond.tagDays) && cond.tagDays >= 1 && cond.tagDays <= 3650)) errors.push(`CONDITION_BAD_TAG_DAYS: ${who} — TAG с OLDER_THAN/WITHIN требует tagDays 1..3650.`);
         if (kind === "VARIABLE" && !VAR_RE.test(String(cond.key || ""))) errors.push(`CONDITION_BAD_KEY: ${who} — VARIABLE.key ∈ [a-z_][a-z0-9_]{0,63}.`);
         // Остальное — подсказки (рантайм бэкенда отдаст false, но публикацию не сорвёт):
         if (!COND_OPS[kind]) warns.push(`${who}: неизвестный kind «${kind}» в условии #${i + 1} — рантайм даст false.`);

@@ -149,6 +149,21 @@ check("RANDOM_TEXT: variable без saveTo — RANDOM_TEXT_BAD_SAVE_TO", rtBad.o
 const rtLong = node("RANDOM_TEXT", { texts: ["x".repeat(65537)] });
 check("RANDOM_TEXT: длинный текст — RANDOM_TEXT_TOO_LONG", run([trig, rtLong], [edge(trig, rtLong)]).out.includes("RANDOM_TEXT_TOO_LONG"));
 
+// AI_CLASSIFY: зеркало GraphValidator.validateAiClassify
+const aiOk = node("AI_CLASSIFY", { mode: "classify", instruction: "Что хочет клиент", categories: [{ id: "buy", label: "Купить" }, { id: "ask", label: "Вопрос" }], saveTo: "intent" });
+check("AI_CLASSIFY: корректный узел — без AI_CLASSIFY_*", !run([trig, aiOk], [edge(trig, aiOk)]).out.includes("AI_CLASSIFY_"));
+const aiBad = node("AI_CLASSIFY", { mode: "classify", instruction: "", categories: [{ id: "a", label: "A" }] });
+const aiBadRun = run([trig, aiBad], [edge(trig, aiBad)]);
+check("AI_CLASSIFY: одна категория — AI_CLASSIFY_FEW_CATEGORIES", aiBadRun.out.includes("AI_CLASSIFY_FEW_CATEGORIES"));
+check("AI_CLASSIFY: без instruction — AI_CLASSIFY_NO_INSTRUCTION", aiBadRun.out.includes("AI_CLASSIFY_NO_INSTRUCTION"));
+const aiExtract = node("AI_CLASSIFY", { mode: "extract" });
+const aiExtractRun = run([trig, aiExtract], [edge(trig, aiExtract)]);
+check("AI_CLASSIFY: extract без field/saveTo", aiExtractRun.out.includes("AI_CLASSIFY_NO_FIELD") && aiExtractRun.out.includes("AI_CLASSIFY_NO_SAVE_TO"));
+check("AI_CLASSIFY: неизвестный mode — AI_CLASSIFY_BAD_MODE", run([trig, node("AI_CLASSIFY", { mode: "x" })], [edge(trig, node("END", {}))]).out.includes("AI_CLASSIFY_BAD_MODE"));
+// CONDITION TAG OLDER_THAN: нужен tagDays
+const tagAge = node("CONDITION", { match: "ALL", conditions: [{ kind: "TAG", op: "OLDER_THAN", value: "lead" }] });
+check("CONDITION TAG OLDER_THAN без tagDays — CONDITION_BAD_TAG_DAYS", run([trig, tagAge], [edge(trig, tagAge)]).out.includes("CONDITION_BAD_TAG_DAYS"));
+
 // issue_stars_invoice: зеркало GraphValidator.validateStarsInvoice (Telegram Stars, XTR)
 const starsOk = node("ACTIONS", { actions: [{ kind: "add_tag", tag: "buyer" }, { kind: "issue_stars_invoice", amount: "150", title: "Курс", description: "Доступ", timeoutMinutes: 30 }] });
 const starsGood = run([trig, starsOk], [edge(trig, starsOk)]);
