@@ -137,6 +137,10 @@ check("ai_pack_purchase без sku — ошибка до запроса", isErr(
 await call("ai_pack_purchase", { sku: "ai_pack_1000", confirm: true });
 check("ai_pack_purchase с confirm:true → POST ai-packs/purchase", req("POST", "/api/bots/ai-packs/purchase")?.body?.sku === "ai_pack_1000");
 
+await call("ai_pack_purchase", { sku: "ai_pack_5000", period: 12, confirm: true });
+check("ai_pack_purchase period:12 уходит в тело запроса", seen.some((s) => s.url === "/api/bots/ai-packs/purchase" && s.body?.period === 12));
+check("ai_pack_purchase с period вне 1/3/12 — ошибка до запроса", isErr(await call("ai_pack_purchase", { sku: "ai_pack_1000", period: 6, confirm: true })));
+
 child.kill(); srv.close();
 if (failed) { console.error(`platform-decisions: провалов ${failed}`); process.exit(1); }
 console.log("platform-decisions OK");
