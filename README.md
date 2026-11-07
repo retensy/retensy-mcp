@@ -343,6 +343,14 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `ai_packs()` | каталог пакетов ответов ИИ сверх тарифа + текущий баланс (`aiPackAnswersLeft`) |
 | `ai_pack_purchase(sku, method?, confirm:true)` | купить пакет — возвращает ссылку на оплату, деньги не списываются этим вызовом |
 
+### Магазин (каталог)
+
+| Tool | Назначение |
+|---|---|
+| `catalog_item_upsert(id?, sku?, name?, price?, images?, categoryIds?, categoryNames?, confirm:true)` | создать/обновить товар по `id` или `sku`; `images` — до 10 https-ссылок на фото; `categoryNames` — находит категории по имени или создаёт их |
+| `catalog_category_list()` | категории магазина: `id`, `name`, `parentId` |
+| `catalog_category_upsert(name, id?, parentId?, confirm:true)` | создать (без `id`) или переименовать (с `id`) категорию; без `parentId` при обновлении родитель сохраняется |
+
 ### Рассылки
 
 Сообщение рассылки — как в мастере кабинета: `{type, text?, mediaUrl?, mediaUrls?, buttons?}`, до 5 сообщений.

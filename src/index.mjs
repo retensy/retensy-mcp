@@ -1044,6 +1044,9 @@ const TOOLS = [
   { name: "list_bots", description: "Список ботов (id, имя, статус). Включает и свои боты, и боты, в которые тебя пригласили соредактором — у каждого есть accessRole (OWNER/ADMIN/EDITOR/VIEWER); у чужих (не OWNER) есть ownerName — имя владельца проекта. Конфликт токена (тот же Telegram-токен подключён ещё в BotHelp/Salebot/своём скрипте, 10+ минут): pausedReason=TOKEN_CONFLICT (+ pausedAt, pausedConflictHost) — другой сервис держит вебхук, бот active=false (ничего не удалено); pausedChannels[] — у работающего мультиканального бота выключены только эти каналы; conflictWarning=TOKEN_CONFLICT_POLLING (+ conflictWarningUsername) — токен опрашивает кто-то ещё, бот НЕ остановлен, но теряет часть сообщений (снимается само). Чинится вне Retensy (отключить бота там или /revoke в @BotFather + bot_change_token), затем bot_resume для паузы. Доступ = твоя текущая роль в проекте, проверяется на каждый вызов; владелец мог отозвать её без предупреждения.", inputSchema: { type: "object", properties: {} } },
   { name: "list_graphs", description: "Список сценариев САМОГО бота (без узлов). Вебхук-сценарии, которые лишь отвечают через этого бота, сюда не входят — их публикуют в вебе, в «Сценариях» автора.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   { name: "list_channels", description: "Список каналов/групп, подключённых к боту (chatId, title, type, статус бота, дата). chatId — числовой id для условия SUBSCRIBED («Подписан на канал»).", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
+  { name: "catalog_item_upsert", description: "Создать или обновить товар магазина (POST /api/bots/commerce/items/upsert): по id, иначе по артикулу sku. Для нового товара обязательны name и price (в рублях). images — до 10 https-ссылок на фото (первое — главное). categoryIds — id категорий из catalog_category_list; categoryNames — названия категорий: найдутся по имени или создадутся. stock — остаток (-1 — не учитывать), active — показывать в витрине. Меняет витрину: только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { id: { type: "string", description: "id товара из catalog_list (для обновления)" }, sku: { type: "string", description: "Артикул" }, name: { type: "string", description: "Название" }, description: { type: "string", description: "Описание" }, price: { type: "number", description: "Цена в рублях" }, stock: { type: "integer", description: "Остаток, -1 — не учитывать" }, active: { type: "boolean", description: "Показывать в витрине" }, images: { type: "array", items: { type: "string" }, maxItems: 10, description: "https-ссылки на фото, до 10" }, categoryIds: { type: "array", items: { type: "string" }, description: "id категорий (catalog_category_list)" }, categoryNames: { type: "array", items: { type: "string" }, description: "Названия категорий: существующие находятся по имени, отсутствующие создаются" }, confirm: { type: "boolean" } } } },
+  { name: "catalog_category_list", description: "Категории магазина владельца (GET /api/bots/commerce/categories): id, name, parentId. Только чтение.", inputSchema: { type: "object", properties: {} } },
+  { name: "catalog_category_upsert", description: "Создать или переименовать категорию магазина: с id — обновить (PUT /api/bots/commerce/categories/{id}), без id — создать (POST /api/bots/commerce/categories). parentId — id родительской категории; без него категория верхнего уровня. При обновлении без parentId текущий родитель сохраняется. Меняет витрину: только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { id: { type: "string", description: "id категории из catalog_category_list (для обновления)" }, name: { type: "string", description: "Название категории" }, parentId: { type: "string", description: "id родительской категории" }, confirm: { type: "boolean" } }, required: ["name"] } },
   { name: "integration_catalog", description: "Каталог сервисов Integration Core (GET /api/integrations/catalog): [{provider, name, category, authType, configSchema: [{key, label, hint, secret}] — поля подключения, actions: [{kind, label, inputs}] — действия для сценария и coreDelivery, healthCheck — умеет ли integration_test, inbound: {events: [{key, label, vars: [{key, label, example}], paymentSucceeded}]} | null — провайдер умеет только исходящие действия}]. inbound.events — события для узла TRIGGER_WEBHOOK с заполненным config.provider (см. integration_ingress_url): events[].key идёт в config.event, vars[].key — переменные {{body.<key>}} в сценарии. paymentSucceeded:true — событие сверх обычного вебхука ещё и заводит узел «Оплата прошла» (headless или в чате подписчика, если платёжная ссылка была привязана к нему действием *_link). 404 — Integration Core выключен в сервисе. Read-only.", inputSchema: { type: "object", properties: {} } },
   { name: "integration_status", description: "Статус подключения (GET /api/integrations/{id}/status): {status: UNKNOWN | OK | NEEDS_REAUTH (ключ отозван/устарел — обнови через connect_integration) | ERROR, lastCheckedAt, lastError, supported}. Только своё подключение (чужое — 403). Read-only, внешний сервис не вызывает.", inputSchema: { type: "object", properties: { connectionId: { type: "string", description: "id из list_integrations" } }, required: ["connectionId"] } },
   { name: "integration_test", description: "Проверить подключение (POST /api/integrations/{id}/test): выполняет ЖИВУЮ проверку ключа во внешнем сервисе от имени владельца (без побочных эффектов — ничего не создаёт) и обновляет статус. Ответ как у integration_status; supported:false — сервис проверку не умеет. Только своё подключение (чужое — 403); 404 — Integration Core выключен.", inputSchema: { type: "object", properties: { connectionId: { type: "string", description: "id из list_integrations" } }, required: ["connectionId"] } },
@@ -1307,6 +1310,47 @@ async function handleCall(params) {
     case "list_graphs": return okResult(await api(`/api/bots/${a.botId}/graphs`));
     case "list_channels": return okResult(await api(`/api/bots/${a.botId}/linked-chats`));
     case "list_integrations": return okResult(withoutSecrets(await api("/api/bots/integrations")));
+    case "catalog_item_upsert": {
+      if (a.confirm !== true) throw new Error("Сохранение товара меняет витрину. Спроси пользователя и повтори с confirm:true.");
+      if (a.images !== undefined) {
+        if (!Array.isArray(a.images) || a.images.length > 10) throw new Error("images: массив до 10 https-ссылок");
+        for (const u of a.images) {
+          let ok = false;
+          try { ok = new URL(String(u)).protocol === "https:"; } catch { ok = false; }
+          if (!ok) throw new Error(`images: нужна https-ссылка, получено «${u}»`);
+        }
+      }
+      let categoryIds = a.categoryIds;
+      if (Array.isArray(a.categoryNames) && a.categoryNames.length) {
+        const cats = await api("/api/bots/commerce/categories");
+        categoryIds = Array.isArray(categoryIds) ? [...categoryIds] : [];
+        for (const raw of a.categoryNames) {
+          const catName = String(raw ?? "").trim();
+          if (!catName) continue;
+          let cat = cats.find((c) => String(c.name).toLowerCase() === catName.toLowerCase());
+          if (!cat) { cat = await api("/api/bots/commerce/categories", { method: "POST", body: { name: catName } }); cats.push(cat); }
+          if (!categoryIds.includes(cat.id)) categoryIds.push(cat.id);
+        }
+      }
+      const body = { id: a.id || undefined, sku: a.sku, name: a.name, description: a.description, price: a.price,
+        stock: a.stock, active: a.active, images: a.images, categoryIds };
+      return okResult(await api("/api/bots/commerce/items/upsert", { method: "POST", body }));
+    }
+    case "catalog_category_list": return okResult(await api("/api/bots/commerce/categories"));
+    case "catalog_category_upsert": {
+      if (a.confirm !== true) throw new Error("Изменение категорий меняет витрину. Спроси пользователя и повтори с confirm:true.");
+      const catName = String(a.name ?? "").trim();
+      if (!catName) throw new Error("Укажите название категории.");
+      if (a.id) {
+        let parentId = a.parentId;
+        if (parentId === undefined) {
+          const cats = await api("/api/bots/commerce/categories");
+          parentId = cats.find((c) => c.id === a.id)?.parentId ?? null;
+        }
+        return okResult(await api(`/api/bots/commerce/categories/${encodeURIComponent(String(a.id))}`, { method: "PUT", body: { name: catName, parentId } }));
+      }
+      return okResult(await api("/api/bots/commerce/categories", { method: "POST", body: { name: catName, parentId: a.parentId ?? null } }));
+    }
     case "integration_catalog": return okResult(withoutSecrets(await api("/api/integrations/catalog")));
     case "integration_status":
     case "integration_test": {
