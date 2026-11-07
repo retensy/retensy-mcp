@@ -1196,6 +1196,14 @@ const TOOLS = [
   { name: "booking_cancel", description: "Отменить бронь и освободить слот (POST /api/bots/booking/calendars/{calendarId}/bookings/{bookingId}/cancel). Повторная отмена — без ошибки. bookingId — из booking_list.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, bookingId: { type: "string" } }, required: ["calendarId", "bookingId"] } },
   { name: "booking_confirm", description: "Подтвердить бронь, ждущую решения владельца (MANUAL confirmationMode) — POST .../bookings/{bookingId}/confirm. Клиенту уходит уведомление, если бронь пришла из чата бота. HTTP 404 — бронь не этого календаря, 409 — уже не ждёт решения (подтверждена/отменена/истёк pendingHoldHours).", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, bookingId: { type: "string" } }, required: ["calendarId", "bookingId"] } },
   { name: "booking_reject", description: "Отклонить бронь, ждущую решения владельца (MANUAL confirmationMode) — POST .../bookings/{bookingId}/reject: освобождает слот, клиенту уходит «отклонено владельцем» (в отличие от booking_cancel — то работает на любой активной брони и ничего не присылает клиенту). HTTP 404/409 — как у booking_confirm.", inputSchema: { type: "object", properties: { calendarId: { type: "string" }, bookingId: { type: "string" } }, required: ["calendarId", "bookingId"] } },
+  { name: "event_list", description: "События с билетами (GET /api/bots/tickets/events): id, title, startsAt, status, sold, checkedIn, revenue, publicUrl. Read-only.", inputSchema: { type: "object", properties: {} } },
+  { name: "event_get", description: "Событие с типами билетов (GET /api/bots/tickets/events/{eventId}). Read-only.", inputSchema: { type: "object", properties: { eventId: { type: "string" } }, required: ["eventId"] } },
+  { name: "event_create", description: "Создать событие (POST /api/bots/tickets/events), по умолчанию черновик; опубликовать — status:\"published\". Типы билетов — ticket_type_upsert.", inputSchema: { type: "object", properties: { title: { type: "string" }, description: { type: "string" }, startsAt: { type: "string", description: "ISO-8601 UTC" }, endsAt: { type: "string" }, timezone: { type: "string", description: "IANA, напр. Europe/Moscow" }, venueType: { type: "string", enum: ["offline", "online"] }, venue: { type: "string", description: "Адрес" }, onlineUrl: { type: "string" }, coverUrl: { type: "string" }, capacity: { type: "number", description: "Общая вместимость" }, status: { type: "string", enum: ["draft", "published", "cancelled"] } }, required: ["title", "startsAt"] } },
+  { name: "event_update", description: "Изменить событие (PUT /api/bots/tickets/events/{eventId}), переданные поля заменяют текущие. status:\"cancelled\" — отмена события.", inputSchema: { type: "object", properties: { eventId: { type: "string" }, title: { type: "string" }, description: { type: "string" }, startsAt: { type: "string", description: "ISO-8601 UTC" }, endsAt: { type: "string" }, timezone: { type: "string", description: "IANA, напр. Europe/Moscow" }, venueType: { type: "string", enum: ["offline", "online"] }, venue: { type: "string", description: "Адрес" }, onlineUrl: { type: "string" }, coverUrl: { type: "string" }, capacity: { type: "number", description: "Общая вместимость" }, status: { type: "string", enum: ["draft", "published", "cancelled"] } }, required: ["eventId"] } },
+  { name: "ticket_type_upsert", description: "Создать/изменить тип билета (POST /api/bots/tickets/events/{eventId}/types): без id — новый, с id — правка. price 0 = бесплатный; limit — число билетов типа.", inputSchema: { type: "object", properties: { eventId: { type: "string" }, id: { type: "string" }, name: { type: "string" }, price: { type: "number" }, limit: { type: "number" }, salesStart: { type: "string" }, salesEnd: { type: "string" } }, required: ["eventId", "name", "price", "limit"] } },
+  { name: "tickets_list", description: "Билеты/участники события (GET /api/bots/tickets/events/{eventId}/tickets): q — поиск по имени/номеру, status, page с 0, size. Read-only.", inputSchema: { type: "object", properties: { eventId: { type: "string" }, q: { type: "string" }, status: { type: "string", enum: ["pending", "paid", "valid", "used", "cancelled", "refunded"] }, page: { type: "number" }, size: { type: "number" } }, required: ["eventId"] } },
+  { name: "ticket_checkin", description: "Отметить билет использованным вручную (POST .../tickets/{ticketId}/checkin). Необратимо, нужен confirmToken. Ответ: status VALID | ALREADY_USED | CANCELLED | NOT_PAID.", inputSchema: { type: "object", properties: { eventId: { type: "string" }, ticketId: { type: "string" } }, required: ["eventId", "ticketId"] } },
+  { name: "ticket_cancel", description: "Отменить билет и освободить место (POST .../tickets/{ticketId}/cancel). refund:true — пометить возврат (деньги в ЮKassa возвращаются вручную). Необратимо, нужен confirmToken.", inputSchema: { type: "object", properties: { eventId: { type: "string" }, ticketId: { type: "string" }, refund: { type: "boolean" } }, required: ["eventId", "ticketId"] } },
   { name: "site_templates", description: "Библиотека шаблонов блоков сайта (GET /api/bots/pages/templates): {categories: [{id, title, description?}], templates: [{id, category, title, description?, blocks: сколько блоков вставится}]}. Вставка — site_edit add_template {container, templateId, after?} (results.id — первый блок, results.ids — все); дальше блоки правятся как обычные. category — фильтр по id категории. Ответ также содержит siteTemplates — стартовые шаблоны сайта (starter, blank, mini-landing, shop-starter) с описаниями: для site_create template / site_edit init.", inputSchema: { type: "object", properties: { category: { type: "string" } } } },
   // ---- Паритет платформы, часть 2: бот, база, агент, заявки, подписчики, каналы, ссылки, аналитика ----
   { name: "bot_rename", description: "Переименовать бота (PATCH /api/bots/{botId} {name}): отображаемое имя в кабинете, до 250 символов. Пустое name сбрасывает имя на @username. Имя в самом Telegram/MAX не меняется.", inputSchema: { type: "object", properties: { botId: { type: "string" }, name: { type: "string" } }, required: ["botId", "name"] } },
@@ -1799,6 +1807,33 @@ async function handleCall(params) {
       const g = await invokeGuarded("booking_cancel", { calendarId: id, bookingId }, a);
       if (g.pending) return g.pending;
       return okResult(`✅ Бронь ${bookingId} отменена, слот свободен.`);
+    }
+    case "event_list": return okResult(await api("/api/bots/tickets/events"));
+    case "event_get": return okResult(await api(`/api/bots/tickets/events/${idArg(a.eventId, "eventId")}`));
+    case "event_create":
+    case "event_update": {
+      const keys = ["title", "description", "startsAt", "endsAt", "timezone", "venueType", "venue", "onlineUrl", "coverUrl", "capacity", "status"];
+      const body = Object.fromEntries(keys.filter((k) => a[k] !== undefined).map((k) => [k, a[k]]));
+      if (params.name === "event_create") return okResult(await api("/api/bots/tickets/events", { method: "POST", body }));
+      return okResult(await api(`/api/bots/tickets/events/${idArg(a.eventId, "eventId")}`, { method: "PUT", body }));
+    }
+    case "ticket_type_upsert": {
+      const body = { name: String(a.name), price: a.price, limit: a.limit };
+      for (const k of ["id", "salesStart", "salesEnd"]) if (a[k] !== undefined) body[k] = a[k];
+      return okResult(await api(`/api/bots/tickets/events/${idArg(a.eventId, "eventId")}/types`, { method: "POST", body }));
+    }
+    case "tickets_list": {
+      const q = {};
+      for (const k of ["q", "status", "page", "size"]) if (a[k] !== undefined && a[k] !== "") q[k] = a[k];
+      return okResult(await api(`/api/bots/tickets/events/${idArg(a.eventId, "eventId")}/tickets${qs(q)}`));
+    }
+    case "ticket_checkin":
+    case "ticket_cancel": {
+      const args = { eventId: idArg(a.eventId, "eventId"), ticketId: idArg(a.ticketId, "ticketId") };
+      if (params.name === "ticket_cancel" && a.refund != null) args.refund = !!a.refund;
+      const g = await invokeGuarded(params.name, args, a);
+      if (g.pending) return g.pending;
+      return okResult(g.data);
     }
     case "booking_confirm":
     case "booking_reject": {
@@ -2835,7 +2870,7 @@ async function invokeGuarded(name, args, a) {
 }
 /** Обратимые правки: сервер обычно не требует подтверждения, токен нужен лишь при явном 409. */
 const SOFT_CONFIRM_TOOLS = new Set(["site_edit", "agent_update", "kb_add_site", "chain_enable"]);
-const GUARDED_TOOLS = new Set(["publish_graph", "site_publish", "site_rollback", "agent_publish", "booking_cancel", "bot_delete", "broadcast_cancel", "broadcast_send",
+const GUARDED_TOOLS = new Set(["publish_graph", "site_publish", "site_rollback", "agent_publish", "booking_cancel", "ticket_checkin", "ticket_cancel", "bot_delete", "broadcast_cancel", "broadcast_send",
   "delete_graph", "agent_update", "chain_enable", "kb_add_site", "create_bot", "bot_stop", "dialog_reply", "site_edit"]);
 for (const t of TOOLS) {
   if (!GUARDED_TOOLS.has(t.name)) continue;
