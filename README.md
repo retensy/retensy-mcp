@@ -224,8 +224,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `site_list()` | сайты пользователя (id, mode, url, publishedRevision, status — `BLOCKED` у заблокированных модерацией, blockedReason) |
 | `site_create(title, slug?, template?)` | новый сайт из блоков → `id`; `template` (`starter`/`blank`/`mini-landing`/`shop-starter`) — сразу черновик из шаблона; число сайтов ограничено тарифом — сверх лимита HTTP 402 с причиной и ссылкой на смену тарифа |
 | `site_get(siteId, saveToFile?)` | модель сайта (`revision`, `draft`, `versions[]` публикаций) |
-| `site_schema()` | JSON Schema модели и операций — читать перед правкой |
-| `site_edit(siteId, ops[]?, revision?, init?)` | правка операциями (`init`: `starter`/`blank`/`mini-landing`/`shop-starter`; только `init` — черновик из шаблона), всё или ничего: страницы и папки, блоки, Zero-элементы, код блока (`get/set/add_block_code`), дизайны и их кадры, шаблоны (`add_template`), тема, попапы; пиксели аналитики (GA4/GTM/Meta/VK/Яндекс.Метрика) — тоже сюда, `set_settings {analytics: {...}}` (отдельного инструмента нет — те же `settings.analytics` модели сайта, валидируются форматом id на сервере) |
+| `site_schema(full?)` | компактный справочник модели и операций (~10 КБ); `full:true` — полная JSON Schema — читать перед правкой |
+| `site_edit(siteId, ops[]?, revision?, init?, reset?)` | правка операциями (`init`: `starter`/`blank`/`mini-landing`/`shop-starter`; только `init` — черновик из шаблона; `reset:true` с `init` и `revision` — пересобрать черновик из шаблона, деструктивно), всё или ничего: страницы и папки, блоки, Zero-элементы, код блока (`get/set/add_block_code`), дизайны и их кадры, шаблоны (`add_template`), тема, попапы; пиксели аналитики (GA4/GTM/Meta/VK/Яндекс.Метрика) — тоже сюда, `set_settings {analytics: {...}}` (отдельного инструмента нет — те же `settings.analytics` модели сайта, валидируются форматом id на сервере) |
 | `site_templates(category?, full?)` | библиотека шаблонов блоков для `add_template` |
 | `site_publish(siteId)` | опубликовать черновик → `url` |
 | `site_rollback(siteId, revision)` | вернуть прошлую публикацию |

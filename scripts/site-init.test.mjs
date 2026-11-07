@@ -66,6 +66,14 @@ const r4 = await call(4, "site_create", { title: "Лендинг", template: "mi
 const r5 = await call(5, "site_create", { title: "Сайт" });
 const n5 = seen.length;
 const r6 = await call(6, "site_create", { title: "Лимит", template: "mini-landing" });
+const n6 = seen.length;
+const r7 = await call(7, "site_edit", { siteId: "s7", init: "shop-starter", revision: 4, reset: true });
+const r8 = await call(8, "site_edit", { siteId: "s8", init: "blank", reset: true });
+const r9 = await call(9, "site_edit", { siteId: "s9", reset: true, revision: 4 });
+const n9 = seen.length;
+const r10 = await call(10, "site_schema", {});
+const r11 = await call(11, "site_schema", { full: true });
+const r12 = await call(12, "site_templates", {});
 child.kill();
 srv.close();
 try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* windows lock */ }
@@ -86,7 +94,14 @@ const checks = [
   ["site_create без template: только POST /pages", r5 && n5 - n3 === 3],
   ["site_create сверх лимита сайтов: ошибка 402", r6?.result?.isError === true && /HTTP 402/.test(text(r6))],
   ["site_create сверх лимита: причина и ссылка на тариф", text(r6).includes("даёт 1 сайт") && text(r6).includes("https://bots.retensy.com/bots/subscription")],
-  ["site_create сверх лимита: черновик не создаётся", seen.length === n5 + 1],
+  ["site_create сверх лимита: черновик не создаётся", n6 === n5 + 1],
+  ["site_edit reset: в body уходит reset:true, init и revision", ops("/api/bots/pages/s7/document/ops")?.reset === true && ops("/api/bots/pages/s7/document/ops")?.init === "shop-starter" && ops("/api/bots/pages/s7/document/ops")?.revision === 4],
+  ["site_edit reset без revision: ошибка без запроса", r8?.result?.isError === true && /revision/.test(text(r8)) && !seen.some((s) => s.url.includes("/s8/"))],
+  ["site_edit reset без init: ошибка без запроса", r9?.result?.isError === true && /init/.test(text(r9)) && n9 === n6 + 1 && !seen.some((s) => s.url.includes("/s9/"))],
+  ["site_edit без reset: поля reset нет в body", ops("/api/bots/pages/s1/document/ops") && !("reset" in ops("/api/bots/pages/s1/document/ops"))],
+  ["site_schema по умолчанию: без full", seen.some((s) => s.url === "/api/bots/pages/schema")],
+  ["site_schema full:true: ?full=true", seen.some((s) => s.url === "/api/bots/pages/schema?full=true")],
+  ["site_templates: siteTemplates в ответе", r12 && r12.result?.isError !== true && text(r12).includes("siteTemplates")],
 ];
 let failed = 0;
 for (const [name, ok] of checks) {
