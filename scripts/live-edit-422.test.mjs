@@ -46,7 +46,7 @@ const srv = http.createServer((req, res) => {
       res.end(JSON.stringify({ id: req.url.split("/").pop(), status, nodes: [], edges: [] }));
       return;
     }
-    if (req.method === "POST" && req.url === "/api/bots/graphs/g-hook/publish") {
+    if (req.method === "POST" && req.url === "/api/agent-tools/invoke") {
       res.writeHead(409); res.end(); // как бэкенд: ResponseEntity.status(CONFLICT).build()
       return;
     }

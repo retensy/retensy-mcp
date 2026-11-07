@@ -86,9 +86,9 @@ const checks = [
   ["agent_create -> POST /api/bots/agents {name,description}",
     seen.find((s) => s.method === "POST" && s.url === "/api/bots/agents")?.body?.name === "Консультант" &&
     seen.find((s) => s.method === "POST" && s.url === "/api/bots/agents")?.body?.description === "десc"],
-  ["agent_update -> PATCH /api/bots/agents/a1 с patch как есть",
-    seen.find((s) => s.method === "PATCH" && s.url === "/api/bots/agents/a1")?.body?.tone === "FRIENDLY"],
-  ["agent_publish -> POST /api/bots/agents/a1/publish", seen.find((s) => s.method === "POST" && s.url === "/api/bots/agents/a1/publish") != null],
+  ["agent_update -> invoke agent_update с patch как есть",
+    seen.find((s) => s.url === "/api/agent-tools/invoke" && s.body?.name === "agent_update" && s.body.args?.agentId === "a1")?.body?.args?.patch?.tone === "FRIENDLY"],
+  ["agent_publish -> invoke agent_publish (реестр, подтверждение на сервере)", seen.find((s) => s.method === "POST" && s.url === "/api/agent-tools/invoke" && s.body?.name === "agent_publish" && s.body?.args?.agentId === "a1") != null],
   ["agent_health -> GET /api/bots/agents/a1/health", req("/api/bots/agents/a1/health")?.method === "GET"],
   ["agent_test_chat -> POST /api/bots/agents/a1/test-chat {question}",
     seen.find((s) => s.method === "POST" && s.url === "/api/bots/agents/a1/test-chat")?.body?.question === "Привет"],

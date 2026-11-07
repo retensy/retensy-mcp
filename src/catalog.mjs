@@ -150,14 +150,27 @@ function hash(s) {
   return h.toString(16).padStart(8, "0");
 }
 
+/** Что изменится: summary.text от сервера (diff узлов/блоков, получатели), иначе общий message. */
+function changeSummary(data) {
+  const sum = data?.step?.confirm?.summary;
+  if (!sum || typeof sum !== "object") return "";
+  const parts = [];
+  if (typeof sum.text === "string" && sum.text) parts.push(sum.text);
+  if (typeof sum.recipients === "number") parts.push(`Получателей: ${sum.recipients}.`);
+  if (sum.irreversible === true) parts.push("Действие необратимо.");
+  return parts.join(" ");
+}
+
 /** Ответ invoke → результат MCP. 409 needsConfirmation — не ошибка сервиса, а просьба спросить человека. */
 export function confirmationText(data) {
   if (data && typeof data === "object" && data.needsConfirmation === true) {
     const msg = typeof data.message === "string" ? data.message : "";
+    const what = changeSummary(data);
+    const head = ["Нужно подтверждение пользователя.", what && !msg.includes(what) ? `Что изменится: ${what}` : "", msg].filter(Boolean).join(" ");
     if (typeof data.confirmToken === "string" && data.confirmToken) {
-      return `⚠️ Нужно подтверждение пользователя. ${msg} Опиши пользователю, что именно будет сделано, получи его явное согласие и повтори вызов с ТЕМИ ЖЕ аргументами плюс confirmToken: "${data.confirmToken}" (токен привязан к этим аргументам и действует 5 минут).`.trim();
+      return `⚠️ ${head} Опиши пользователю, что именно будет сделано, получи его явное согласие и повтори вызов с ТЕМИ ЖЕ аргументами плюс confirmToken: "${data.confirmToken}" (токен одноразовый, привязан к этим аргументам и действует 5 минут; если состояние изменилось, придёт новый запрос — покажи пользователю новое описание).`.trim();
     }
-    return `⚠️ Нужно подтверждение пользователя. ${msg}`.trim();
+    return `⚠️ ${head}`.trim();
   }
   return null;
 }

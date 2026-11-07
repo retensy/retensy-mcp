@@ -18,7 +18,12 @@ const srv = http.createServer((req, res) => {
   let raw = "";
   req.on("data", (c) => { raw += c; });
   req.on("end", () => {
-    seen.push({ method: req.method, url: req.url, body: raw ? JSON.parse(raw) : null });
+    let body = raw ? JSON.parse(raw) : null;
+    // site_edit идёт через реестр (подтверждение на сервере): тот же payload, что у прямого REST.
+    if (req.method === "POST" && req.url === "/api/agent-tools/invoke" && body?.name === "site_edit") {
+      const { siteId, ...rest } = body.args; req.url = `/api/bots/pages/${siteId}/document/ops`; body = rest;
+    }
+    seen.push({ method: req.method, url: req.url, body });
     if (req.method === "POST" && req.url === "/api/bots/pages" && raw.includes("Лимит")) {
       res.writeHead(402, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "Тариф «Бесплатный» даёт 1 сайт. Удалите ненужный сайт или повысьте тариф: https://bots.retensy.com/bots/subscription",

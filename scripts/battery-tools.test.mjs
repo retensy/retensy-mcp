@@ -64,8 +64,9 @@ check("web_widget_snippet → GET snippet", !!req("GET", "/api/bots/web/b1/snipp
 // BotHelp-миграция: inactive:true должен уйти в теле POST /api/bots, false — по умолчанию.
 const lastPost = (url) => seen.filter((s) => s.method === "POST" && s.url === url).at(-1);
 await call("create_bot", { platform: "TELEGRAM", token: "tg-token-1" });
-check("create_bot без inactive → inactive:false в теле", lastPost("/api/bots")?.body?.inactive === false
-  && lastPost("/api/bots")?.body?.token === "tg-token-1");
+const inv = (name) => seen.filter((s) => s.url === "/api/agent-tools/invoke" && s.body?.name === name).at(-1)?.body?.args;
+check("create_bot без inactive → invoke bot_connect {platform, token}", inv("bot_connect")?.token === "tg-token-1" && inv("bot_connect")?.platform === "TELEGRAM"
+  && !lastPost("/api/bots"));
 const inactiveResult = await call("create_bot", { platform: "TELEGRAM", token: "tg-token-2", inactive: true });
 check("create_bot inactive:true → уходит в теле POST /api/bots", lastPost("/api/bots")?.body?.inactive === true);
 check("create_bot inactive:true → ответ с подсказкой про bot_resume", /bot_resume/.test(textOf(inactiveResult)));
@@ -96,7 +97,7 @@ check("dialog_messages → GET messages", !!req("GET", `/api/bots/b1/users/${CHA
 const badChat = await call("bot_user_get", { botId: "b1", chatId: "../../admin" });
 check("chatId не число — ошибка до запроса", isErr(badChat) && !seen.some((s) => s.url.includes("admin")));
 await call("dialog_reply", { botId: "b1", chatId: CHAT, text: " Здравствуйте " });
-check("dialog_reply → POST {text}", req("POST", `/api/bots/b1/users/${CHAT}/messages`)?.body?.text === "Здравствуйте");
+check("dialog_reply → POST {text}", inv("dialog_reply")?.text === "Здравствуйте" && inv("dialog_reply")?.botId === "b1");
 check("dialog_reply пустой text — ошибка", isErr(await call("dialog_reply", { botId: "b1", chatId: CHAT, text: "" })));
 
 const before = seen.length;

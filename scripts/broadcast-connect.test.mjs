@@ -22,6 +22,9 @@ const srv = http.createServer((req, res) => {
   req.on("data", (c) => { raw += c; });
   req.on("end", () => {
     let body = null; try { body = raw ? JSON.parse(raw) : null; } catch { body = raw; }
+    // broadcast_send идёт через реестр (подтверждение на сервере): тот же payload, что и у прямого REST.
+    if (req.method === "POST" && req.url === "/api/agent-tools/invoke" && body?.name === "broadcast_send_now") { req.url = "/api/bots/broadcasts/direct"; body = body.args; }
+    if (req.method === "POST" && req.url === "/api/agent-tools/invoke" && body?.name === "bot_connect") { req.url = "/api/bots"; body = body.args; }
     seen.push({ method: req.method, url: req.url, body });
     const json = (status, obj) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
     if (req.method === "GET" && req.url === "/api/bots") {

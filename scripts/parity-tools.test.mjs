@@ -62,6 +62,7 @@ let failed = 0;
 const check = (name, cond) => { console.log(`${cond ? "  ok " : "  FAIL"} ${name}`); if (!cond) failed++; };
 
 const B = "11111111-2222-4333-8444-555555555555";
+const invoked = (name, args) => seen.find((s) => s.method === "POST" && s.url === "/api/agent-tools/invoke" && s.body?.name === name && Object.entries(args).every(([k, v]) => s.body.args?.[k] === v));
 const none = (frag) => !seen.some((s) => s.url.includes(frag));
 
 await call("integration_calls", { connectionId: "c_1", ok: false, limit: 50 });
@@ -115,7 +116,7 @@ const taken = await call("booking_create", { calendarId: C, slotAt: "2026-10-12T
 check("booking_create 409 → «уже занят»", isErr(taken) && /занят/.test(textOf(taken)));
 check("booking_create slotAt без зоны — ошибка", isErr(await call("booking_create", { calendarId: C, slotAt: "2026-10-12T15:00" })));
 await call("booking_cancel", { calendarId: C, bookingId: K });
-check("booking_cancel → POST cancel", !!req("POST", `${calPath}/bookings/${K}/cancel`));
+check("booking_cancel → invoke booking_cancel", !!invoked("booking_cancel", { calendarId: C, bookingId: K }));
 
 await call("integration_update", { connectionId: "c_1", title: " CRM ", creds: { apiKey: 123 } });
 const upd = req("PUT", "/api/bots/integrations/c_1")?.body;
@@ -143,9 +144,9 @@ await call("scenario_runs", { graphId: B, page: 0, size: 20 });
 check("scenario_runs → GET /graphs/{id}/runs?page&size", !!req("GET", `/api/bots/graphs/${B}/runs?page=0&size=20`));
 check("scenario_runs graphId не UUID — ошибка до запроса", isErr(await call("scenario_runs", { graphId: "g1" })) && none("/graphs/g1/"));
 const noConfirm = await call("bot_delete", { botId: B });
-check("bot_delete без confirm — ошибка до запроса", isErr(noConfirm) && !req("DELETE", `/api/bots/${B}`));
-await call("bot_delete", { botId: B, confirm: true });
-check("bot_delete confirm:true → DELETE", !!req("DELETE", `/api/bots/${B}`));
+check("bot_delete → invoke bot_delete (подтверждение решает сервер), прямого DELETE нет", !isErr(noConfirm) && !!invoked("bot_delete", { botId: B }) && !req("DELETE", `/api/bots/${B}`));
+await call("bot_delete", { botId: B, confirmToken: "t1" });
+check("bot_delete confirmToken уходит в args", seen.some((s) => s.url === "/api/agent-tools/invoke" && s.body?.name === "bot_delete" && s.body.args.confirmToken === "t1"));
 
 child.kill(); srv.close();
 if (failed) { console.error(`parity-tools: провалов ${failed}`); process.exit(1); }

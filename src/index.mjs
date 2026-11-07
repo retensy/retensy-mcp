@@ -1466,8 +1466,9 @@ async function handleCall(params) {
       return okResult(await api(`/api/bots/graphs/${a.graphId}/dry-run`, { method: "POST", body: { kind: a.kind, value, fromUsername: a.fromUsername, presetVariables: a.presetVariables, presetTags: a.presetTags } }));
     }
     case "publish_graph": {
-      const qs = a.secondary === true ? "?secondary=true" : "";
-      const pub = await api(`/api/bots/graphs/${a.graphId}/publish${qs}`, { method: "POST" });
+      const g = await invokeGuarded("graph_publish", { graphId: a.graphId, ...(a.secondary === true ? { secondary: true } : {}) }, a);
+      if (g.pending) return g.pending;
+      const pub = g.data;
       // errors[] приходит с HTTP 200, но для пользователя это «не получилось» — и самый
       // ценный сигнал: видно, какого узла/возможности ему не хватило.
       if (Array.isArray(pub?.errors) && pub.errors.length) {
@@ -1524,8 +1525,11 @@ async function handleCall(params) {
     case "copy_graph":
       return okResult(await api(`/api/bots/graphs/${a.graphId}/copy`, { method: "POST", body: { targetBotId: a.targetBotId, preview: a.preview === true } }));
     case "delete_graph":
-      await api(`/api/bots/graphs/${a.graphId}`, { method: "DELETE" });
+    {
+      const g = await invokeGuarded("graph_delete", { graphId: a.graphId }, a);
+      if (g.pending) return g.pending;
       return okResult(`🗑️ Граф ${a.graphId} удалён.`);
+    }
     case "set_active_graph":
       await api(`/api/bots/${a.botId}/active-graph`, { method: "POST", body: { graphId: a.graphId } });
       return okResult(`✅ Активный граф бота ${a.botId} → ${a.graphId}.`);
@@ -1571,10 +1575,13 @@ async function handleCall(params) {
       if (!hasOps && !a.init) throw new Error("Передай ops — массив операций (см. site_schema) — или init, чтобы только создать черновик.");
       if (a.init != null && !SITE_INITS.includes(a.init)) throw new Error(`init — одно из: ${SITE_INITS.join(", ")}.`);
       const ops = hasOps ? a.ops : SITE_NOOP_OPS; // бэкенд отвечает 422 на пустой ops[]
-      return okResult(await api(`/api/bots/pages/${a.siteId}/document/ops`, { method: "POST", body: { ops, revision: a.revision, init: a.init } }));
+      const g = await invokeGuarded("site_edit", { siteId: a.siteId, ops, revision: a.revision, init: a.init }, a);
+      return g.pending || okResult(g.data);
     }
     case "site_publish": {
-      const r = await api(`/api/bots/pages/${a.siteId}/publish`, { method: "POST" });
+      const g = await invokeGuarded("site_publish", { siteId: a.siteId }, a);
+      if (g.pending) return g.pending;
+      const r = g.data;
       return okResult({ publishedRevision: r?.publishedRevision, url: r?.page?.url });
     }
     case "site_upload_asset": return okResult(await uploadSiteAsset(a.siteId, { filePath: a.path, url: a.url }));
@@ -1587,7 +1594,9 @@ async function handleCall(params) {
     }
     case "site_rollback": {
       if (typeof a.revision !== "number") throw new Error("Передай revision — номер публикации (site_get → versions[]).");
-      const r = await api(`/api/bots/pages/${a.siteId}/publish/rollback`, { method: "POST", body: { revision: a.revision } });
+      const g = await invokeGuarded("site_rollback", { siteId: a.siteId, revision: a.revision }, a);
+      if (g.pending) return g.pending;
+      const r = g.data;
       return okResult({ publishedRevision: r?.publishedRevision, url: r?.page?.url });
     }
     case "site_domains": {
@@ -1629,9 +1638,13 @@ async function handleCall(params) {
         const errs = validateAgentTools(a.patch.tools);
         if (errs.length) throw new Error("Инструменты агента не прошли проверку:\n- " + errs.join("\n- "));
       }
-      return okResult(await api(`/api/bots/agents/${a.agentId}`, { method: "PATCH", body: a.patch }));
+      const g = await invokeGuarded("agent_update", { agentId: a.agentId, patch: a.patch }, a);
+      return g.pending || okResult(g.data);
     }
-    case "agent_publish": return okResult(await api(`/api/bots/agents/${a.agentId}/publish`, { method: "POST" }));
+    case "agent_publish": {
+      const g = await invokeGuarded("agent_publish", { agentId: a.agentId }, a);
+      return g.pending || okResult(g.data);
+    }
     case "agent_health": return okResult(await api(`/api/bots/agents/${a.agentId}/health`));
     case "agent_test_chat": {
       if (!a.question || !String(a.question).trim()) throw new Error("Передай question.");
@@ -1655,7 +1668,10 @@ async function handleCall(params) {
     }
     case "kb_add_site": {
       if (!a.url) throw new Error("Передай url.");
-      return okResult(await api(`/api/bots/kb/${a.kbId}/docs/site`, { method: "POST", body: { url: a.url, schedule: a.schedule } }));
+      // schedule в реестре нет — такой вызов остаётся прямым REST
+      if (a.schedule) return okResult(await api(`/api/bots/kb/${a.kbId}/docs/site`, { method: "POST", body: { url: a.url, schedule: a.schedule } }));
+      const g = await invokeGuarded("kb_add_site", { kbId: a.kbId, url: a.url }, a);
+      return g.pending || okResult(g.data);
     }
     case "kb_reindex": return okResult(await api(`/api/bots/kb/${a.kbId}/docs/${a.docId}/reindex`, { method: "POST", body: { headerRow: a.headerRow } }));
     case "analytics_ask": {
@@ -1710,7 +1726,8 @@ async function handleCall(params) {
     case "dialog_reply": {
       const text = String(a.text ?? "").trim();
       if (!text) throw new Error("Передай text — текст ответа.");
-      return okResult(await api(`/api/bots/${a.botId}/users/${chatIdArg(a.chatId)}/messages`, { method: "POST", body: { text } }));
+      const g = await invokeGuarded("dialog_reply", { botId: a.botId, chatId: chatIdArg(a.chatId), text }, a);
+      return g.pending || okResult(g.data);
     }
     // ---- Запись на слоты ----
     case "booking_calendar_list": return okResult(await api("/api/bots/booking/calendars"));
@@ -1775,7 +1792,8 @@ async function handleCall(params) {
     case "booking_cancel": {
       const id = uuidArg(a.calendarId, "calendarId");
       const bookingId = uuidArg(a.bookingId, "bookingId");
-      await api(`/api/bots/booking/calendars/${id}/bookings/${bookingId}/cancel`, { method: "POST" });
+      const g = await invokeGuarded("booking_cancel", { calendarId: id, bookingId }, a);
+      if (g.pending) return g.pending;
       return okResult(`✅ Бронь ${bookingId} отменена, слот свободен.`);
     }
     case "booking_confirm":
@@ -1870,8 +1888,8 @@ async function handleCall(params) {
     case "scenario_runs": return okResult(await api(`/api/bots/graphs/${uuidArg(a.graphId, "graphId")}/runs${pageQs(a)}`));
     case "bot_delete": {
       const botId = uuidArg(a.botId, "botId");
-      if (a.confirm !== true) throw new Error("Удаление бота необратимо. Спроси пользователя и повтори с confirm:true.");
-      await api(`/api/bots/${botId}`, { method: "DELETE" });
+      const g = await invokeGuarded("bot_delete", { botId }, a);
+      if (g.pending) return g.pending;
       return okResult(`🗑️ Бот ${botId} удалён вместе со сценариями и подписчиками.`);
     }
     // ---- Паритет платформы, часть 2 ----
@@ -2156,10 +2174,15 @@ async function handleCall(params) {
       const inactive = a.inactive === true; // перенос из другого конструктора: не трогать живой вебхук
       let bot;
       try {
-        bot = await api("/api/bots", { method: "POST", body: { token, platform, inactive } });
+        if (inactive) bot = await api("/api/bots", { method: "POST", body: { token, platform, inactive } });
+        else {
+          const g = await invokeGuarded("bot_connect", { platform, token }, a);
+          if (g.pending) return g.pending;
+          bot = g.data;
+        }
       } catch (e) {
         // 400 приходит строкой-причиной (неверный токен, бот уже подключён) — её и показываем.
-        if (e.status === 400) throw new Error(`Бот не подключён: ${typeof e.data === "string" && e.data ? e.data : "токен не принят"}. Проверь токен (${platform === "MAX" ? "MasterBot в MAX" : "@BotFather → /token"}).`);
+        if (e.status === 400) throw new Error(`Бот не подключён: ${bodyReason(e.data) || "токен не принят"}. Проверь токен (${platform === "MAX" ? "MasterBot в MAX" : "@BotFather → /token"}).`);
         throw e;
       }
       if (a.name && bot?.id) {
@@ -2181,7 +2204,10 @@ async function handleCall(params) {
     case "vk_landing_delete":
       await api(`/api/growth/vk-landings/${uuidArg(a.id, "id")}`, { method: "DELETE" });
       return okResult({ deleted: true });
-    case "bot_stop": return okResult(await api(`/api/bots/${a.botId}/stop`, { method: "POST" }));
+    case "bot_stop": {
+      const g = await invokeGuarded("bot_stop", { botId: a.botId }, a);
+      return g.pending || okResult(g.data);
+    }
     case "bot_resume": return okResult(await api(`/api/bots/${a.botId}/resume`, { method: "POST" }));
     // ---- Подключения ----
     case "connect_integration": {
@@ -2341,7 +2367,9 @@ async function handleCall(params) {
         if (a.scheduledAt !== undefined) throw new Error(`scheduledAt ${body.scheduledAt} уже прошло — укажи будущее время или не передавай его (отправить сейчас).`);
         body.scheduledAt = null;
       }
-      const r = await api("/api/bots/broadcasts/direct", { method: "POST", body });
+      const g = await invokeGuarded("broadcast_send_now", body, a);
+      if (g.pending) return g.pending;
+      const r = g.data;
       let draftDeleted = false;
       if (a.draftId) { try { await api(`/api/bots/broadcasts/drafts/${a.draftId}`, { method: "DELETE" }); draftDeleted = true; } catch { /* не критично */ } }
       // dedup/stagger → бэкенд создаёт BroadcastGroup вместо прямых TgBroadcast (другая форма ответа: id/perBot[]/status вместо broadcastIds/totalAudience).
@@ -2471,9 +2499,11 @@ async function handleCall(params) {
       }
       return okResult(await api(`/api/bots/broadcasts/${a.broadcastId}/ops/preview`, { method: "POST", body }));
     }
-    case "broadcast_cancel":
-      await api(`/api/bots/broadcasts/${a.broadcastId}/cancel`, { method: "POST" });
+    case "broadcast_cancel": {
+      const g = await invokeGuarded("broadcast_cancel", { broadcastId: a.broadcastId }, a);
+      if (g.pending) return g.pending;
       return okResult(`⏹️ Рассылка ${a.broadcastId} отменяется (CANCELLING → CANCELLED).`);
+    }
     case "broadcast_recurring": {
       const base = "/api/bots/broadcasts/recurring";
       if (a.action === "list") return okResult(await api(base));
@@ -2584,7 +2614,10 @@ async function handleCall(params) {
       await api(`/api/bots/chains/${chainId}`, { method: "DELETE" });
       return okResult(`🗑️ Цепочка ${chainId} удалена.`);
     }
-    case "chain_enable": return okResult(await api(`/api/bots/chains/${uuidArg(a.chainId, "chainId")}/enable`, { method: "POST" }));
+    case "chain_enable": {
+      const g = await invokeGuarded("chain_enable", { chainId: uuidArg(a.chainId, "chainId") }, a);
+      return g.pending || okResult(g.data);
+    }
     case "chain_pause": return okResult(await api(`/api/bots/chains/${uuidArg(a.chainId, "chainId")}/pause`, { method: "POST" }));
     case "chain_runs": {
       const chainId = uuidArg(a.chainId, "chainId");
@@ -2778,6 +2811,32 @@ async function callCatalog(params) {
     if (text) return okResult(text);
     throw e;
   }
+}
+
+/**
+ * Опасное действие через единый реестр: сервер сам требует подтверждение (409 + confirmToken) и пишет вызов в журнал.
+ * { pending } — готовый MCP-результат «спроси пользователя» (с описанием изменений и токеном), { data } — выполнено.
+ * Повтор: те же аргументы + confirmToken (параметр самого инструмента).
+ */
+async function invokeGuarded(name, args, a) {
+  const clean = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
+  if (typeof a?.confirmToken === "string" && a.confirmToken) clean.confirmToken = a.confirmToken;
+  try {
+    return { data: await api("/api/agent-tools/invoke", { method: "POST", body: { name, args: clean } }) };
+  } catch (e) {
+    const text = e?.status === 409 ? confirmationText(e.data) : null;
+    if (text) return { pending: okResult(text) };
+    throw e;
+  }
+}
+/** Обратимые правки: сервер обычно не требует подтверждения, токен нужен лишь при явном 409. */
+const SOFT_CONFIRM_TOOLS = new Set(["site_edit", "agent_update", "kb_add_site", "chain_enable"]);
+const GUARDED_TOOLS = new Set(["publish_graph", "site_publish", "site_rollback", "agent_publish", "booking_cancel", "bot_delete", "broadcast_cancel", "broadcast_send",
+  "delete_graph", "agent_update", "chain_enable", "kb_add_site", "create_bot", "bot_stop", "dialog_reply", "site_edit"]);
+for (const t of TOOLS) {
+  if (!GUARDED_TOOLS.has(t.name)) continue;
+  const soft = SOFT_CONFIRM_TOOLS.has(t.name);
+  t.inputSchema.properties = { ...(t.inputSchema.properties || {}), confirmToken: { type: "string", description: soft ? "Только если сервер вернул запрос подтверждения (409): токен одноразовый, при новом 409 используй новый токен и покажи пользователю новое описание изменений. Обычно не нужен." : "Токен подтверждения из ответа «Нужно подтверждение пользователя»: повтори вызов с теми же аргументами после явного согласия человека. Без него сервер ничего не выполнит." } };
 }
 
 function notifyListChanged() { send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" }); }

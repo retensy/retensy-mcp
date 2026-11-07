@@ -66,9 +66,9 @@ const G = "22222222-3333-4444-8555-666666666666";
 const N = "33333333-4444-4555-8666-777777777777";
 
 await call("publish_graph", { graphId: G, secondary: true });
-check("publish_graph secondary:true → POST ?secondary=true", !!req("POST", `/api/bots/graphs/${G}/publish?secondary=true`));
+check("publish_graph secondary:true → invoke graph_publish с secondary", seen.some((s) => s.url === "/api/agent-tools/invoke" && s.body?.name === "graph_publish" && s.body.args?.graphId === G && s.body.args.secondary === true));
 await call("publish_graph", { graphId: N });
-check("publish_graph без secondary → прежний POST без параметра", !!req("POST", `/api/bots/graphs/${N}/publish`));
+check("publish_graph без secondary → invoke graph_publish, прямого POST нет", seen.some((s) => s.url === "/api/agent-tools/invoke" && s.body?.name === "graph_publish" && s.body.args?.graphId === N) && !req("POST", `/api/bots/graphs/${N}/publish`));
 await call("unpublish_graph", { graphId: G });
 check("unpublish_graph → POST /unpublish", !!req("POST", `/api/bots/graphs/${G}/unpublish`));
 check("unpublish_graph graphId не UUID — ошибка до запроса", isErr(await call("unpublish_graph", { graphId: "g1" })) && none("/graphs/g1/"));

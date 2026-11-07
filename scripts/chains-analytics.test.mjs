@@ -121,7 +121,7 @@ check("chain_delete без confirm — ошибка до запроса", isErr(
 await call("chain_delete", { chainId: CHAIN_ID, confirm: true });
 check("chain_delete с confirm:true → DELETE /api/bots/chains/{id}", !!req("DELETE", `/api/bots/chains/${CHAIN_ID}`));
 await call("chain_enable", { chainId: CHAIN_ID });
-check("chain_enable → POST .../enable", !!req("POST", `/api/bots/chains/${CHAIN_ID}/enable`));
+check("chain_enable → invoke chain_enable", seen.some((s) => s.url === "/api/agent-tools/invoke" && s.body?.name === "chain_enable" && s.body.args?.chainId === CHAIN_ID));
 await call("chain_pause", { chainId: CHAIN_ID });
 check("chain_pause → POST .../pause", !!req("POST", `/api/bots/chains/${CHAIN_ID}/pause`));
 const runsAll = await call("chain_runs", { chainId: CHAIN_ID });
