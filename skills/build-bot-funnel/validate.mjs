@@ -246,6 +246,11 @@ for (const n of nodes) {
       else if (!UUID_RE.test(String(c.siteId).trim())) errors.push(`SITE_FORM_NO_SITE: ${who} — siteId «${c.siteId}» не UUID сайта (site_list).`);
       if (c.formId != null && typeof c.formId !== "string") errors.push(`${who}: formId — строка (id формы из site_get) или пусто = любая форма.`);
       break;
+    case "TRIGGER_ORDER_CREATED":
+    case "TRIGGER_ORDER_PAID":
+      if (c.channel != null && c.channel !== "" && !["site", "bot"].includes(c.channel)) errors.push(`${who}: channel ∈ {site,bot} или пусто.`);
+      if (!blank(c.siteId) && !UUID_RE.test(String(c.siteId).trim())) errors.push(`${who}: siteId — UUID сайта (site_list) или пусто = любой.`);
+      break;
     case "TRIGGER_BOOKING": {
       const EVENTS = ["booked", "confirmed", "cancelled", "reminder", "after_visit"];
       if (!Array.isArray(c.events) || c.events.length === 0) {

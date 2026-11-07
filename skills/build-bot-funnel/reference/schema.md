@@ -111,6 +111,8 @@
   `{{var.<имя>}}`, всегда `{{var.name}}`/`{{var.email}}`/`{{var.phone}}` (по имени поля, иначе по подписи),
   UTM `{{var.utm_*}}`. Прогон без чата: узлы отправки — только с `config.target`. Работает и в сценарии
   без бота (источник WEBHOOK — тогда `TRIGGER_WEBHOOK` не обязателен), и в сценарии бота; не для Instagram.
+- `TRIGGER_ORDER_CREATED` («Заказ создан») — `{ "siteId": "<uuid сайта, необязательно = любой>", "channel": "site"|"bot" }` — заказ создан (оформлен в корзине сайта или в боте). Срабатывает для КАЖДОГО опубликованного сценария владельца с этим триггером, фильтры — `siteId` и `channel` (пусто = без фильтра). Для бэкенда сайта: письмо, уведомление владельцу, `external_request` в `ACTIONS`. Переменные: `{{order.number}}`, `{{order.total}}`, `{{order.currency}}`, `{{order.status}}`, `{{order.name}}`, `{{order.phone}}`, `{{order.email}}`, `{{order.comment}}`, `{{order.delivery}}`, `{{order.address}}`, `{{order.items}}`, `{{order.channel}}`, `{{order.id}}`.
+- `TRIGGER_ORDER_PAID` («Заказ оплачен») — то же, но на оплату заказа; те же `config` и `{{order.*}}`, `{{order.status}}` — статус после оплаты.
 - `TRIGGER_SCHEDULE` — `{ "cron": "0 9 * * 1-5", "timezone": "Europe/Moscow" }` — запуск сценария по расписанию:
   cron из 5 полей (минута час день месяц день-недели), не чаще раза в минуту; зона по умолчанию `Europe/Moscow`.
   Прогон **headless** (без чата): узлы отправки — только с явным `config.target`, действия, которым нужен
