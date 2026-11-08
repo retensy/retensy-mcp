@@ -306,6 +306,12 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `audience_fields(botId, search?, limit?)` | ключи переменных (с выведенным типом) и теги бота — для построителя фильтра |
 | `audience_search(botId?, botIds?, filter?, q?, sort?, dir?, page?, size?)` | фильтр+сортировка подписчиков: один бот или кросс-бот (без `botId`); `filter` — полный `AudienceFilter` (теги any/all/none, диапазоны дат, `blocked`, `variableConditions`) |
 | `audience_tag_edit(botId, chatIds, add?, remove?)` / `audience_variable_edit(botId, chatIds, set?, unset?)` | массово добавить/снять теги / установить/снять переменные у выбранных подписчиков |
+| `subscribers_overview(days?)` | **из каталога сервера.** Подписчики по ВСЕМ ботам за один вызов: новые, активные, всего, заблокировали, итого и топ ботов. Считает сервер, ботов по одному запрашивать не нужно |
+| `leads_overview(siteIds?, days?)` | **из каталога сервера.** Точная сводка заявок по всем сайтам: счётчики по статусам, сайтам и `utm_source`, пять новых заявок. Без листания страниц |
+| `bookings_overview()` | **из каталога сервера.** Записи по всем календарям: сколько ждут подтверждения и сколько предстоящих |
+| `leads_bulk_status(toStatus, fromStatuses?, siteIds?, utmSource?, days?)` | **из каталога сервера.** Массово сменить статус заявок по условию, до 500 за раз, id не нужны. Только свои сайты. Нужен `confirmToken`: сервер возвращает сводку «что и сколько», повтор с токеном выполняет (токен действует, пока число подходящих заявок не изменилось). Право `write:sites` |
+| `bookings_bulk_decide(action, calendarIds?, bookingIds?, from?, to?)` | **из каталога сервера.** Массово подтвердить (`CONFIRM`), отклонить (`REJECT`) ждущие записи или отменить активные (`CANCEL`, только с `from`+`to` или `bookingIds`), до 100 за раз. Клиентам уходят уведомления как при одиночном действии. Нужен `confirmToken`. Право `crm` |
+| `audience_bulk_tag(add?, remove?, botIds?, filter?, q?)` | **из каталога сервера.** Поставить/снять теги всем подписчикам, подходящим под условие (`filter` как в `audience_search`), без chatId, до 5000 за раз. Нужен `confirmToken`. Право `crm` |
 | `audience_export(botId?, botIds?, filter?, q?, format, savePath?)` | потоковая выгрузка ТЕКУЩЕЙ отфильтрованной выборки, `csv`\|`xlsx` (xlsx требует `savePath` — бинарный формат), потолок 100000 строк |
 | `dialog_search(q, limit?)` | кросс-бот поиск по «Диалогам» — имя/username/id/текст сообщения |
 | `publications_usage(botId)` | месячная квота публикаций владельца (общая для Telegram/MAX/Instagram/VK) |
