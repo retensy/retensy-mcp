@@ -15,7 +15,7 @@ import crypto from "node:crypto";
 export const CATALOG_TTL_MS = 10 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 6000;
 /** Служебные инструменты MCP: каталог их никогда не перекрывает. */
-const RESERVED = new Set(["setup", "set_token"]);
+const RESERVED = new Set(["setup", "set_token", "account_add", "account_list", "account_remove"]);
 export const MAX_DESCRIPTION_BYTES = 2 * 1024;
 export const MAX_SCHEMA_BYTES = 8 * 1024;
 export const MAX_CATALOG_TOOLS = 300;

@@ -8,6 +8,8 @@
  *   1) env RETENSY_MCP_TOKEN — персональный токен "zmcp_..."
  *   2) файл ~/.retensy-bot-graph/token  (заполняется инструментом set_token)
  *   3) session-cookie (RETENSY_SESSION_COOKIE / RETENSY_COOKIE) — fallback
+ * Несколько аккаунтов: account_add сохраняет именованные токены в ~/.retensy-bot-graph/accounts.json,
+ * аргумент retensyAccount в любом инструменте выполняет только этот вызов под нужным аккаунтом.
  *
  * Если токена нет — инструменты не падают с сухой ошибкой, а возвращают пошаговую
  * инструкцию; есть инструменты `setup` (статус + как подключить) и `set_token`
@@ -21,6 +23,7 @@
  */
 
 import { createInterface } from "node:readline";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { validateAgentTools } from "./agent-tools.mjs";
 import { createCatalog, mergeTools, confirmationText } from "./catalog.mjs";
 import { fileURLToPath } from "node:url";
@@ -42,10 +45,63 @@ const CONFIG_DIR = path.join(os.homedir(), ".retensy-bot-graph");
 const TOKEN_FILE = path.join(CONFIG_DIR, "token");
 const TOKENS_PAGE = `${BASE}/bots/mcp-tokens`;
 
+const ACCOUNTS_FILE = path.join(CONFIG_DIR, "accounts.json");
+const ACCOUNT_ARG = "retensyAccount";
+const ACCOUNT_NAME_RX = /^[\p{L}\p{N}_.@+-]{1,64}$/u;
+/** Токен именованного аккаунта на время одного вызова; параллельные вызовы друг другу не мешают. */
+const callAuth = new AsyncLocalStorage();
+
+function readAccounts() {
+  try {
+    const data = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, "utf8"));
+    return data && typeof data.accounts === "object" && data.accounts ? data.accounts : {};
+  } catch { return {}; }
+}
+function writeAccounts(accounts) {
+  fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify({ accounts }, null, 2) + "\n", { mode: 0o600 });
+  try { fs.chmodSync(ACCOUNTS_FILE, 0o600); } catch { /* windows */ }
+}
+function checkAccountName(name) {
+  const n = String(name ?? "").trim();
+  if (!ACCOUNT_NAME_RX.test(n) || n === "__proto__") {
+    throw new Error("Имя аккаунта: 1–64 символа, буквы, цифры и _ . @ + - (например email аккаунта).");
+  }
+  return n;
+}
+/** Неизвестное имя — ошибка, а не тихий откат на аккаунт по умолчанию: иначе действие уйдёт не туда. */
+function accountToken(name) {
+  const accounts = readAccounts();
+  const key = String(name).trim();
+  if (!Object.hasOwn(accounts, key)) {
+    const known = Object.keys(accounts);
+    throw new Error(`Аккаунт «${key}» не подключён. ${known.length ? `Подключены: ${known.join(", ")}.` : "Подключённых аккаунтов нет."} Добавь его через account_add.`);
+  }
+  return accounts[key];
+}
+const ACCOUNT_SCOPE_FREE = new Set(["setup", "set_token", "account_add", "account_list", "account_remove"]);
+/** Дописать необязательный выбор аккаунта в схему инструмента. */
+function withAccountArg(tool) {
+  if (ACCOUNT_SCOPE_FREE.has(tool.name)) return tool;
+  const schema = tool.inputSchema || { type: "object" };
+  return {
+    ...tool,
+    inputSchema: {
+      ...schema,
+      properties: {
+        ...schema.properties,
+        [ACCOUNT_ARG]: { type: "string", description: "Имя аккаунта из account_list: выполнить только этот вызов под ним. Пусто — аккаунт по умолчанию." },
+      },
+    },
+  };
+}
+
 function readFileToken() {
   try { return fs.readFileSync(TOKEN_FILE, "utf8").trim(); } catch { return ""; }
 }
 function getToken() {
+  const scoped = callAuth.getStore()?.token;
+  if (scoped) return scoped;
   // Если переменная не задана, Claude Code отдаёт шаблон "${RETENSY_MCP_TOKEN}" литералом —
   // такой env нельзя считать токеном, иначе он перекрывает файл из set_token (вечный 401).
   const env = (process.env.RETENSY_MCP_TOKEN || "").trim();
@@ -99,7 +155,7 @@ function installId() {
 
 function safeArgs(toolName, a) {
   // set_token несёт секрет целиком — не сериализуем его вообще.
-  if (toolName === "set_token") return '{"token":"<скрыт>"}';
+  if (toolName === "set_token" || toolName === "account_add") return '{"token":"<скрыт>"}';
   const out = {};
   for (const [k, v] of Object.entries(a || {})) {
     if (SECRET_KEY_RX.test(k)) { out[k] = "<скрыт>"; continue; }
@@ -1041,6 +1097,9 @@ const STAGGER_SCHEMA = { type: "object", description: "«Распределит�
 const TOOLS = [
   { name: "setup", description: "Показать статус авторизации и пошаговую инструкцию подключения. Вызывай первым, если пользователь не знает, что делать, или при ошибке доступа. Токен (zmcp_...) определяет АККАУНТ, а не один проект: доступ к каждому боту/сайту — это твоя текущая роль в нём (владелец или приглашённый соредактор), и она проверяется заново при каждом вызове.", inputSchema: { type: "object", properties: {} } },
   { name: "set_token", description: "Сохранить персональный токен (zmcp_...), который пользователь создал на /bots/mcp-tokens. Применяется сразу, без рестарта. Токен определяет аккаунт целиком, не один проект — список доступных проектов (свои + те, куда пригласили) виден в list_bots/site_list. Если владелец проекта уберёт тебя из соредакторов, доступ к этому проекту исчезнет сразу же, без повторной настройки токена.", inputSchema: { type: "object", properties: { token: { type: "string", description: "Секрет токена, начинается с zmcp_" } }, required: ["token"] } },
+  { name: "account_add", description: "Подключить дополнительный аккаунт Retensy: сохранить его токен (zmcp_...) под именем. Токен проверяется, неверный не сохраняется; тем же именем токен заменяется. Аккаунт по умолчанию не меняется. Дальше передавай retensyAccount:<имя> в нужные инструменты.", inputSchema: { type: "object", properties: { name: { type: "string", description: "Имя аккаунта, например email" }, token: { type: "string", description: "Секрет токена, начинается с zmcp_" } }, required: ["name", "token"] } },
+  { name: "account_list", description: "Подключённые аккаунты: имя и число доступных ботов (или ошибка токена). Токены не показываются.", inputSchema: { type: "object", properties: {} } },
+  { name: "account_remove", description: "Убрать подключённый аккаунт из этого MCP (локально; сам токен на сервере не отзывается).", inputSchema: { type: "object", properties: { name: { type: "string" } }, required: ["name"] } },
   { name: "list_bots", description: "Список ботов (id, имя, статус). Включает и свои боты, и боты, в которые тебя пригласили соредактором — у каждого есть accessRole (OWNER/ADMIN/EDITOR/VIEWER); у чужих (не OWNER) есть ownerName — имя владельца проекта. Конфликт токена (тот же Telegram-токен подключён ещё в BotHelp/Salebot/своём скрипте, 10+ минут): pausedReason=TOKEN_CONFLICT (+ pausedAt, pausedConflictHost) — другой сервис держит вебхук, бот active=false (ничего не удалено); pausedChannels[] — у работающего мультиканального бота выключены только эти каналы; conflictWarning=TOKEN_CONFLICT_POLLING (+ conflictWarningUsername) — токен опрашивает кто-то ещё, бот НЕ остановлен, но теряет часть сообщений (снимается само). Чинится вне Retensy (отключить бота там или /revoke в @BotFather + bot_change_token), затем bot_resume для паузы. Доступ = твоя текущая роль в проекте, проверяется на каждый вызов; владелец мог отозвать её без предупреждения.", inputSchema: { type: "object", properties: {} } },
   { name: "list_graphs", description: "Список сценариев САМОГО бота (без узлов). Вебхук-сценарии, которые лишь отвечают через этого бота, сюда не входят — их публикуют в вебе, в «Сценариях» автора.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
   { name: "list_channels", description: "Список каналов/групп, подключённых к боту (chatId, title, type, статус бота, дата). chatId — числовой id для условия SUBSCRIBED («Подписан на канал»).", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
@@ -1313,6 +1372,32 @@ async function handleCall(params) {
       try { const bots = await api("/api/bots"); check = `\nПроверка: доступно ботов — ${Array.isArray(bots) ? bots.length : "?"}.`; }
       catch (e) { check = `\n⚠️ Токен сохранён, но проверка не прошла: ${(e.message || "").split("\n")[0]}`; }
       return okResult(`✅ Токен сохранён (${TOKEN_FILE}). Применяется сразу.${warn}${envWarn}${check}`);
+    }
+    case "account_add": {
+      const name = checkAccountName(a.name);
+      const token = (a.token || "").trim();
+      if (!token) throw new Error("Передай token — секрет вида zmcp_..., созданный на " + TOKENS_PAGE);
+      const bots = await callAuth.run({ token }, () => api("/api/bots"));
+      writeAccounts({ ...readAccounts(), [name]: token });
+      return okResult(`✅ Аккаунт «${name}» подключён, доступно ботов: ${Array.isArray(bots) ? bots.length : "?"}. Используй retensyAccount:"${name}" в вызовах.`);
+    }
+    case "account_list": {
+      const accounts = readAccounts();
+      const rows = await Promise.all(Object.entries(accounts).map(async ([name, token]) => {
+        try {
+          const bots = await callAuth.run({ token }, () => api("/api/bots"));
+          return { name, bots: Array.isArray(bots) ? bots.length : null };
+        } catch (e) { return { name, error: (e.message || "").split("\n")[0] }; }
+      }));
+      return okResult({ accounts: rows });
+    }
+    case "account_remove": {
+      const name = String(a.name ?? "").trim();
+      const accounts = readAccounts();
+      if (!Object.hasOwn(accounts, name)) throw new Error(`Аккаунт «${name}» не подключён.`);
+      delete accounts[name];
+      writeAccounts(accounts);
+      return okResult(`Аккаунт «${name}» убран из MCP. Токен на сервере действует, пока не отозван на ${TOKENS_PAGE}.`);
     }
     case "list_bots": return okResult(await api("/api/bots"));
     case "list_graphs": return okResult(await api(`/api/bots/${a.botId}/graphs`));
@@ -2900,12 +2985,15 @@ rl.on("line", async (line) => {
       send({ jsonrpc: "2.0", id, result: { protocolVersion: "2024-11-05", capabilities: { tools: { listChanged: true } }, serverInfo: { name: "retensy-mcp", version: VERSION } } });
       refreshCatalog();
     } else if (method === "tools/list") {
-      send({ jsonrpc: "2.0", id, result: { tools: mergeTools(TOOLS, catalog.tools()) } });
+      send({ jsonrpc: "2.0", id, result: { tools: mergeTools(TOOLS, catalog.tools()).map(withAccountArg) } });
       if (catalog.stale()) refreshCatalog();
     } else if (method === "tools/call") {
       let result;
       try {
-        result = isAuthed() && catalog.has(params?.name) && !LOCAL_TOOL_NAMES.has(params?.name) ? await callCatalog(params) : await handleCall(params);
+        const { [ACCOUNT_ARG]: account, ...callArgs } = params?.arguments || {};
+        const callParams = { ...params, arguments: callArgs };
+        const run = () => (isAuthed() && catalog.has(callParams.name) && !LOCAL_TOOL_NAMES.has(callParams.name) ? callCatalog(callParams) : handleCall(callParams));
+        result = account ? await callAuth.run({ token: accountToken(account) }, run) : await run();
         if (params?.name === "set_token") refreshCatalog(); // новый токен — другой набор прав и действий
       } catch (e) {
         result = errResult(e);
