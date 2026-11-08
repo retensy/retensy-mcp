@@ -358,6 +358,26 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `catalog_category_list()` | категории магазина: `id`, `name`, `parentId` |
 | `catalog_category_upsert(name, id?, parentId?, confirm:true)` | создать (без `id`) или переименовать (с `id`) категорию; без `parentId` при обновлении родитель сохраняется |
 
+### Промокоды, возвраты и настройки кабинета (из каталога сервера)
+
+Эти инструменты приходят из каталога сервера (`GET /api/agent-tools/catalog`) и появляются без обновления пакета. Все изменяющие требуют `confirm:true` и `confirmToken` (сервер сначала возвращает сводку «что будет сделано»).
+
+| Tool | Назначение |
+|---|---|
+| `promo_list()` / `promo_create(code, kind, value, maxUses?, expiresAt?, minOrder?)` / `promo_toggle(promoId, active)` / `promo_delete(promoId)` | промокоды заказов магазина: `kind` = `percent`\|`fixed`, лимит применений, срок, минимальная сумма; скидка считается от суммы товаров, действует на сайте и в боте |
+| `order_refunds(orderId)` / `order_refund(orderId, requestId, amount?, reason?)` | возвраты денег по заказу через ЮKassa: без `amount` вернуть остаток целиком, с `amount` — часть. `requestId` — ключ операции (16–100 символов), повтор с тем же ключом не вернёт деньги второй раз. Нужно право `billing` |
+| `order_refund_retry(orderId, refundId)` / `order_refund_manual(orderId, refundId)` / `order_refund_abandon(orderId, refundId)` | повторить непрошедший возврат (при неизвестном исходе — с тем же ключом), отметить «вернул вручную в кабинете ЮKassa», отказаться от точно непрошедшего возврата |
+| `operator_duty_get(botId)` / `operator_duty_set(botId, enabled, workFrom?, workTo?, workDays?, timezone?, offlineReply?, slaMinutes?)` | рабочее время оператора, автоответ вне часов, SLA-предупреждение владельцу; настройка заменяется целиком |
+| `payment_reminder_get(botId)` / `payment_reminder_set(botId, enabled, afterMinutes?, text?)` / `payment_reminder_stats(botId)` | напоминание тем, кто начал оплату и не закончил, и результат |
+| `tg_business_status(botId)` | подключён ли бот к Telegram Business и какие аккаунты (подключение — в приложении Telegram) |
+| `managed_bot_config()` / `managed_bot_start(name?)` / `managed_bot_status(managedId)` | создание бота через Managed Bots без ручного токена |
+| `consents_history(botId, chatId)` / `consent_revoke(botId, chatId, documentKey?)` / `consents_export(botId, chatId?)` | согласия клиентов (152-ФЗ): журнал, отзыв, выгрузка CSV (персональные данные, право `destructive`) |
+| `linked_chats_list(botId)` | каналы и группы, где бот администратор (публикация — `channel_post`) |
+| `graph_validate(graphId)` | проверить сценарий без публикации: ошибки и предупреждения |
+| `kb_search(kbId, q)` / `kb_doc_history(kbId, docId)` | поиск по базе знаний и история пересборок документа |
+| `agent_checklist(agentId)` / `agent_checks_latest(agentId)` / `agent_analytics(agentId, days?)` / `agent_insights(agentId)` | чек-лист, последняя проверка, аналитика (7/30/90 дней) и рекомендации ИИ-агента |
+| `attention_get()` | счётчики «требует внимания»: заявки, диалоги без ответа, интеграции, боты на паузе |
+
 ### Рассылки
 
 Сообщение рассылки — как в мастере кабинета: `{type, text?, mediaUrl?, mediaUrls?, buttons?}`, до 5 сообщений.
