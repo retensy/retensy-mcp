@@ -150,27 +150,44 @@ function hash(s) {
   return h.toString(16).padStart(8, "0");
 }
 
-/** Что изменится: summary.text от сервера (diff узлов/блоков, получатели), иначе общий message. */
+/** Что изменится: summary.text от сервера (diff узлов/блоков, получатели), иначе общий message. Обрезается до ~300 символов. */
+export const SUMMARY_MAX = 300;
 function changeSummary(data) {
   const sum = data?.step?.confirm?.summary;
   if (!sum || typeof sum !== "object") return "";
   const parts = [];
-  if (typeof sum.text === "string" && sum.text) parts.push(sum.text);
-  if (typeof sum.recipients === "number") parts.push(`Получателей: ${sum.recipients}.`);
-  if (sum.irreversible === true) parts.push("Действие необратимо.");
-  return parts.join(" ");
+  if (typeof sum.text === "string" && sum.text) parts.push(sum.text.replace(/\s+/g, " ").trim());
+  if (typeof sum.recipients === "number" && !/получател/i.test(parts.join(" "))) parts.push(`Получателей: ${sum.recipients}.`);
+  if (sum.irreversible === true && !/необратим/i.test(parts.join(" "))) parts.push("Необратимо.");
+  const out = parts.join(" ");
+  return out.length > SUMMARY_MAX ? out.slice(0, SUMMARY_MAX - 1) + "…" : out;
 }
 
-/** Ответ invoke → результат MCP. 409 needsConfirmation — не ошибка сервиса, а просьба спросить человека. */
+/**
+ * Ответ invoke -> результат MCP. 409 needsConfirmation - не ошибка сервиса, а просьба спросить человека.
+ * Формат: строка «что будет сделано» (с цифрами) + строка инструкции с токеном. Без повторов message/summary.
+ */
 export function confirmationText(data) {
   if (data && typeof data === "object" && data.needsConfirmation === true) {
-    const msg = typeof data.message === "string" ? data.message : "";
     const what = changeSummary(data);
-    const head = ["Нужно подтверждение пользователя.", what && !msg.includes(what) ? `Что изменится: ${what}` : "", msg].filter(Boolean).join(" ");
-    if (typeof data.confirmToken === "string" && data.confirmToken) {
-      return `⚠️ ${head} Опиши пользователю, что именно будет сделано, получи его явное согласие и повтори вызов с ТЕМИ ЖЕ аргументами плюс confirmToken: "${data.confirmToken}" (токен одноразовый, привязан к этим аргументам и действует 5 минут; если состояние изменилось, придёт новый запрос — покажи пользователю новое описание).`.trim();
-    }
-    return `⚠️ ${head}`.trim();
+    const token = typeof data.confirmToken === "string" ? data.confirmToken : "";
+    const ttl = Number.isFinite(data.ttlMinutes) ? data.ttlMinutes : 5;
+    const reissue = data.reissueReason ? reissueLine(data.reissueReason) : "";
+    const msg = typeof data.message === "string" ? data.message : "";
+    const head = `⚠️ Нужно подтверждение пользователя.${reissue ? ` ${reissue}` : ""} ${what || msg}`.replace(/\s+/g, " ").trim();
+    if (token) return `${head}\nСпроси пользователя; после явного «да» повтори тот же вызов с confirmToken="${token}" (${ttl} мин, один раз).`;
+    return head;
   }
   return null;
+}
+
+function reissueLine(reason) {
+  switch (reason) {
+    case "expired_same": return "Прежний токен истёк, выдан новый; описание не менялось.";
+    case "expired_changed": return "Прежний токен истёк, описание изменилось: покажи новое.";
+    case "used": return "Токен уже использован, повторно ничего не запускалось: сверь результат.";
+    case "changed": return "Аргументы или данные изменились, выдан новый токен.";
+    case "unverifiable": return "Данные для сводки не прочитались, выдан новый токен.";
+    default: return "Токен не распознан, выдан новый.";
+  }
 }

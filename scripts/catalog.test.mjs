@@ -39,7 +39,7 @@ const many = Array.from({ length: MAX_CATALOG_TOOLS + 20 }, (_, i) => ({ name: `
 check("не больше 300 инструментов каталога", mergeTools([], many).length === MAX_CATALOG_TOOLS);
 const ann = mergeTools([], [{ name: "danger_x", description: "d", inputSchema: { type: "object" }, requiresConfirmation: true }, { name: "safe_x", description: "d", inputSchema: { type: "object" } }]);
 check("destructiveHint для requiresConfirmation", ann[0].annotations?.destructiveHint === true && ann[1].annotations === undefined);
-check("confirmToken в тексте подтверждения", /confirmToken: "tok123"/.test(confirmationText({ needsConfirmation: true, message: "m", confirmToken: "tok123" })));
+check("confirmToken в тексте подтверждения", /confirmToken="tok123"/.test(confirmationText({ needsConfirmation: true, message: "m", confirmToken: "tok123" })));
 check("без confirmToken — старый текст", !/confirmToken/.test(confirmationText({ needsConfirmation: true, message: "m" })));
 check("validCatalogTool требует схему-объект", !validCatalogTool({ name: "abc", description: "d", inputSchema: { type: "string" } }));
 
@@ -118,7 +118,7 @@ try {
   await rpc("tools/call", { name: "list_bots", arguments: {} });
   check("локальный инструмент не идёт через invoke", invokes.length === nInv);
   const del = await rpc("tools/call", { name: "danger_tool", arguments: { botId: "b1" } });
-  check("без токена — просьба спросить пользователя с confirmToken", !del.result.isError && /подтверждение/i.test(del.result.content[0].text) && /confirmToken: "tok-1"/.test(del.result.content[0].text));
+  check("без токена — просьба спросить пользователя с confirmToken", !del.result.isError && /подтверждение/i.test(del.result.content[0].text) && /confirmToken="tok-1"/.test(del.result.content[0].text));
   const del2 = await rpc("tools/call", { name: "danger_tool", arguments: { botId: "b1", confirmToken: "tok-1" } });
   check("повтор с confirmToken выполняется", /"ok": true/.test(del2.result.content[0].text));
 

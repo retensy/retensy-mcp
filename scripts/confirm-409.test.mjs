@@ -72,23 +72,23 @@ try {
   check("publish_graph -> invoke graph_publish", invokes.at(-1)?.name === "graph_publish" && invokes.at(-1).args.graphId === G);
   check("409: не ошибка, а просьба спросить пользователя", !p1.result.isError && /подтверждение/i.test(text(p1)));
   check("409: что изменится (summary.text, получатели, необратимо)", /Добавится блоков: 1/.test(text(p1)) && /Получателей: 150/.test(text(p1)) && /необратимо/i.test(text(p1)));
-  check("409: токен в тексте", /confirmToken: "tok-ok"/.test(text(p1)));
+  check("409: токен в тексте", /confirmToken="tok-ok"/.test(text(p1)));
 
   const p2 = await call("publish_graph", { graphId: G, confirmToken: "tok-ok" });
   check("повтор с confirmToken выполняется, токен ушёл в args", !p2.result.isError && invokes.at(-1).args.confirmToken === "tok-ok" && /"ok": true/.test(text(p2)));
 
   const s1 = await call("site_publish", { siteId: "s1" });
-  check("site_publish без токена -> 409-текст", /confirmToken: "tok-ok"/.test(text(s1)));
+  check("site_publish без токена -> 409-текст", /confirmToken="tok-ok"/.test(text(s1)));
   const s2 = await call("site_publish", { siteId: "s1", confirmToken: "tok-ok" });
   check("site_publish с токеном -> прежний формат ответа", /"publishedRevision": 3/.test(text(s2)) && /https:\/\/x/.test(text(s2)));
 
   const b1 = await call("broadcast_send", { botIds: [B], name: "N", messages: ["Привет"] });
-  check("broadcast_send -> invoke broadcast_send_now", invokes.at(-1)?.name === "broadcast_send_now" && invokes.at(-1).args.name === "N" && /confirmToken: "tok-ok"/.test(text(b1)));
+  check("broadcast_send -> invoke broadcast_send_now", invokes.at(-1)?.name === "broadcast_send_now" && invokes.at(-1).args.name === "N" && /confirmToken="tok-ok"/.test(text(b1)));
 
   const d1 = await call("bot_delete", { botId: B });
   check("bot_delete -> invoke bot_delete, без прямого DELETE", invokes.at(-1)?.name === "bot_delete" && /confirmToken/.test(text(d1)) && !direct.some((d) => d.startsWith("DELETE")));
   const gd = await call("delete_graph", { graphId: G });
-  check("delete_graph -> invoke graph_delete, 409-текст", invokes.at(-1)?.name === "graph_delete" && /confirmToken: "tok-ok"/.test(text(gd)));
+  check("delete_graph -> invoke graph_delete, 409-текст", invokes.at(-1)?.name === "graph_delete" && /confirmToken="tok-ok"/.test(text(gd)));
   const gd2 = await call("delete_graph", { graphId: G, confirmToken: "tok-ok" });
   check("delete_graph с токеном выполняется", !gd2.result.isError && /удалён/.test(text(gd2)));
   const af = { tagsAll: ["vip"], tagsAny: [], tagsNone: [] };
