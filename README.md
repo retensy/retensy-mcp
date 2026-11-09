@@ -373,6 +373,9 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `operator_duty_get(botId)` / `operator_duty_set(botId, enabled, workFrom?, workTo?, workDays?, timezone?, offlineReply?, slaMinutes?)` | рабочее время оператора, автоответ вне часов, SLA-предупреждение владельцу; настройка заменяется целиком |
 | `payment_reminder_get(botId)` / `payment_reminder_set(botId, enabled, afterMinutes?, text?)` / `payment_reminder_stats(botId)` | напоминание тем, кто начал оплату и не закончил, и результат |
 | `unmatched_reply_get(botId)` / `unmatched_reply_set(botId, enabled, mode?, agentId?, text?, handoff?)` / `unmatched_reply_stats(botId)` | ответ бота на сообщения мимо сценария: готовый текст или ИИ-агент (с передачей человеку), итоги за 7 дней |
+| `graph_build_from_spec(botId, spec, graphId?)` | произвольный сценарий из компактной спецификации (сообщения, вопросы text/number/phone/email/photo/file/choice, условия, кнопки-ссылки и переходы, метка и уведомление владельцу); только черновик, `graphId` дописывает ветку в существующий сценарий |
+| `graph_edit(graphId, ops)` | правки готового сценария: `add_button`, `set_button_action` (ссылка http/https, переход на блок или новый блок), `insert_step`; опубликованный сценарий не меняется |
+| `dialog_recent(botId?, limit?, cursor?)` | последние диалоги с подписчиками: последнее сообщение, время, непрочитано, username |
 | `graph_texts(graphId)` / `graph_text_set(graphId, nodeId, text?, buttons?)` | тексты и подписи кнопок готового сценария и их правка без смены связей |
 | `notify_link_status()` / `notify_link_start(platform)` | привязка Telegram/MAX владельца для уведомлений: статус и одноразовая ссылка |
 | `tg_business_status(botId)` | подключён ли бот к Telegram Business и какие аккаунты (подключение — в приложении Telegram) |
