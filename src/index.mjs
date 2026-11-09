@@ -965,6 +965,46 @@ function toInstant(v, field) {
 
 // feature broadcast-dispatch: дедуп + распределённый запуск по ботам (BroadcastGroup). Оба необязательны;
 // бэкенд сам провалидирует форму целиком — здесь только базовые проверки до запроса.
+/** Московское время (UTC+3 без перехода): "2026-11-09 12:30 МСК". */
+function mskTime(v) {
+  const t = typeof v === "number" ? v : Date.parse(v);
+  if (!Number.isFinite(t)) return null;
+  return `${new Date(t + 3 * 3600_000).toISOString().slice(0, 16).replace("T", " ")} МСК`;
+}
+const IMMEDIATE_MS = 90_000;
+const IMMEDIATE_WARNING = "Старт немедленный: рассылка уходит подписчикам сейчас (в течение ~15 с), отменить можно только остановкой (broadcast_cancel / broadcast_group cancel).";
+function startInfo(scheduledAt) {
+  const immediate = !scheduledAt || Date.parse(scheduledAt) <= Date.now() + IMMEDIATE_MS;
+  return { startsAt: scheduledAt ? mskTime(scheduledAt) : "сразу", ...(immediate ? { warning: IMMEDIATE_WARNING } : {}) };
+}
+/** scheduledAt и stagger.startAt вместе - только если совпадают (сервер тоже вернёт 400). */
+function assertSameStart(scheduledAt, stagger) {
+  if (scheduledAt && stagger?.startAt && Math.abs(Date.parse(scheduledAt) - Date.parse(stagger.startAt)) > 1000) {
+    throw new Error(`scheduledAt (${mskTime(scheduledAt)}) и stagger.startAt (${mskTime(stagger.startAt)}) расходятся: передай одно время.`);
+  }
+}
+/** Сводка созданной группы: статусы ботов вместо 49 подробных строк (детали - broadcast_group get). */
+function groupSummary(g, requestedAt) {
+  const per = Array.isArray(g?.perBot) ? g.perBot : [];
+  const statusCounts = {};
+  for (const p of per) statusCounts[p.status] = (statusCounts[p.status] || 0) + 1;
+  const times = per.map((p) => Date.parse(p.plannedStartAt)).filter(Number.isFinite);
+  const first = times.length ? Math.min(...times) : null;
+  const last = times.length ? Math.max(...times) : null;
+  const immediate = first == null ? !requestedAt : first <= Date.now() + IMMEDIATE_MS;
+  const planned = per.reduce((n, p) => n + (Number(p.recipientsPlanned) || 0), 0);
+  const skipped = per.reduce((n, p) => n + (Number(p.recipientsSkippedDedup) || 0), 0);
+  return {
+    isGroup: true,
+    group: { id: g?.id, name: g?.name, status: g?.status, bots: new Set(per.map((p) => p.botId)).size, slots: per.length, statusCounts },
+    firstStartAt: first == null ? null : mskTime(first),
+    lastStartAt: last == null ? null : mskTime(last),
+    recipientsPlanned: planned,
+    ...(skipped ? { recipientsSkippedDedup: skipped } : {}),
+    ...(immediate ? { warning: IMMEDIATE_WARNING } : {}),
+    details: `broadcast_group {action:"get", groupId:"${g?.id}"}`,
+  };
+}
 function staggerArg(v) {
   if (v == null) return undefined;
   if (typeof v !== "object" || Array.isArray(v)) throw new Error("stagger — объект {startAt?, timezone?, intervalMinutes?, botOrder?, maxPerInterval?}.");
@@ -1042,7 +1082,7 @@ export async function broadcastCreatedHint(body) {
       const direct = (Array.isArray(list) ? list : []).find((b) => String(b?.name || "").startsWith(name) && (!b.createdAt || Date.parse(b.createdAt) >= since));
       if (direct) return `✅ Проверка: рассылка «${name}» УЖЕ СОЗДАНА (${direct.id}, статус ${direct.status}). Повторять вызов не нужно - иначе будет дубль.`;
     }
-    return `Проверка: рассылки «${name}» на сервере нет - она не создана. Её можно повторить: вызови broadcast_send заново БЕЗ confirmToken, покажи пользователю новое подтверждение.`;
+    return `Проверка: рассылки «${name}» на сервере нет - она не создана. Её можно повторить: вызови broadcast_send заново (человек уже согласился на эти параметры; если что-то менялось - спроси снова).`;
   } catch (e) {
     return `Проверить не удалось (${e?.message || e}). Прежде чем повторять, посмотри broadcast_group {action:"list"} и broadcast_list: рассылка «${name}» могла создаться.`;
   }
@@ -1144,7 +1184,7 @@ const AUDIENCE_FILTER_SCHEMA = { type: "object", description: "Полный фи
   }, required: ["key", "op"] } },
   conditionsCombinator: { type: "string", enum: ["AND", "OR"], description: "Как сочетать variableConditions между собой (остальное — всегда AND)" },
 } };
-const STAGGER_SCHEMA = { type: "object", description: "«Распределить отправку по ботам»: когда и с каким интервалом запускать каждого следующего. Не задано — все боты стартуют вместе (на первом тике планировщика, если включён dedup).", properties: {
+const STAGGER_SCHEMA = { type: "object", description: "«Распределить отправку по ботам»: когда и с каким интервалом запускать каждого следующего. Не задано — все боты стартуют вместе: в scheduledAt, если он задан, иначе сразу (в течение ~15 с). startAt и scheduledAt вместе — только если совпадают, иначе ошибка 400.", properties: {
   startAt: { type: "string", description: "Момент запуска первого бота по dispatch-порядку, ISO 8601 (без пояса — московское)" },
   timezone: { type: "string", description: "IANA-зона — только для отображения расписания" },
   intervalMinutes: { type: "number", description: "Пауза между стартами соседних ботов/порций, минуты, ≥ 0 (0 — все сразу)" },
@@ -1256,14 +1296,15 @@ const TOOLS = [
   { name: "broadcast_list", description: "Рассылки. Без botId — по всем ботам постранично (GET /api/bots/broadcasts): {counts: {drafts, scheduled, sent, recurring}, page: {content: [{id, botId, botUsername, name, status, direct, totalJobs, sentJobs, failedJobs, skippedByQuota, scheduledAt, createdAt}], totalElements…}}; group: scheduled (ещё не начали) | sent (идут/завершены). С botId — полная история одного бота. status: EXPANDING/MATERIALIZING/READY (ждёт) → RUNNING → DONE | CANCELLING → CANCELLED | FAILED. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, group: { type: "string", enum: ["scheduled", "sent"] }, page: { type: "number" }, size: { type: "number", description: "до 100, по умолчанию 20" } } } },
   { name: "broadcast_get", description: "Рассылка целиком по id (GET /api/bots/broadcasts/{id}): статус, счётчики отправки, фильтр аудитории, сообщения, время. При failedJobs > 0 — ещё errors: топ-5 причин ошибок [{error, count}] (GET …/{id}/errors; детали живут 30 дней). Read-only.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" } }, required: ["broadcastId"] } },
   { name: "broadcast_preview", description: "Оценить охват до отправки: сколько подписчиков получат рассылку (POST /api/bots/{botId}/broadcasts/preview) — по каждому боту и всего. Фильтр: tagsAll — есть ВСЕ эти теги, tagsNone — нет НИ ОДНОГО; без тегов — все подписчики бота; либо полный audienceFilter; либо segmentId — сохранённый сегмент (audience_segments). Лимит — 50 000 получателей на бота. Ничего не отправляет.", inputSchema: { type: "object", properties: { botIds: { type: "array", items: { type: "string" }, maxItems: 100 }, botId: { type: "string" }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, audienceFilter: AUDIENCE_FILTER_SCHEMA, segmentId: { type: "string", description: "id сохранённого сегмента (audience_segments action=list); главнее audienceFilter и тегов" } } } },
-  { name: "broadcast_send", description: "Отправить рассылку сейчас или запланировать (scheduledAt). " +
+  { name: "broadcast_send", description: "Отправить рассылку сейчас или запланировать (scheduledAt). ПЕРВЫЙ же корректный вызов СРАЗУ создаёт рассылку: токена подтверждения нет. " +
+    "ДО вызова ты обязан показать человеку получателей (уникальных и всего), текст и ФАКТИЧЕСКОЕ время старта из broadcast_group {action:\"preview\"} с теми же botIds/фильтром/dedup/stagger/scheduledAt (plannedStartAt первого и последнего бота, МСК) и получить явное согласие; без согласия не вызывай. Время старта в preview и в созданной рассылке считается одним кодом. " +
     "Прямая (по умолчанию, POST /api/bots/broadcasts/direct): name, botIds[] (1–100 ботов ОДНОГО владельца в одном вызове и с одним подтверждением; без dedup/stagger по каждому создаётся своя рассылка), messages[] (1–5), tagsAll?/tagsNone? (фильтр по тегам). " +
     "Сообщение: {type, text?, mediaUrl?, mediaUrls?, buttons?}; type: TEXT (text обязателен, до 4096) · PHOTO | VIDEO | AUDIO | FILE | VOICE (mediaUrl обязателен, text — подпись до 1024) · VIDEONOTE (кружок: mediaUrl, без текста) · GALLERY (mediaUrls: 2–10 картинок, подпись, БЕЗ кнопок). " +
     "text — Telegram-HTML: <b> <i> <u> <s> <code> <pre> <blockquote> <tg-spoiler> <a href=\"https://…\">, перенос строки — \\n (не <br>); прочее экранируется. buttons — до 8 URL-кнопок [{text, url}] (callback-кнопок в рассылке нет). Можно строкой — это TEXT. Медиа — сначала upload_file, потом его url. " +
     "По сценарию (graphId): POST /api/bots/{botId}/broadcasts — один botId, сценарий самого бота, entryNodeId? — с какого узла начать. " +
     "draftId — отправить черновик (поля черновика, переданные аргументы их перекрывают); после отправки черновик удаляется. " +
     "scheduledAt — ISO 8601 (без пояса — московское время); пусто — сразу. Немедленная резервирует квоту получателей тарифа, отложенная считает аудиторию в момент отправки. Рассылки только на платном тарифе — HTTP 402 со ссылкой. У Instagram-ботов рассылок нет. " +
-    "audienceFilter — полный фильтр аудитории вместо tagsAll/tagsNone (см. свойство ниже; если задан, tagsAll/tagsNone игнорируются). dedup:true — «отправить каждому человеку только один раз» среди нескольких botIds (ключ — platform+userId/chatId приватного чата; человек уходит ПЕРВОМУ боту по порядку botIds, где у него активная сессия). stagger — «распределить по ботам» (см. свойство ниже). Любое из dedup/stagger → ответ вместо {broadcastIds, totalAudience} отдаёт {group:{id, status, perBot[]...}, isGroup:true} — статус/прогресс дальше смотри broadcast_group {action:\"get\", groupId}. Без них — как раньше: {broadcastIds, totalAudience}. " +
+    "audienceFilter — полный фильтр аудитории вместо tagsAll/tagsNone (см. свойство ниже; если задан, tagsAll/tagsNone игнорируются). dedup:true — «отправить каждому человеку только один раз» среди нескольких botIds (ключ — platform+userId/chatId приватного чата; человек уходит ПЕРВОМУ боту по порядку botIds, где у него активная сессия). stagger — «распределить по ботам» (см. свойство ниже). Любое из dedup/stagger → вместо {broadcastIds, totalAudience} ответ-сводка {isGroup:true, group:{id, name, status, bots, statusCounts}, firstStartAt, lastStartAt (МСК), recipientsPlanned, warning?} — без списка ботов; детали по ботам и прогресс — broadcast_group {action:\"get\", groupId}. scheduledAt задаёт старт группы и с одним dedup (без stagger); если заданы и scheduledAt, и stagger.startAt и они расходятся — ошибка 400; сервер не создаст группу, если первый старт отличается от scheduledAt больше чем на минуту. Без dedup/stagger: {broadcastIds, totalAudience, startsAt, warning?}. При немедленном старте в ответе warning. " +
     "segmentId — сохранённый сегмент аудитории вместо audienceFilter (audience_segments). localTime \"HH:mm\" — слать КАЖДОМУ подписчику в это время по его часам (пояс из переменной timezone подписчика, иначе пояс бота; первый такой момент не раньше отправки/scheduledAt); не сочетается с dedup/stagger. Тихие часы бота (bot_delivery_window) применяются к рассылкам всегда: попавшие в окно получатели ждут его конца.",
     inputSchema: { type: "object", properties: { name: { type: "string" }, botIds: { type: "array", items: { type: "string" }, maxItems: 100 }, botId: { type: "string" }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, audienceFilter: AUDIENCE_FILTER_SCHEMA, scheduledAt: { type: "string", description: "ISO 8601, напр. 2026-10-06T10:00:00+03:00; пусто — сразу" }, graphId: { type: "string", description: "рассылка запуском сценария бота вместо сообщений" }, entryNodeId: { type: "string" }, draftId: { type: "string" }, segmentId: { type: "string", description: "id сохранённого сегмента аудитории (audience_segments); главнее audienceFilter и тегов" }, localTime: { type: "string", description: "HH:mm — слать каждому в это время по его часам (не с dedup/stagger)" }, dedup: { type: "boolean", description: "Не отправлять дважды одному человеку среди нескольких botIds (мульти-бот)" }, stagger: STAGGER_SCHEMA } } },
   { name: "audience_segments", description: "Сохранённые сегменты аудитории рассылок (имя + фильтр; /api/bots/{botId}/segments; общие для всех ботов владельца, до 50). action: list — сегменты {id, name, filter}; create {name, audienceFilter | tagsAll/tagsNone} — сохранить фильтр под именем (до 60 символов); delete {segmentId}. Использовать: broadcast_send / broadcast_preview {segmentId}. botId — любой твой бот.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "create", "delete"] }, botId: { type: "string" }, name: { type: "string" }, audienceFilter: AUDIENCE_FILTER_SCHEMA, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, segmentId: { type: "string" } }, required: ["action", "botId"] } },
@@ -1280,7 +1321,7 @@ const TOOLS = [
   { name: "broadcast_recurring", description: "Повторяющиеся рассылки (/api/bots/broadcasts/recurring). action: list — правила (активные и остановленные); create {name, botIds[], messages[], tagsAll?/tagsNone? или audienceFilter?, recurrence: DAILY|MONTHLY|YEARLY, firstRunAt, dedup?, stagger?} — сообщения и фильтр как в broadcast_send; dedup/stagger заданы — КАЖДЫЙ прогон правила порождает свою отдельную группу (своя дедупликация с нуля, аудитория у повтора может быть другой); firstRunAt — первый запуск в будущем (ISO 8601, без пояса — московское), дальше в то же время суток/число (Москва); stop {ruleId} — остановить правило (уже отправленные прогоны не трогаются). Нужен платный тариф (402 со ссылкой).", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "create", "stop"] }, ruleId: { type: "string" }, name: { type: "string" }, botIds: { type: "array", items: { type: "string" }, maxItems: 100 }, botId: { type: "string" }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, audienceFilter: AUDIENCE_FILTER_SCHEMA, recurrence: { type: "string", enum: ["DAILY", "MONTHLY", "YEARLY"] }, firstRunAt: { type: "string" }, dedup: { type: "boolean" }, stagger: STAGGER_SCHEMA }, required: ["action"] } },
   { name: "broadcast_drafts", description: "Черновики рассылок (/api/bots/broadcasts/drafts) — те же, что в мастере кабинета. action: list · get {draftId} · create {name?, botIds?, messages?, tagsAll?, tagsNone?, scheduledAt?} · update {draftId, …те же поля — переданные заменяют, остальные остаются} · delete {draftId}. Черновик не проверяется на полноту; отправить — broadcast_send {draftId}. Лимит — 200 черновиков.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["list", "get", "create", "update", "delete"] }, draftId: { type: "string" }, name: { type: "string" }, botIds: { type: "array", items: { type: "string" }, maxItems: 100 }, messages: { type: "array", items: {} }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, scheduledAt: { type: "string" } }, required: ["action"] } },
   { name: "broadcast_duplicate", description: "Копия как новый черновик «<имя> (копия)»: исходник не меняется, время отправки и статистика не переносятся. broadcastId — прямая рассылка (POST /api/bots/broadcasts/{id}/duplicate: бот, фильтр, сообщения; по сценарию — HTTP 409); draftId — черновик (POST /api/bots/broadcasts/drafts/{id}/duplicate). Дальше broadcast_drafts update / broadcast_send {draftId}.", inputSchema: { type: "object", properties: { broadcastId: { type: "string" }, draftId: { type: "string" } } } },
-  { name: "broadcast_group", description: "Мульти-бот группа рассылки (dedup/stagger, создаётся broadcast_send/broadcast_recurring). action: preview {botIds[] (1–100), tagsAll?/tagsNone? или audienceFilter?, dedup?, stagger?} — POST /api/bots/broadcasts/group-preview, read-only: {totalRecipients, uniqueRecipients, perBot:[{botId, username, rawCount, dedupedCount, waves, lastWaveStartAt, plannedStartAt}], limit, scheduleEndsAt}; list — твои группы (новые сверху); get {groupId} — GET .../group/{id}: полная BroadcastGroup {id, status: SCHEDULED|RUNNING|PAUSED|DISPATCHED|CANCELLED, perBot:[{botId, waveIndex, totalWaves, status: PENDING|CLAIMED|DISPATCHED|FAILED|SKIPPED, broadcastId, recipientsRaw, recipientsSkippedDedup, recipientsPlanned, error}]...} — перBot[].broadcastId (после DISPATCHED) смотри прогресс через broadcast_get; pause {groupId} — новые запуски не стартуют, уже идущие (DISPATCHED) боты продолжают слать; resume {groupId} — снимает паузу у просроченных PENDING; cancel {groupId} — PENDING становятся SKIPPED, уже DISPATCHED переводятся в CANCELLING как обычная рассылка. pause/resume/cancel — 409, если группа не в подходящем состоянии; 403 — чужая группа.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["preview", "list", "get", "pause", "resume", "cancel"] }, groupId: { type: "string" }, botIds: { type: "array", items: { type: "string" }, maxItems: 100 }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, audienceFilter: AUDIENCE_FILTER_SCHEMA, dedup: { type: "boolean" }, stagger: STAGGER_SCHEMA }, required: ["action"] } },
+  { name: "broadcast_group", description: "Мульти-бот группа рассылки (dedup/stagger, создаётся broadcast_send/broadcast_recurring). action: preview {botIds[] (1–100), tagsAll?/tagsNone? или audienceFilter?, dedup?, stagger?, scheduledAt?} — POST /api/bots/broadcasts/group-preview, read-only: {totalRecipients, uniqueRecipients, perBot:[{botId, username, rawCount, dedupedCount, waves, lastWaveStartAt, plannedStartAt}], limit, scheduleEndsAt}; list — твои группы (новые сверху); get {groupId} — GET .../group/{id}: полная BroadcastGroup {id, status: SCHEDULED|RUNNING|PAUSED|DISPATCHED|CANCELLED, perBot:[{botId, waveIndex, totalWaves, status: PENDING|CLAIMED|DISPATCHED|FAILED|SKIPPED, broadcastId, recipientsRaw, recipientsSkippedDedup, recipientsPlanned, error}]...} — перBot[].broadcastId (после DISPATCHED) смотри прогресс через broadcast_get; pause {groupId} — новые запуски не стартуют, уже идущие (DISPATCHED) боты продолжают слать; resume {groupId} — снимает паузу у просроченных PENDING; cancel {groupId} — PENDING становятся SKIPPED, уже DISPATCHED переводятся в CANCELLING как обычная рассылка. pause/resume/cancel — 409, если группа не в подходящем состоянии; 403 — чужая группа.", inputSchema: { type: "object", properties: { action: { type: "string", enum: ["preview", "list", "get", "pause", "resume", "cancel"] }, groupId: { type: "string" }, botIds: { type: "array", items: { type: "string" }, maxItems: 100 }, tagsAll: { type: "array", items: { type: "string" } }, tagsNone: { type: "array", items: { type: "string" } }, audienceFilter: AUDIENCE_FILTER_SCHEMA, dedup: { type: "boolean" }, stagger: STAGGER_SCHEMA, scheduledAt: { type: "string", description: "preview: тот же scheduledAt, что пойдёт в broadcast_send (задаёт старт группы)" } }, required: ["action"] } },
   // ---- Сайты: библиотека шаблонов ----
   // ---- Сайт-виджет, база знаний, подписчик ----
   { name: "web_widget_snippet", description: "Код вставки чат-виджета на сайт (GET /api/bots/web/{botId}/snippet) — для бота с platform WEB (create_bot {platform:\"WEB\"}). Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" } }, required: ["botId"] } },
@@ -2541,7 +2582,7 @@ async function handleCall(params) {
       const dedup = a.dedup === true;
       const stagger = staggerArg(a.stagger);
       const localTime = hhmmArg(a.localTime, "localTime");
-      if (localTime && (dedup || stagger)) throw new Error("localTime не сочетается с dedup/stagger: время группы задаёт stagger.startAt.");
+      if (localTime && (dedup || stagger)) throw new Error("localTime не сочетается с dedup/stagger: время группы задаёт scheduledAt или stagger.startAt.");
       const body = {
         name, botIds: ids,
         ...(audienceFilter ? { audienceFilter } : {
@@ -2559,20 +2600,23 @@ async function handleCall(params) {
         if (a.scheduledAt !== undefined) throw new Error(`scheduledAt ${body.scheduledAt} уже прошло — укажи будущее время или не передавай его (отправить сейчас).`);
         body.scheduledAt = null;
       }
-      let g;
+      assertSameStart(body.scheduledAt, stagger);
+      let r;
       try {
-        g = await invokeGuarded("broadcast_send_now", body, a);
+        // Подтверждение у человека агент получил ДО вызова (см. описание): токена нет, вызов создаёт рассылку сразу.
+        // retry не включаем: запись после обрыва вслепую не повторяем.
+        const clean = Object.fromEntries(Object.entries(body).filter(([, v]) => v !== undefined && v !== null));
+        r = await api("/api/agent-tools/invoke", { method: "POST", body: { name: "broadcast_send_now", args: clean } });
       } catch (e) {
-        if (e?.network && a.confirmToken) throw new Error(`${e.message}\n${await broadcastCreatedHint(body)}`);
+        if (e?.network) throw new Error(`${e.message}\n${await broadcastCreatedHint(body)}`);
         throw e;
       }
-      if (g.pending) return g.pending;
-      const r = g.data;
       let draftDeleted = false;
       if (a.draftId) { try { await api(`/api/bots/broadcasts/drafts/${a.draftId}`, { method: "DELETE" }); draftDeleted = true; } catch { /* не критично */ } }
-      // dedup/stagger → бэкенд создаёт BroadcastGroup вместо прямых TgBroadcast (другая форма ответа: id/perBot[]/status вместо broadcastIds/totalAudience).
-      if (dedup || stagger) return okResult({ group: r, isGroup: true, ...(a.draftId ? { draftDeleted } : {}) });
-      return okResult({ ...r, scheduledAt: body.scheduledAt, ...(a.draftId ? { draftDeleted } : {}) });
+      const extra = a.draftId ? { draftDeleted } : {};
+      // dedup/stagger → бэкенд создаёт BroadcastGroup (другая форма ответа): отдаём сводку, детали - broadcast_group get.
+      if (dedup || stagger) return okResult({ ...groupSummary(r, body.scheduledAt), ...extra });
+      return okResult({ ...r, scheduledAt: body.scheduledAt, ...startInfo(body.scheduledAt), ...extra });
     }
     case "audience_segments": {
       const base = `/api/bots/${a.botId}/segments`;
@@ -2767,6 +2811,9 @@ async function handleCall(params) {
         if (a.dedup === true) body.dedup = true;
         const stagger = staggerArg(a.stagger);
         if (stagger) body.stagger = stagger;
+        const previewAt = toInstant(a.scheduledAt, "scheduledAt");
+        assertSameStart(previewAt, stagger);
+        if (previewAt) body.scheduledAt = previewAt;
         return okResult(await api(`${base}-preview`, { method: "POST", body }));
       }
       const groupId = uuidArg(a.groupId, "groupId");
@@ -3024,8 +3071,7 @@ async function invokeGuarded(name, args, a) {
   const clean = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
   if (typeof a?.confirmToken === "string" && a.confirmToken) clean.confirmToken = a.confirmToken;
   try {
-    // Без confirmToken сервер ничего не выполняет, только выдаёт токен подтверждения - такой запрос можно повторять при обрыве.
-    return { data: await api("/api/agent-tools/invoke", { method: "POST", body: { name, args: clean }, retry: name === "broadcast_send_now" && !clean.confirmToken }) };
+    return { data: await api("/api/agent-tools/invoke", { method: "POST", body: { name, args: clean } }) };
   } catch (e) {
     const text = e?.status === 409 ? confirmationText(e.data) : null;
     if (text) return { pending: okResult(text) };
@@ -3034,7 +3080,7 @@ async function invokeGuarded(name, args, a) {
 }
 /** Обратимые правки: сервер обычно не требует подтверждения, токен нужен лишь при явном 409. */
 const SOFT_CONFIRM_TOOLS = new Set(["site_edit", "agent_update", "kb_add_site", "chain_enable"]);
-const GUARDED_TOOLS = new Set(["publish_graph", "site_publish", "site_rollback", "agent_publish", "booking_cancel", "ticket_checkin", "ticket_cancel", "bot_delete", "broadcast_cancel", "broadcast_send",
+const GUARDED_TOOLS = new Set(["publish_graph", "site_publish", "site_rollback", "agent_publish", "booking_cancel", "ticket_checkin", "ticket_cancel", "bot_delete", "broadcast_cancel",
   "delete_graph", "agent_update", "chain_enable", "kb_add_site", "create_bot", "bot_stop", "dialog_reply", "site_edit"]);
 for (const t of TOOLS) {
   if (!GUARDED_TOOLS.has(t.name)) continue;

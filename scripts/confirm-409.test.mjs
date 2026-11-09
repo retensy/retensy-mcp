@@ -24,6 +24,7 @@ const srv = http.createServer((req, res) => {
     const body = raw ? JSON.parse(raw) : null;
     if (req.method === "POST" && req.url === "/api/agent-tools/invoke") {
       invokes.push(body);
+      if (body.name === "broadcast_send_now") return res.end(JSON.stringify({ broadcastIds: ["b1"], totalAudience: 1 })); // без токена: создаётся сразу
       if (body.args?.confirmToken !== "tok-ok") {
         res.statusCode = 409;
         return res.end(JSON.stringify({ needsConfirmation: true, tool: body.name, message: "Опубликовать?", confirmToken: "tok-ok",
@@ -64,9 +65,12 @@ const timer = setTimeout(() => { console.log("  FAIL  таймаут"); process.
 try {
   await rpc("initialize", {});
   const tools = (await rpc("tools/list", {})).result.tools;
-  for (const n of ["publish_graph", "site_publish", "site_rollback", "broadcast_send", "bot_delete", "agent_publish", "booking_cancel", "broadcast_cancel"]) {
+  for (const n of ["publish_graph", "site_publish", "site_rollback", "bot_delete", "agent_publish", "booking_cancel", "broadcast_cancel"]) {
     check(`${n}: в схеме есть confirmToken`, !!tools.find((t) => t.name === n)?.inputSchema?.properties?.confirmToken);
   }
+
+  check("broadcast_send: confirmToken в схеме нет", !tools.find((t) => t.name === "broadcast_send")?.inputSchema?.properties?.confirmToken);
+  check("broadcast_send: в описании нет confirmToken и 409-текстов", !/confirmToken/.test(tools.find((t) => t.name === "broadcast_send").description));
 
   const p1 = await call("publish_graph", { graphId: G });
   check("publish_graph -> invoke graph_publish", invokes.at(-1)?.name === "graph_publish" && invokes.at(-1).args.graphId === G);
@@ -83,7 +87,7 @@ try {
   check("site_publish с токеном -> прежний формат ответа", /"publishedRevision": 3/.test(text(s2)) && /https:\/\/x/.test(text(s2)));
 
   const b1 = await call("broadcast_send", { botIds: [B], name: "N", messages: ["Привет"] });
-  check("broadcast_send -> invoke broadcast_send_now", invokes.at(-1)?.name === "broadcast_send_now" && invokes.at(-1).args.name === "N" && /confirmToken="tok-ok"/.test(text(b1)));
+  check("broadcast_send -> invoke broadcast_send_now", invokes.at(-1)?.name === "broadcast_send_now" && invokes.at(-1).args.name === "N" && !/confirmToken|Нужно подтверждение/.test(text(b1)) && /"totalAudience": 1/.test(text(b1)));
 
   const d1 = await call("bot_delete", { botId: B });
   check("bot_delete -> invoke bot_delete, без прямого DELETE", invokes.at(-1)?.name === "bot_delete" && /confirmToken/.test(text(d1)) && !direct.some((d) => d.startsWith("DELETE")));
@@ -94,7 +98,7 @@ try {
   const af = { tagsAll: ["vip"], tagsAny: [], tagsNone: [] };
   const bf = await call("broadcast_send", { botIds: [B], name: "F", messages: ["Привет"], audienceFilter: af });
   const last = invokes.at(-1);
-  check("broadcast_send с audienceFilter -> invoke с фильтром", last?.name === "broadcast_send_now" && JSON.stringify(last.args.audienceFilter?.tagsAll) === '["vip"]' && /confirmToken/.test(text(bf)));
+  check("broadcast_send с audienceFilter -> invoke с фильтром", last?.name === "broadcast_send_now" && JSON.stringify(last.args.audienceFilter?.tagsAll) === '["vip"]' && !/confirmToken/.test(text(bf)));
   check("прямых REST-вызовов опасных действий нет", direct.length === 0);
 } finally {
   clearTimeout(timer);
