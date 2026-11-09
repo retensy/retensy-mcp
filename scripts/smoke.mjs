@@ -33,7 +33,7 @@ function finish() {
   const ok =
     init?.result?.serverInfo?.name === "retensy-mcp" &&
     Array.isArray(tools) &&
-    tools.length === 213 && // 210 + 3: graph_build_from_spec, graph_edit, dialog_recent; 209 + 1: funnel_report; 208 + 1: instagram_status; 205 + 3: account_add, account_list, account_remove; 197 + 8: event_list/get/create/update, ticket_type_upsert, tickets_list, ticket_checkin, ticket_cancel; 194 + 3: catalog_item_upsert (локально: фото и категории), catalog_category_list/upsert; 188 + 6: bot_access, preset_list/save/delete, webhook_requests, http_test; 186 + 2: bot_health, unsubscribe_reasons; 184 + 2: analytics_ask, faq_suggestions; 183 + 1: broadcast_undo; 182 + 1: source_revenue; 180 + 2: agent_tests_run, agent_tests_list (проверка ИИ-клиентами); 179 + 1: agent_tool_calls; 176 + 3: audience_segments, bot_delivery_window, broadcast_test (quiet hours / saved segments / test send); 174 + 2: graph_versions_list/graph_version_rollback (история версий) = 167 (master) + 5: vk_landing_list/get/create/update/delete (Направление B, VK Mini App-лендинги) + 1: chain_create_draft (POST /api/bots/chains/draft) + 1: unpublish_graph (дополнительные сценарии)
+    tools.length === 215 && // 213 + 2: zaytsv_migration_preview/commit; 210 + 3: graph_build_from_spec, graph_edit, dialog_recent; 209 + 1: funnel_report; 208 + 1: instagram_status; 205 + 3: account_add, account_list, account_remove; 197 + 8: event_list/get/create/update, ticket_type_upsert, tickets_list, ticket_checkin, ticket_cancel; 194 + 3: catalog_item_upsert (локально: фото и категории), catalog_category_list/upsert; 188 + 6: bot_access, preset_list/save/delete, webhook_requests, http_test; 186 + 2: bot_health, unsubscribe_reasons; 184 + 2: analytics_ask, faq_suggestions; 183 + 1: broadcast_undo; 182 + 1: source_revenue; 180 + 2: agent_tests_run, agent_tests_list (проверка ИИ-клиентами); 179 + 1: agent_tool_calls; 176 + 3: audience_segments, bot_delivery_window, broadcast_test (quiet hours / saved segments / test send); 174 + 2: graph_versions_list/graph_version_rollback (история версий) = 167 (master) + 5: vk_landing_list/get/create/update/delete (Направление B, VK Mini App-лендинги) + 1: chain_create_draft (POST /api/bots/chains/draft) + 1: unpublish_graph (дополнительные сценарии)
     new Set(toolNames).size === toolNames.length &&
     toolNames.includes("list_channels") &&
     toolNames.includes("list_integrations") &&
@@ -54,7 +54,7 @@ function finish() {
       "agent_test_chat", "kb_docs", "kb_add_qa", "kb_add_text", "kb_add_site", "kb_reindex", "agent_unanswered", "agent_tests_run", "agent_tests_list",
       "audience_fields", "audience_search", "audience_tag_edit", "audience_variable_edit", "audience_export",
       "dialog_search", "publications_usage", "vk_status", "vk_connect", "vk_disconnect", "vk_post",
-      "migration_presets", "migration_preview", "migration_commit", "broadcast_group",
+      "migration_presets", "migration_preview", "migration_commit", "zaytsv_migration_preview", "zaytsv_migration_commit", "broadcast_group",
       "booking_confirm", "booking_reject",
       "scenario_list", "scenario_create", "scenario_get", "scenario_update_source", "scenario_publish", "scenario_rotate_secret",
       "agent_api_key_create", "agent_api_key_list", "agent_api_key_revoke", "ai_packs", "ai_pack_purchase",

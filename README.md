@@ -322,6 +322,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `migration_presets()` | каталог источников миграции подписчиков (BotHelp/SaleBot/Senler/Leadteh/Smartsender/ManyChat/универсальный CSV) |
 | `migration_preview(botId, path, platform, mapping?)` | пробный прогон CSV (ничего не пишет): без `mapping` — определение заголовков/подсказка сопоставления, с `mapping` — полный dry-run (новые/существующие, превышение лимита) |
 | `migration_commit(botId, path, platform, mapping)` | реальный импорт подписчиков тем же `mapping`, что подтвердил `migration_preview` |
+| `zaytsv_migration_preview(bundleFile)` | пробный прогон переноса ботов zaytsv.com в Retensy (только администратор), ничего не пишет: план по графам, подписчики новые/слитые, что не переносится |
+| `zaytsv_migration_commit(bundleFile)` | реальный перенос тем же планом, идемпотентно; ботов не запускает и не останавливает |
 | `bothelp_scenario_preview(botId, scenarioFile, externalRequestsDir?)` | dry-run структурной конвертации ОДНОГО сценария BotHelp (его собственный JSON-экспорт, не CSV) в граф Retensy — ничего не пишет, возвращает отчёт `notes[]` (что сконвертировано приближённо/заглушкой) |
 | `bothelp_scenario_commit(botId, scenarioFile, externalRequestsDir?)` | то же + сохраняет граф (DRAFT); идемпотентно по `(botId, bothelpScenarioId)` — повторный вызов обновляет тот же граф |
 | `chain_list()` / `chain_get(chainId)` | цепочки публикаций («Публикации» → «Цепочки», автопостинг source → граф обработки/назначений) / одна цепочка как хранится (legacy либо граф) |
