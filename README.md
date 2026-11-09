@@ -291,6 +291,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `utm_sources(botId)` / `ab_results(graphId, branchNodeId, period?)` | UTM-источники подписчиков / итоги A/B-развилки (`period`: `24h`, `7d`, `30d`) |
 | `source_revenue(botId, from, to)` | Отчёт источник -> подписчики/покупатели/выручка (RUB + Stars)/конверсия, даты YYYY-MM-DD |
 | `bot_health(botId?)` | Здоровье бота: статус OK/WARN/CRIT, проблемы с подсказками (токен, 409, опрос, ошибки сценариев, платежи, конверсия, ИИ-агент); без botId - все боты |
+| `funnel_report(days?)` | Воронка владельцев и события шагов (админ платформы), только агрегаты |
 | `unsubscribe_reasons(botId, days?)` | Причины отписки: блокировки, кнопки, темы свободных ответов (ИИ раз в неделю) |
 | `kb_delete(kbId, confirm:true)` | удалить базу знаний целиком (база агента — только вместе с агентом) |
 | `agent_unpublish(agentId)` / `agent_delete(agentId, confirm:true)` | снять агента с публикации / удалить (409 `AGENT_IN_USE`, пока подключён к сценариям) |

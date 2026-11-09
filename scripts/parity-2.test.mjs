@@ -142,6 +142,10 @@ await call("unsubscribe_reasons", { botId: B, days: 7 });
 check("unsubscribe_reasons → GET ?days=7", !!req("GET", `/api/bots/${B}/unsubscribe-reasons?days=7`));
 check("unsubscribe_reasons days=0 — ошибка", isErr(await call("unsubscribe_reasons", { botId: B, days: 0 })));
 
+await call("funnel_report", { days: 7 });
+check("funnel_report → GET /api/admin/funnel?days=7", !!req("GET", "/api/admin/funnel?days=7"));
+check("funnel_report days=0 — ошибка", isErr(await call("funnel_report", { days: 0 })));
+
 // ---- база знаний и агент ----
 check("kb_delete без confirm — ошибка до запроса", isErr(await call("kb_delete", { kbId: "kb1" })) && !req("DELETE", "/api/bots/kb/kb1"));
 await call("kb_delete", { kbId: "kb1", confirm: true });
