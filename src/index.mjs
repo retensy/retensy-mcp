@@ -756,7 +756,10 @@ function chatIdArg(v) {
 }
 function uuidArg(v, label) {
   const s = String(v ?? "").trim();
-  if (!UUID_RE.test(s)) throw new Error(`${label} — UUID (например, из list_bots), получено: ${s || "пусто"}.`);
+  if (!UUID_RE.test(s)) {
+    const hint = !s ? "значение не передано" : /^[0-9a-f]{6,12}$/i.test(s) ? "это сокращённый id (первые символы), нужен полный из 36 символов" : "это не UUID";
+    throw new Error(`${label} — полный UUID вида 123e4567-e89b-12d3-a456-426614174000 (${hint}). Бери id из ответа list_bots / list_graphs / scenario_list, не сокращай и не придумывай. Получено: ${s || "пусто"}.`);
+  }
   return s;
 }
 /** Номер версии сценария — целое ≥ 1 (приходит числом или строкой из JSON-клиента). */
