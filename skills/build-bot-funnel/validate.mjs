@@ -80,7 +80,7 @@ const ACTION_KINDS = new Set([
   "booking_slots", "booking_book", "booking_cancel", "lead_link_contact", "sla_check",
   "call_scenario",
   "publish_post", "chain_enqueue", "start_broadcast",
-  "send_email",
+  "send_email", "answers_save",
   // Integration Core (провайдеры из integration_catalog) — бэкенд узнаёт их через реестр, здесь — известные:
   "meta_capi_event",
 ]);

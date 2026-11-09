@@ -189,6 +189,14 @@ await call("bot_user_reset", { botId: B, chatId: CHAT, confirm: true });
 check("bot_user_reset confirm → DELETE sessions/{chatId} без округления", !!req("DELETE", `/api/bots/${B}/sessions/${CHAT}`));
 check("bot_user_reset chatId не число — ошибка", isErr(await call("bot_user_reset", { botId: B, chatId: "abc", confirm: true })));
 
+// ---- журнал ответов ----
+await call("answers_list", { botId: B, key: "anketa", chatId: CHAT, from: "2026-11-01", to: "2026-11-09", page: 1, size: 50 });
+check("answers_list → GET /answers с query", !!req("GET", `/api/bots/${B}/answers?key=anketa&chatId=${CHAT}&from=2026-11-01&to=2026-11-09&page=1&size=50`));
+await call("answers_list", { botId: B });
+check("answers_list без фильтров → без query", !!req("GET", `/api/bots/${B}/answers`));
+check("answers_list size=101 — ошибка до запроса", isErr(await call("answers_list", { botId: B, size: 101 })));
+check("answers_list кривая дата — ошибка", isErr(await call("answers_list", { botId: B, from: "01.11.2026" })));
+
 child.kill(); srv.close();
 fs.rmSync(home, { recursive: true, force: true });
 if (failed) { console.error(`parity-2: провалов ${failed}`); process.exit(1); }
