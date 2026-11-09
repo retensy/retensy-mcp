@@ -172,6 +172,14 @@ for (const n of nodes) {
           .map((m) => m[1].toLowerCase()).filter((tag) => !HTML_OK_TAGS.has(tag));
         if (bad.length) errors.push(`HTML_NOT_SAFE: ${who} — неразрешённые теги: ${[...new Set(bad)].join(", ")}. Разрешено: ${[...HTML_OK_TAGS].join(",")}.`);
       }
+      // Bot API 10.4: временный ответ на кнопку в группе; виджет-опрос
+      if (c.ephemeral === true && c.awaitReply === true) errors.push(`EPHEMERAL_NO_QUESTION: ${who} — ephemeral нельзя совмещать с awaitReply.`);
+      if (c.widget && typeof c.widget === "object") {
+        const opts = Array.isArray(c.widget.options) ? c.widget.options : [];
+        if (opts.length < 2 || opts.length > 6) errors.push(`WIDGET_OPTIONS: ${who} — в widget.options нужно от 2 до 6 вариантов.`);
+        if (opts.some((o) => !String(o || "").trim() || Buffer.byteLength(String(o), "utf8") > 60)) errors.push(`WIDGET_OPTION_LONG: ${who} — вариант виджета пуст или длиннее 60 байт (около 30 русских букв).`);
+        if (c.awaitReply !== true) errors.push(`WIDGET_NO_SAVE_TO: ${who} — виджет требует awaitReply:true и saveTo.`);
+      }
       // режим «Вопрос»
       if (c.awaitReply === true) {
         if (!c.saveTo || !VAR_RE.test(c.saveTo)) errors.push(`SEND_BAD_SAVE_TO: ${who} — awaitReply требует saveTo ∈ [a-z_][a-z0-9_]{0,63}.`);

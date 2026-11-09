@@ -215,6 +215,13 @@ check("TRIGGER_WEBHOOK mappings: корректные без ошибок", !whB
 check("TRIGGER_WEBHOOK mappings: path без $", whBad({ mappings: [{ path: "data.email", saveTo: "email" }] }).includes("WEBHOOK_BAD_MAPPING_PATH"));
 check("TRIGGER_WEBHOOK mappings: плохое saveTo", whBad({ mappings: [{ path: "$.a", saveTo: "Bad-Name" }] }).includes("WEBHOOK_BAD_MAPPING_SAVE_TO"));
 
+const sendBad = (cfg) => run([node("SEND_MESSAGE", { text: "Привет", ...cfg })], []).out;
+check("SEND_MESSAGE ephemeral + awaitReply отвергается", sendBad({ ephemeral: true, awaitReply: true, saveTo: "a" }).includes("EPHEMERAL_NO_QUESTION"));
+check("SEND_MESSAGE ephemeral сам по себе без ошибок", !sendBad({ ephemeral: true }).includes("EPHEMERAL_NO_QUESTION"));
+check("SEND_MESSAGE widget: мало вариантов", sendBad({ widget: { options: ["Да"] }, awaitReply: true, saveTo: "a" }).includes("WIDGET_OPTIONS"));
+check("SEND_MESSAGE widget: без awaitReply", sendBad({ widget: { options: ["Да", "Нет"] } }).includes("WIDGET_NO_SAVE_TO"));
+check("SEND_MESSAGE widget: корректный", !/WIDGET_/.test(sendBad({ widget: { options: ["Да", "Нет"] }, awaitReply: true, saveTo: "a" })));
+
 fs.rmSync(dir, { recursive: true, force: true });
 if (failed) { console.error(`validate-graph: провалов ${failed}`); process.exit(1); }
 console.log("validate-graph OK");
