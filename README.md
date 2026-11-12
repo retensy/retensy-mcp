@@ -378,7 +378,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `graph_build_from_spec(botId, spec, graphId?)` | произвольный сценарий из компактной спецификации (сообщения, вопросы text/number/phone/email/photo/file/choice, условия, кнопки-ссылки и переходы, метка и уведомление владельцу, журнал ответов `save{journal}`, шаг `history` с собственными прошлыми записями подписчика); только черновик, `graphId` дописывает ветку в существующий сценарий |
 | `graph_edit(graphId, ops)` | правка любого блока готового сценария (до 20 ops): `add_button`, `set_button_action`, `insert_step` (любые блоки), `update_node`, `delete_node`, `connect`, `disconnect`, `move_branch`, `add_trigger`; опубликованный сценарий не меняется; нет подключения - 409 или `allowMissingIntegrations` |
 | `node_types_list(kind?, q?)` | короткий каталог всех блоков, триггеров и действий конструктора |
-| `node_type_schema(type)` | поля, выходы, интеграция и пример config одного блока |
+| `node_types_pick(task, limit?)` | подбор блоков по описанию задачи: схемы 6 самых подходящих одним вызовом |
+| `node_type_schema(type)` | поля, выходы, интеграция и пример config блока; несколько типов через запятую (до 8) |
 | `integrations_for_spec(botId, spec)` | какие подключения нужны spec и что уже подключено |
 | `graph_structure(graphId, nodeId?)` | блоки и связи сценария перед `graph_edit` |
 | `answers_list(botId, key?, chatId?, from?, to?, page?, size?)` | журнал ответов подписчиков (шаг `save` с `journal`): последние записи, на первой странице summary (записей, подписчиков, по журналам, лимит тарифа); даты гггг-мм-дд, size 1-100 |
