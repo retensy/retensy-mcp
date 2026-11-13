@@ -209,8 +209,7 @@ IG-боты не поддерживают команды (`/start`). Вход �
   до 65 536 знаков каждый, вместе до 1 500 000 (сценарий в целом ≤ 4 МБ). Выходы: `next`, `error` (пустой список, отказ
   отправки, переменная не сохранилась). Не для Instagram (`IG_NODE_UNSUPPORTED`). Коды валидатора: `RANDOM_TEXT_NO_TEXTS`,
   `RANDOM_TEXT_TOO_MANY`, `RANDOM_TEXT_TOO_LONG`, `RANDOM_TEXT_TOTAL_TOO_LONG`, `RANDOM_TEXT_BAD_SAVE_TO`.
-- `ASK_QUESTION` — вопрос со сбором ответа. `{ "promptText":"...","saveTo":"name","inputKind":"TEXT"|"PHOTO"|"DOCUMENT"|"CONTACT"|"LOCATION","validator":"ANY"|"PHONE"|"EMAIL"|"REGEX","regex":"...","retryText":"...","maxAttempts":3 }`. `inputKind` (по умолчанию `TEXT`) — что ждём в ответ (`CONTACT` → телефон: в Telegram показывается кнопка «Поделиться номером», в MAX/Instagram кнопки нет — номер вводится вручную и принимается как телефон на всех платформах; `LOCATION` → `lat,lon`, `PHOTO`/`DOCUMENT` → file_id). Выходы `valid` / `invalid`. Журнал ответов: `journal:true`, `journalKey` (имя журнала), `journalLabel` (подпись вопроса в записи) — ответ дописывается в журнал (смотреть: `answers_list`).
-- `SHOW_MY_ANSWERS` — показывает подписчику только его собственные прошлые записи журнала. `{ "key":"журнал","limit":1..20,"template":"{дата}: {подпись вопроса}","title":"...","emptyText":"..." }` (плейсхолдеры в одинарных скобках).
+- `ASK_QUESTION` — вопрос со сбором ответа. `{ "promptText":"...","saveTo":"name","inputKind":"TEXT"|"PHOTO"|"DOCUMENT"|"CONTACT"|"LOCATION","validator":"ANY"|"PHONE"|"EMAIL"|"REGEX","regex":"...","retryText":"...","maxAttempts":3 }`. `inputKind` (по умолчанию `TEXT`) — что ждём в ответ (`CONTACT` → телефон: в Telegram показывается кнопка «Поделиться номером», в MAX/Instagram кнопки нет — номер вводится вручную и принимается как телефон на всех платформах; `LOCATION` → `lat,lon`, `PHOTO`/`DOCUMENT` → file_id). Выходы `valid` / `invalid`.
 - `END` — `{}` (конец ветки). **Не добавляй `END`**: ветка и так завершается на узле без исходящих рёбер; явный «конец сценария» бесполезен и убран из палитры редактора. Тип оставлен лишь для совместимости со старыми графами.
 
 ### Тайминги
@@ -228,7 +227,6 @@ IG-боты не поддерживают команды (`/start`). Вход �
 ### Состояние / действия
 - `SET_VARIABLE` (`{ "key":"name", "value":"..." }`), `ADD_TAG`/`REMOVE_TAG` (`{ "tag":"lead" }`), `FORMULA` (`{ "expression":"...", "saveTo":"name" }`)
 - `ACTIONS` — непустой пакет действий `{ "actions":[ { "kind":"...", ...поля } ] }`. Допустимые `kind` (иначе ошибка `ACTION_UNKNOWN_KIND`):
-  - `answers_save` — записать ответы в журнал: `{ "kind":"answers_save", "key":"журнал", "fields":[ { "var":"name", "label?":"подпись", "kind?":"..." } ] }`.
   - **метки/автоворонки**: `add_tag`, `remove_tag`, `autoflow_add`, `autoflow_remove` — поле `tag` (`[a-z0-9_-]{1,64}`)
   - **профиль**: `set_field` — `key` (`[a-z_][a-z0-9_]{0,63}`) + `value`; `subscribe`, `unsubscribe`
   - **HTTP**: `external_request` — **основной способ сходить в чужой API**, те же поля и возможности,
