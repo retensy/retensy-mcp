@@ -359,9 +359,14 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 
 | Tool | Назначение |
 |---|---|
-| `catalog_item_upsert(id?, sku?, name?, price?, images?, categoryIds?, categoryNames?, confirm:true)` | создать/обновить товар по `id` или `sku`; `images` — до 10 https-ссылок на фото; `categoryNames` — находит категории по имени или создаёт их |
+| `catalog_item_upsert(id?, sku?, name?, price?, images?, categoryIds?, categoryNames?, slug?, seoTitle?, seoDescription?, confirm:true)` | создать/обновить товар по `id` или `sku`; `slug` — адрес страницы, `seoTitle`/`seoDescription` — свои заголовок и описание для поиска; `images` — до 10 https-ссылок на фото; `categoryNames` — находит категории по имени или создаёт их |
 | `catalog_category_list()` | категории магазина: `id`, `name`, `parentId` |
-| `catalog_category_upsert(name, id?, parentId?, confirm:true)` | создать (без `id`) или переименовать (с `id`) категорию; без `parentId` при обновлении родитель сохраняется |
+| `catalog_category_upsert(name, id?, parentId?, slug?, seoTitle?, seoDescription?, description?, confirm:true)` | создать (без `id`) или переименовать (с `id`) категорию; без `parentId` при обновлении родитель сохраняется |
+| `catalog_list(q?, categoryId?, sort?, minPrice?, maxPrice?, inStock?, filters?, page?)` | товары: поиск, сортировка (`price_asc`, `price_desc`, `new`, `stock`), цена, наличие и фильтр по характеристикам (`filters="color=red|blue; width.min=100"`); в ответе `slug` и `shopUrl` (адрес сайта, страница товара = `shopUrl` + `p/<slug>/`) — из каталога сервера |
+| `shop_attributes_list()` · `shop_attributes_suggest()` | характеристики магазина; сводка по каталогу, по которой ИИ предлагает набор фильтров под нишу (из каталога сервера) |
+| `shop_attributes_upsert(key, name, type, unit?, order?, filter?, categoryIds?, values?, aliases?)` · `shop_attribute_delete(key, purge?)` | создать/изменить и удалить характеристику (`list`, `number`, `bool`, `color`); с подтверждением |
+| `catalog_attributes_fill(rules, categoryId?, overwrite?)` · `catalog_attributes_apply(...)` | массовое заполнение характеристик у товаров: сначала предпросмотр с примерами, применение только после подтверждения |
+| `shop_seo_get()` · `shop_seo_set(productTitleTpl?, productDescTpl?, categoryTitleTpl?, categoryDescTpl?)` · `shop_seo_preview(itemId, ...)` · `catalog_item_page(id)` | SEO-шаблоны витрины (`{name} {category} {brand} {price} {sku} {shop} {count} {attr.<key>}`), примерка на товаре, адрес и SEO страницы товара |
 
 ### Промокоды, возвраты и настройки кабинета (из каталога сервера)
 
