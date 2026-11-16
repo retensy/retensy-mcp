@@ -370,6 +370,26 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `transfer_list()` · `transfer_create(shop?, siteIds?, ttlHours?, note?, confirm:true)` · `transfer_cancel(transferId, confirm:true)` · `transfer_accept(code, confirm:true)` | передача магазина (каталог, настройки, промокоды, заказы) и сайтов другому аккаунту по одноразовому коду; код, созданный через MCP, заработает после подтверждения владельцем в кабинете (/bots/transfer); ключи ЮKassa, 1С и токены не переносятся, их список в чек-листе `reconnect` |
 | `catalog_bulk_preview(filter|ids, action, ...)` · `catalog_bulk(..., confirmDelete?)` · `catalog_export()` · `shop_template_get()` · `shop_template_reset(kind)` | Массовые правки каталога с предпросмотром (цены, категории, активность, характеристики, удаление), выгрузка CSV, шаблоны страниц товара и категории из блоков конструктора |
 
+### Магазин B2B (заявки на расчёт, счета, группы, доставка)
+
+Паритет с REST `/api/bots/commerce/...` и ИИ-инструментами кабинета (`shop_*`). Все изменяющие инструменты требуют `confirm:true` (после явного согласия пользователя). Ответ на заявку, смена статуса и отметка оплаты уведомляют покупателя и необратимы. Секреты не отдаются: у групп вместо `joinCode` приходит `joinCodeSet`, расчётный и корр. счёт продавца маскируются (`****1234`). Файлы (PDF счёта, вложение заявки, документ заказа) возвращаются base64 до 2 МБ либо сохраняются локально через `savePath`.
+
+| Tool | Назначение |
+|---|---|
+| `shop_quotes_list(status?, page?, size?)` | заявки на расчёт (`quote_requested`, `quoted`, `paid`, `canceled`) |
+| `shop_quote_answer(orderId, lines[{index,price}], deliveryCost?, note?, invoice?, company?, confirm:true)` | ответить ценой на заявку (по номеру позиции с 0), при `invoice:true` сразу счёт |
+| `shop_order_status_set(orderId, status, confirm:true)` | ручная смена статуса (`new, paid, processing, assembled, shipped, delivered, returned, canceled`); недопустимый переход - 409 |
+| `shop_invoice_issue(orderId, company?, confirm:true)` / `shop_invoice_mark_paid(orderId, confirm:true)` | выставить счёт (идемпотентно) / отметить оплату по счёту (нужно право токена `billing`) |
+| `shop_invoice_pdf(orderId, savePath?)` / `shop_quote_file_get(orderId, savePath?)` | PDF счёта / вложение заявки: base64 или файл |
+| `shop_order_document_upload(orderId, filePath? или contentBase64+fileName, kind?, title?, confirm:true)` / `shop_order_document_get(orderId, docId, savePath?)` / `shop_order_document_delete(orderId, docId, confirm:true)` | документы заказа (pdf/xlsx/docx/jpg/png до 5 МБ, до 20 на заказ) |
+| `shop_seller_get()` / `shop_seller_requisites_update(name?, inn?, kpp?, ogrn?, address?, bankName?, bik?, account?, corrAccount?, director?, vatMode?, confirm:true)` | реквизиты продавца (патч) и признак `ready` для счёта |
+| `shop_buyer_groups_get()` / `shop_buyer_group_upsert(code, name?, discountPct?, joinCode?, generateJoinCode?, clearJoinCode?, tag?, clearTag?, priceType?, priority?, confirm:true)` / `shop_buyer_group_delete(code, confirm:true)` / `shop_buyer_group_assign(chatId, groupCode?, confirm:true)` | группы покупателей, назначения |
+| `shop_delivery_settings_get()` / `shop_delivery_settings_update(cutoffTime?, timezone?, workDays?, holidays?, weekendRule?, zones?, confirm:true)` | доставка по зонам (`zones` - полный список) |
+| `shop_item_b2b_update(itemId, priceMode?, priceTiers?, groupPrices?, prices?, weightKg?, clearWeight?, oversize?, confirm:true)` | B2B-поля товара: цена по заявке, ступени, цены групп, вес, крупногабарит |
+| `shop_b2b_settings_get()` / `shop_b2b_settings_update(priceTypes?, priceSelection?, quoteValidDays?, autoStatusOnPaid?, clearAutoStatus?, weekendRule?, confirm:true)` | типы цен, срок КП, автостатус после оплаты |
+
+Список заказов и статус (`order_list`, `order_status`) по-прежнему из каталога сервера. Работает с backend, где выкачен контракт B2B (`docs/shop/API_B2B.md`).
+
 ### Промокоды, возвраты и настройки кабинета (из каталога сервера)
 
 Эти инструменты приходят из каталога сервера (`GET /api/agent-tools/catalog`) и появляются без обновления пакета. Все изменяющие требуют `confirm:true` и `confirmToken` (сервер сначала возвращает сводку «что будет сделано»).

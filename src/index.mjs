@@ -26,6 +26,7 @@ import { createInterface } from "node:readline";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { validateAgentTools } from "./agent-tools.mjs";
 import { createCatalog, mergeTools, confirmationText } from "./catalog.mjs";
+import { SHOP_B2B_TOOLS, createShopB2b } from "./shop-b2b.mjs";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import os from "node:os";
@@ -381,6 +382,40 @@ async function api(path_, { method = "GET", body, rawBody, retry = false } = {})
   }
   return data;
 }
+
+/** Ошибка HTTP не-ok ответа для файловых запросов: тот же разбор, что у api(). */
+async function throwFileError(res, method, path_) {
+  const text = await res.text().catch(() => "");
+  let data = null; try { data = text ? JSON.parse(text) : null; } catch { data = text; }
+  if (res.status === 401) throw new Error(`Доступ отклонён (HTTP 401). Токен невалиден/отозван — создай новый на ${TOKENS_PAGE}.`);
+  if (scopeError(res.status, data)) throw scopeError(res.status, data);
+  if (res.status === 403) throw new Error(`Доступ отклонён (HTTP 403)${bodyReason(data) ? `: ${bodyReason(data)}` : ""}.`);
+  if (res.status === 402) throw paymentError(data);
+  throw httpError(method, path_, res.status, data);
+}
+// GET бинарного файла (PDF счёта, вложение заявки, документ заказа) -> { buf, name, type }.
+async function apiFile(path_) {
+  if (!isAuthed()) throw new Error(NO_AUTH_HELP);
+  const res = await fetch(`${BASE}${path_}`, { method: "GET", headers: authHeaders() });
+  if (!res.ok) await throwFileError(res, "GET", path_);
+  const cd = res.headers.get("content-disposition") || "";
+  const m = /filename\*=UTF-8''([^;]+)/i.exec(cd) || /filename="?([^";]+)"?/i.exec(cd);
+  let name = null; try { name = m ? decodeURIComponent(m[1]) : null; } catch { name = m ? m[1] : null; }
+  return { buf: Buffer.from(await res.arrayBuffer()), name, type: (res.headers.get("content-type") || "").split(";")[0] || null };
+}
+// POST multipart: поле file + текстовые поля.
+async function apiUpload(path_, { buf, fileName, type, fields = {} }) {
+  if (!isAuthed()) throw new Error(NO_AUTH_HELP);
+  const form = new FormData();
+  for (const [k, v] of Object.entries(fields)) if (v != null) form.append(k, String(v));
+  form.append("file", new Blob([buf], { type: type || "application/octet-stream" }), fileName);
+  const { "Content-Type": _ct, ...headers } = authHeaders();
+  const res = await fetch(`${BASE}${path_}`, { method: "POST", headers, body: form });
+  if (!res.ok) await throwFileError(res, "POST", path_);
+  const text = await res.text();
+  try { return text ? JSON.parse(text) : { ok: true }; } catch { return { ok: true, response: text.slice(0, 300) }; }
+}
+const shopB2b = createShopB2b({ api: (p, o) => api(p, o), apiFile, apiUpload });
 
 /** Описания прав токена — те же имена, что у бэкенда (PatScope). */
 const SCOPE_TITLES = {
@@ -1455,6 +1490,7 @@ const TOOLS = [
   // ---- Пакеты ответов ИИ сверх тарифа (решение владельца 14.10) ----
   { name: "ai_packs", description: "Пакеты ответов ИИ сверх месячного бюджета тарифа: каталог (GET /api/bots/ai-packs): offers — разовые пакеты [{sku, priceRub, tokens, approxAnswers}], periodOffers — те же на 1/3/12 мес. (months, priceRub — итог за период со скидкой, savingsRub — экономия, tokens/approxAnswers — за МЕСЯЦ, начисляются помесячно) (ai_pack_1000 — 1000 ответов/490₽, ai_pack_5000 — 5000/1990₽, ai_pack_20000 — 20000/6990₽; kopecks — внутренняя единица бюджета, справочно, не присылай её). Плюс баланс — aiPackAnswersLeft/aiPackTokensLeft из GET /api/bots/subscription: пакет не сгорает без активного тарифа, но списывается только при нём, ПОСЛЕ месячного бюджета тарифа, FIFO по старшинству покупки (сначала самый старый). Read-only; купить — ai_pack_purchase.", inputSchema: { type: "object", properties: {} } },
   { name: "ai_pack_purchase", description: "ЭТО ПЛАТЁЖ, не покупка напрямую. Купить пакет ответов ИИ (POST /api/bots/ai-packs/purchase {sku, method}): тот же конвейер оплаты (ЮKassa/крипта), что у смены тарифа — ответ НЕ списывает деньги сам, а возвращает invoiceUrl, ссылку на оплату; пакет зачислится на баланс только после подтверждения платежа пользователем в браузере. sku — из ai_packs; method — \"card\" (по умолчанию), как у subscribe. Только по явной просьбе пользователя, с confirm:true.", inputSchema: { type: "object", properties: { sku: { type: "string", description: "sku из ai_packs, например ai_pack_5000" }, period: { type: "integer", enum: [1, 3, 12], description: "период, мес.: 1 (по умолчанию), 3 (скидка 10%) или 12 (скидка 20%) — токены начисляются каждый месяц, не сразу; можно вместо этого передать sku периода из periodOffers (ai_pack_5000_m3)" }, method: { type: "string", description: "card (по умолчанию) и т.п., как у subscribe" }, confirm: { type: "boolean" } }, required: ["sku", "confirm"] } },
+  ...SHOP_B2B_TOOLS,
 ];
 
 async function handleCall(params) {
@@ -3088,8 +3124,11 @@ async function handleCall(params) {
       const r = await api("/api/bots/ai-packs/purchase", { method: "POST", body: { sku, method: a.method || "card", ...(period ? { period } : {}) } });
       return okResult({ ...r, hint: "Пакет зачислится после подтверждения оплаты по invoiceUrl — ничего не списано автоматически." });
     }
-    default:
+    default: {
+      const shop = await shopB2b(params && params.name, a);
+      if (shop !== undefined) return okResult(shop);
       throw new Error(`Неизвестный инструмент: ${params && params.name}`);
+    }
   }
 }
 
