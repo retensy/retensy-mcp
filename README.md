@@ -368,6 +368,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `catalog_attributes_fill(rules, categoryId?, overwrite?)` · `catalog_attributes_apply(...)` | массовое заполнение характеристик у товаров: сначала предпросмотр с примерами, применение только после подтверждения |
 | `shop_seo_get()` · `shop_seo_set(productTitleTpl?, productDescTpl?, categoryTitleTpl?, categoryDescTpl?)` · `shop_seo_preview(itemId, ...)` · `catalog_item_page(id)` | SEO-шаблоны витрины (`{name} {category} {brand} {price} {sku} {shop} {count} {attr.<key>}`), примерка на товаре, адрес и SEO страницы товара |
 | `transfer_list()` · `transfer_create(shop?, siteIds?, ttlHours?, note?, confirm:true)` · `transfer_cancel(transferId, confirm:true)` · `transfer_accept(code, confirm:true)` | передача магазина (каталог, настройки, промокоды, заказы) и сайтов другому аккаунту по одноразовому коду; код, созданный через MCP, заработает после подтверждения владельцем в кабинете (/bots/transfer); ключи ЮKassa, 1С и токены не переносятся, их список в чек-листе `reconnect` |
+| `catalog_bulk_preview(filter|ids, action, ...)` · `catalog_bulk(..., confirmDelete?)` · `catalog_export()` · `shop_template_get()` · `shop_template_reset(kind)` | Массовые правки каталога с предпросмотром (цены, категории, активность, характеристики, удаление), выгрузка CSV, шаблоны страниц товара и категории из блоков конструктора |
 
 ### Промокоды, возвраты и настройки кабинета (из каталога сервера)
 
