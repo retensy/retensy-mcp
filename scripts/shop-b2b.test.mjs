@@ -57,8 +57,8 @@ try {
   await rpc("initialize", {});
   const tools = (await rpc("tools/list", {})).result.tools;
   const shop = tools.filter((t) => t.name.startsWith("shop_"));
-  const b2bNames = ["shop_quotes_list", "shop_quote_answer", "shop_order_status_set", "shop_invoice_issue", "shop_invoice_mark_paid", "shop_invoice_pdf", "shop_quote_file_get", "shop_order_document_upload", "shop_order_document_get", "shop_order_document_delete", "shop_seller_get", "shop_seller_requisites_update", "shop_buyer_groups_get", "shop_buyer_group_upsert", "shop_buyer_group_delete", "shop_buyer_group_assign", "shop_delivery_settings_get", "shop_delivery_settings_update", "shop_item_b2b_update", "shop_b2b_settings_get", "shop_b2b_settings_update", "shop_leads_list", "shop_lead_to_order", "shop_wholesale_approve", "shop_quote_pdf"];
-  check("25 shop-инструментов B2B", b2bNames.every((n) => shop.some((t) => t.name === n)));
+  const b2bNames = ["shop_quotes_list", "shop_quote_answer", "shop_order_status_set", "shop_invoice_issue", "shop_invoice_mark_paid", "shop_invoice_pdf", "shop_quote_file_get", "shop_order_document_upload", "shop_order_document_get", "shop_order_document_delete", "shop_seller_get", "shop_seller_checklist", "shop_seller_requisites_update", "shop_buyer_groups_get", "shop_buyer_group_upsert", "shop_buyer_group_delete", "shop_buyer_group_assign", "shop_delivery_settings_get", "shop_delivery_settings_update", "shop_item_b2b_update", "shop_b2b_settings_get", "shop_b2b_settings_update", "shop_leads_list", "shop_lead_to_order", "shop_wholesale_approve", "shop_quote_pdf"];
+  check("26 shop-инструментов B2B", b2bNames.every((n) => shop.some((t) => t.name === n)));
   check("у мутаций есть confirm", ["shop_quote_answer", "shop_order_status_set", "shop_invoice_mark_paid", "shop_buyer_group_upsert", "shop_delivery_settings_update", "shop_seller_requisites_update", "shop_item_b2b_update", "shop_b2b_settings_update"].every((n) => !!tools.find((t) => t.name === n)?.inputSchema?.properties?.confirm));
 
   const n = seen.length;
@@ -119,6 +119,19 @@ try {
   check("item_b2b: PUT /items/i1/b2b", last().m === "PUT" && last().u.endsWith("/items/i1/b2b") && last().body.oversize === true);
   await call("shop_b2b_settings_update", { quoteValidDays: 5, clearAutoStatus: true, confirm: true });
   check("b2b_settings: PUT", last().m === "PUT" && last().u.endsWith("/b2b-settings") && last().body.quoteValidDays === 5);
+  await call("shop_seller_requisites_update", { accountant: "Петрова", quotePaymentTerms: "50% аванс", quoteLeadTime: "5 дней", confirm: true });
+  check("seller_update: accountant/quotePaymentTerms/quoteLeadTime", last().body.accountant === "Петрова" && last().body.quotePaymentTerms === "50% аванс" && last().body.quoteLeadTime === "5 дней");
+  r = await call("shop_seller_checklist", {});
+  check("seller_checklist: GET /seller/checklist без confirm", last().m === "GET" && last().u === "/api/bots/commerce/seller/checklist" && !r.result.isError);
+  await call("shop_item_b2b_update", { itemId: "i1", unit: "кг", confirm: true });
+  check("item_b2b: unit", last().body.unit === "кг");
+  await call("shop_b2b_settings_update", { invoiceReminderEnabled: true, invoiceReminderDays: 7, confirm: true });
+  check("b2b_settings: invoiceReminder полей", last().body.invoiceReminderEnabled === true && last().body.invoiceReminderDays === 7);
+  const nReminder = seen.length;
+  r = await call("shop_b2b_settings_update", { invoiceReminderDays: 31, confirm: true });
+  check("b2b_settings: invoiceReminderDays 31 отклонён, сервер не вызван", r.result.isError && seen.length === nReminder);
+  r = await call("shop_b2b_settings_update", { invoiceReminderEnabled: "yes", confirm: true });
+  check("b2b_settings: invoiceReminderEnabled не boolean отклонён", r.result.isError && seen.length === nReminder);
   await call("shop_b2b_settings_get", {});
   check("b2b_settings_get: GET", last().m === "GET" && last().u.endsWith("/b2b-settings"));
 
