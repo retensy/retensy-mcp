@@ -23,6 +23,7 @@ const srv = http.createServer((req, res) => {
     seen.push(entry);
     const json = (o, code = 200) => { res.statusCode = code; res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify(o)); };
     if (req.url === "/api/bots/commerce/orders/o1/invoice.pdf") { res.setHeader("Content-Type", "application/pdf"); res.setHeader("Content-Disposition", "attachment; filename=\"schet-3.pdf\""); return res.end(PDF); }
+    if (req.url === "/api/bots/commerce/orders/o1/quote.pdf") { res.setHeader("Content-Type", "application/pdf"); return res.end(PDF); }
     if (req.url === "/api/bots/commerce/orders/o1/quote-file") { res.setHeader("Content-Type", "application/pdf"); return res.end(BIG); }
     if (req.url === "/api/bots/commerce/seller") return json({ seller: { name: "ООО", inn: "7707083893", account: "40702810123456789012", corrAccount: "30101810400000000225" }, ready: true });
     if (req.url === "/api/bots/commerce/buyer-groups" && req.method === "GET") return json({ groups: [{ code: "opt", discountPct: 15, joinCode: "super-secret-code" }, { code: "vip" }], assignments: [] });
@@ -56,7 +57,8 @@ try {
   await rpc("initialize", {});
   const tools = (await rpc("tools/list", {})).result.tools;
   const shop = tools.filter((t) => t.name.startsWith("shop_"));
-  check("21 shop-инструмент B2B", shop.length === 21);
+  const b2bNames = ["shop_quotes_list", "shop_quote_answer", "shop_order_status_set", "shop_invoice_issue", "shop_invoice_mark_paid", "shop_invoice_pdf", "shop_quote_file_get", "shop_order_document_upload", "shop_order_document_get", "shop_order_document_delete", "shop_seller_get", "shop_seller_requisites_update", "shop_buyer_groups_get", "shop_buyer_group_upsert", "shop_buyer_group_delete", "shop_buyer_group_assign", "shop_delivery_settings_get", "shop_delivery_settings_update", "shop_item_b2b_update", "shop_b2b_settings_get", "shop_b2b_settings_update", "shop_leads_list", "shop_lead_to_order", "shop_wholesale_approve", "shop_quote_pdf"];
+  check("25 shop-инструментов B2B", b2bNames.every((n) => shop.some((t) => t.name === n)));
   check("у мутаций есть confirm", ["shop_quote_answer", "shop_order_status_set", "shop_invoice_mark_paid", "shop_buyer_group_upsert", "shop_delivery_settings_update", "shop_seller_requisites_update", "shop_item_b2b_update", "shop_b2b_settings_update"].every((n) => !!tools.find((t) => t.name === n)?.inputSchema?.properties?.confirm));
 
   const n = seen.length;
@@ -119,6 +121,23 @@ try {
   check("b2b_settings: PUT", last().m === "PUT" && last().u.endsWith("/b2b-settings") && last().body.quoteValidDays === 5);
   await call("shop_b2b_settings_get", {});
   check("b2b_settings_get: GET", last().m === "GET" && last().u.endsWith("/b2b-settings"));
+
+  await call("shop_leads_list", { type: "wholesale", status: "NEW", size: 20 });
+  check("leads_list: GET с query", last().m === "GET" && last().u === "/api/bots/commerce/leads?type=wholesale&status=NEW&size=20");
+  r = await call("shop_lead_to_order", { leadId: "L1", leadTime: "5 дней" });
+  check("lead_to_order без confirm отклонён", r.result.isError);
+  await call("shop_lead_to_order", { leadId: "L1", leadTime: "5 дней", note: "n", confirm: true });
+  check("lead_to_order: POST", last().m === "POST" && last().u.endsWith("/leads/L1/to-order") && last().body.leadTime === "5 дней" && last().body.confirm === undefined);
+  r = await call("shop_wholesale_approve", { leadId: "L1", tag: "", confirm: true });
+  check("wholesale_approve: пустой tag отклонён", r.result.isError);
+  await call("shop_wholesale_approve", { leadId: "L1", tag: "opt", confirm: true });
+  check("wholesale_approve: POST tag", last().u.endsWith("/leads/L1/approve-wholesale") && last().body.tag === "opt");
+  r = await call("shop_quote_pdf", { orderId: "o1" });
+  check("quote_pdf: base64", Buffer.from(JSON.parse(text(r)).base64, "base64").equals(PDF) && last().u.endsWith("/orders/o1/quote.pdf"));
+  await call("shop_item_b2b_update", { itemId: "i1", minQty: 10, qtyStep: 5, confirm: true });
+  check("item_b2b: minQty/qtyStep", last().body.minQty === 10 && last().body.qtyStep === 5);
+  await call("shop_b2b_settings_update", { minOrderSum: 5000, confirm: true });
+  check("b2b_settings: minOrderSum", last().body.minOrderSum === 5000);
 } finally {
   clearTimeout(timer);
   child.kill(); srv.close();

@@ -377,16 +377,20 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | Tool | Назначение |
 |---|---|
 | `shop_quotes_list(status?, page?, size?)` | заявки на расчёт (`quote_requested`, `quoted`, `paid`, `canceled`) |
-| `shop_quote_answer(orderId, lines[{index,price}], deliveryCost?, note?, invoice?, company?, confirm:true)` | ответить ценой на заявку (по номеру позиции с 0), при `invoice:true` сразу счёт |
+| `shop_quote_answer(orderId, lines[{index,price}], deliveryCost?, note?, leadTime?, invoice?, company?, confirm:true)` | ответить ценой на заявку (по номеру позиции с 0), при `invoice:true` сразу счёт |
 | `shop_order_status_set(orderId, status, confirm:true)` | ручная смена статуса (`new, paid, processing, assembled, shipped, delivered, returned, canceled`); недопустимый переход - 409 |
 | `shop_invoice_issue(orderId, company?, confirm:true)` / `shop_invoice_mark_paid(orderId, confirm:true)` | выставить счёт (идемпотентно) / отметить оплату по счёту (нужно право токена `billing`) |
 | `shop_invoice_pdf(orderId, savePath?)` / `shop_quote_file_get(orderId, savePath?)` | PDF счёта / вложение заявки: base64 или файл |
 | `shop_order_document_upload(orderId, filePath? или contentBase64+fileName, kind?, title?, confirm:true)` / `shop_order_document_get(orderId, docId, savePath?)` / `shop_order_document_delete(orderId, docId, confirm:true)` | документы заказа (pdf/xlsx/docx/jpg/png до 5 МБ, до 20 на заказ) |
-| `shop_seller_get()` / `shop_seller_requisites_update(name?, inn?, kpp?, ogrn?, address?, bankName?, bik?, account?, corrAccount?, director?, vatMode?, confirm:true)` | реквизиты продавца (патч) и признак `ready` для счёта |
+| `shop_seller_get()` / `shop_seller_requisites_update(name?, inn?, kpp?, ogrn?, address?, bankName?, bik?, account?, corrAccount?, director?, phone?, email?, site?, vatMode?, confirm:true)` | реквизиты продавца (патч) и признак `ready` для счёта |
 | `shop_buyer_groups_get()` / `shop_buyer_group_upsert(code, name?, discountPct?, joinCode?, generateJoinCode?, clearJoinCode?, tag?, clearTag?, priceType?, priority?, confirm:true)` / `shop_buyer_group_delete(code, confirm:true)` / `shop_buyer_group_assign(chatId, groupCode?, confirm:true)` | группы покупателей, назначения |
 | `shop_delivery_settings_get()` / `shop_delivery_settings_update(cutoffTime?, timezone?, workDays?, holidays?, weekendRule?, zones?, confirm:true)` | доставка по зонам (`zones` - полный список) |
-| `shop_item_b2b_update(itemId, priceMode?, priceTiers?, groupPrices?, prices?, weightKg?, clearWeight?, oversize?, confirm:true)` | B2B-поля товара: цена по заявке, ступени, цены групп, вес, крупногабарит |
-| `shop_b2b_settings_get()` / `shop_b2b_settings_update(priceTypes?, priceSelection?, quoteValidDays?, autoStatusOnPaid?, clearAutoStatus?, weekendRule?, confirm:true)` | типы цен, срок КП, автостатус после оплаты |
+| `shop_item_b2b_update(itemId, priceMode?, priceTiers?, groupPrices?, prices?, weightKg?, clearWeight?, oversize?, minQty?, qtyStep?, confirm:true)` | B2B-поля товара: цена по заявке, ступени, цены групп, вес, крупногабарит |
+| `shop_b2b_settings_get()` / `shop_b2b_settings_update(priceTypes?, priceSelection?, quoteValidDays?, autoStatusOnPaid?, clearAutoStatus?, weekendRule?, minOrderSum?, confirm:true)` | типы цен, срок КП, автостатус после оплаты |
+| `shop_leads_list(type?, status?, page?, size?)` | заявки магазина с сайта (SiteLead): `quote` / `wholesale`, статусы NEW/IN_PROGRESS/DONE/REJECTED |
+| `shop_lead_to_order(leadId, lines?, deliveryCost?, note?, leadTime?, confirm:true)` | заявка на расчёт -> заказ quoted, покупателю уходит расчёт |
+| `shop_wholesale_approve(leadId, tag, confirm:true)` | одобрить заявку на опт: тег группы покупателей контакту |
+| `shop_quote_pdf(orderId, savePath?)` | PDF коммерческого предложения (base64 до 2 МБ или файл) |
 
 Список заказов и статус (`order_list`, `order_status`) по-прежнему из каталога сервера. Работает с backend, где выкачен контракт B2B (`docs/shop/API_B2B.md`).
 
