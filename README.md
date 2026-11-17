@@ -367,6 +367,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `shop_attributes_upsert(key, name, type, unit?, order?, filter?, categoryIds?, values?, aliases?)` · `shop_attribute_delete(key, purge?)` | создать/изменить и удалить характеристику (`list`, `number`, `bool`, `color`); с подтверждением |
 | `catalog_attributes_fill(rules, categoryId?, overwrite?)` · `catalog_attributes_apply(...)` | массовое заполнение характеристик у товаров: сначала предпросмотр с примерами, применение только после подтверждения |
 | `shop_seo_get()` · `shop_seo_set(productTitleTpl?, productDescTpl?, categoryTitleTpl?, categoryDescTpl?)` · `shop_seo_preview(itemId, ...)` · `catalog_item_page(id)` | SEO-шаблоны витрины (`{name} {category} {brand} {price} {sku} {shop} {count} {attr.<key>}`), примерка на товаре, адрес и SEO страницы товара |
+| `transfer_list()` · `transfer_create(shop?, siteIds?, ttlHours?, note?, confirm:true)` · `transfer_cancel(transferId, confirm:true)` · `transfer_accept(code, confirm:true)` | передача магазина (каталог, настройки, промокоды, заказы) и сайтов другому аккаунту по одноразовому коду; код, созданный через MCP, заработает после подтверждения владельцем в кабинете (/bots/transfer); ключи ЮKassa, 1С и токены не переносятся, их список в чек-листе `reconnect` |
 
 ### Промокоды, возвраты и настройки кабинета (из каталога сервера)
 
