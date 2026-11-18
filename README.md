@@ -278,6 +278,9 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `bot_user_runs(botId, chatId)` | журнал запусков с шагами — проверка, что сценарий реально выполнил действия (CRM, уведомление, HTTP) |
 | `dialog_messages(botId, chatId)` / `dialog_reply(botId, chatId, text)` | переписка с подписчиком / ответ оператора (уходит реальному человеку) |
 | `broadcast_follow_up(broadcastId)` | дожим: метка неответившим и черновик-копия на них, без отправки |
+| `broadcast_ab_send(name, botId, messages, variants, testPercent, waitHours, metric, autoSend)` | A/B первого сообщения: тест на доле аудитории, победитель уходит остальным |
+| `broadcast_ab_results(abId?)` | итоги A/B по вариантам: доставлено, ответы, клики, отписки |
+| `broadcast_ab_winner(abId, variant или cancel| cancel)` | выбрать победителя вручную или отменить тест |
 | `dialog_assignees(botId)` / `dialog_assign(botId, chatId, userId?)` | кому назначить диалог / назначить (me — себе, без userId — снять); dialog_recent(mine:true) — мои |
 | `quick_reply_list()` / `quick_reply_save(title, text)` / `quick_reply_delete(id)` | шаблоны ответов оператора для «Диалогов» (вставляются через «/»), ничего не отправляют |
 | `dialog_handoff(botId, chatId, active)` | передать диалог оператору (бот и ИИ молчат) / вернуть боту |
@@ -382,7 +385,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 |---|---|
 | `shop_quotes_list(status?, page?, size?)` | заявки на расчёт (`quote_requested`, `quoted`, `paid`, `canceled`) |
 | `shop_quote_answer(orderId, lines[{index,price}], deliveryCost?, note?, leadTime?, invoice?, company?, confirm:true)` | ответить ценой на заявку (по номеру позиции с 0), при `invoice:true` сразу счёт |
-| `shop_order_status_set(orderId, status, confirm:true)` | ручная смена статуса (`new, paid, processing, assembled, shipped, delivered, returned, canceled`); недопустимый переход - 409 |
+| `shop_order_status_set(orderId, status, confirm:true)` | ручная смена статуса (`new, paid, processing, assembled, shipped, delivered, returned,variant или canceled`); недопустимый переход - 409 |
 | `shop_invoice_issue(orderId, company?, confirm:true)` / `shop_invoice_mark_paid(orderId, confirm:true)` | выставить счёт (идемпотентно) / отметить оплату по счёту (нужно право токена `billing`) |
 | `shop_invoice_pdf(orderId, savePath?)` / `shop_quote_file_get(orderId, savePath?)` | PDF счёта / вложение заявки: base64 или файл |
 | `shop_order_document_upload(orderId, filePath? или contentBase64+fileName, kind?, title?, confirm:true)` / `shop_order_document_get(orderId, docId, savePath?)` / `shop_order_document_delete(orderId, docId, confirm:true)` | документы заказа (pdf/xlsx/docx/jpg/png до 5 МБ, до 20 на заказ) |

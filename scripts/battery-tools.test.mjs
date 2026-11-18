@@ -122,6 +122,15 @@ check("dialog_recent mine → ?mine=true", seen.some((s) => s.url.startsWith("/a
 await call("broadcast_follow_up", { broadcastId: B1 });
 check("broadcast_follow_up → POST follow-up", !!req("POST", `/api/bots/broadcasts/${B1}/follow-up`));
 check("broadcast_follow_up не-UUID — ошибка", isErr(await call("broadcast_follow_up", { broadcastId: "../x" })));
+const AB1 = "11111111-1111-4111-8111-111111111111";
+await call("broadcast_ab_results", { abId: AB1 });
+check("broadcast_ab_results → GET /ab/{id}", !!req("GET", `/api/bots/broadcasts/ab/${AB1}`));
+check("broadcast_ab_results не-UUID — ошибка", isErr(await call("broadcast_ab_results", { abId: "../x" })));
+await call("broadcast_ab_winner", { abId: AB1, variant: "b" });
+check("broadcast_ab_winner → POST winner {variant:B}", req("POST", `/api/bots/broadcasts/ab/${AB1}/winner`)?.body?.variant === "B");
+await call("broadcast_ab_winner", { abId: AB1, cancel: true });
+check("broadcast_ab_winner cancel → POST cancel", !!req("POST", `/api/bots/broadcasts/ab/${AB1}/cancel`));
+check("broadcast_ab_winner без variant — ошибка", isErr(await call("broadcast_ab_winner", { abId: AB1 })));
 
 const before = seen.length;
 const badIds = await call("update_graph", { graphId: "g1", nodes: [{ id: "n1", type: "TRIGGER_TEXT", config: {} }], edges: [] });
