@@ -229,7 +229,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `site_schema(full?)` | компактный справочник модели и операций (~10 КБ); `full:true` — полная JSON Schema — читать перед правкой |
 | `site_edit(siteId, ops[]?, revision?, init?, reset?)` | правка операциями (`init`: `starter`/`blank`/`mini-landing`/`shop-starter`; только `init` — черновик из шаблона; `reset:true` с `init` и `revision` — пересобрать черновик из шаблона, деструктивно), всё или ничего: страницы и папки, блоки, Zero-элементы, код блока (`get/set/add_block_code`), дизайны и их кадры, шаблоны (`add_template`), тема, попапы; пиксели аналитики (GA4/GTM/Meta/VK/Яндекс.Метрика) — тоже сюда, `set_settings {analytics: {...}}` (отдельного инструмента нет — те же `settings.analytics` модели сайта, валидируются форматом id на сервере) |
 | `site_templates(category?, full?)` | библиотека шаблонов блоков для `add_template` |
-| `site_publish(siteId)` | опубликовать черновик → `url` |
+| `publish_check(siteId)` | проверка перед публикацией сайта и магазина (ничего не меняет): `errors` блокируют (пустые блоки, одинаковые заглушки, битые ссылки), `warnings` нет (нет связи в шапке, Title > 65 / Description > 160 или пустые, повторы Title, фиксированная ширина шире 360 px, плашка платформы); `path`/`pageId`/`blockId` для `site_edit` |
+| `site_publish(siteId, force?)` | опубликовать черновик → `url`, `check` (предупреждения). Сначала проверка: при `errors` ответ 422 и публикации нет; `force:true` публикует всё равно, только владелец и только по его прямой просьбе |
 | `site_rollback(siteId, revision)` | вернуть прошлую публикацию |
 | `site_upload_asset(siteId, path\|url)` | картинка/видео в сайт → `assets/…` |
 | `site_domains(siteId, action, host?, withWww?, domainId?)` | свои домены: list / add / check / remove (число — по тарифу) |
