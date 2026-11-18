@@ -109,6 +109,16 @@ await call("quick_reply_delete", { id: "11111111-2222-4333-8444-555555555555" })
 check("quick_reply_delete → DELETE", !!req("DELETE", "/api/bots/quick-replies/11111111-2222-4333-8444-555555555555"));
 check("quick_reply_delete не-UUID — ошибка", isErr(await call("quick_reply_delete", { id: "../x" })));
 
+const B1 = "11111111-2222-4333-8444-555555555556";
+await call("dialog_assignees", { botId: B1 });
+check("dialog_assignees → GET", !!req("GET", `/api/bots/${B1}/assignees`));
+await call("dialog_assign", { botId: B1, chatId: CHAT, userId: "me" });
+check("dialog_assign → POST {userId}", seen.some((s) => s.method === "POST" && s.url === `/api/bots/${B1}/users/${CHAT}/assign` && s.body?.userId === "me"));
+await call("dialog_assign", { botId: B1, chatId: CHAT });
+check("dialog_assign без userId — снять (null)", seen.filter((s) => s.url === `/api/bots/${B1}/users/${CHAT}/assign`).at(-1)?.body?.userId === null);
+await call("dialog_recent", { mine: true });
+check("dialog_recent mine → ?mine=true", seen.some((s) => s.url.startsWith("/api/bots/dialogs/recent") && s.url.includes("mine=true")));
+
 const before = seen.length;
 const badIds = await call("update_graph", { graphId: "g1", nodes: [{ id: "n1", type: "TRIGGER_TEXT", config: {} }], edges: [] });
 check("update_graph с не-UUID id — понятная ошибка до PUT", isErr(badIds) && /UUID/.test(textOf(badIds)) && seen.length === before);
