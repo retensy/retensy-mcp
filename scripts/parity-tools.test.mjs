@@ -81,6 +81,10 @@ const S = "22222222-2222-4333-8444-555555555555", L = "33333333-2222-4333-8444-5
 await call("site_lead_status", { siteId: S, leadId: L, status: "in_progress" });
 check("site_lead_status → PATCH {status} в верхнем регистре", req("PATCH", `/api/bots/pages/${S}/leads/${L}`)?.body?.status === "IN_PROGRESS");
 check("site_lead_status неизвестный статус — ошибка", isErr(await call("site_lead_status", { siteId: S, leadId: L, status: "WON" })));
+await call("site_lead_status", { siteId: S, leadId: L, nextAction: "перезвонить в пн", rejectReason: "" });
+const lastPatch = seen.filter((x) => x.method === "PATCH" && x.url === `/api/bots/pages/${S}/leads/${L}`).at(-1);
+check("site_lead_status nextAction/rejectReason без статуса → PATCH", lastPatch?.body?.nextAction === "перезвонить в пн" && lastPatch?.body?.rejectReason === "" && lastPatch?.body?.status === undefined);
+check("site_lead_status без полей — ошибка", isErr(await call("site_lead_status", { siteId: S, leadId: L })));
 await call("site_leads", { siteId: S, status: "done" });
 check("site_leads status → ?status=DONE", !!req("GET", `/api/bots/pages/${S}/leads?status=DONE`));
 
