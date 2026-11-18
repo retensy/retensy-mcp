@@ -71,6 +71,14 @@ try {
   await call("site_upload_asset", { siteId: "s1", path: f, quality: "original" });
   const up = seen.find((e) => e.u === "/api/bots/pages/s1/upload");
   check("загрузка передаёт quality=original", !!up && up.raw.includes('name="quality"') && up.raw.includes("original"));
+  check("catalog_item_upsert: priority, priceNote", ip.priority?.type === "integer" && ip.priceNote?.type === "string");
+  check("catalog_category_upsert: priority", t("catalog_category_upsert").inputSchema.properties.priority?.type === "integer");
+  await call("catalog_item_upsert", { name: "Саморез", price: 3, priority: 50, priceNote: "цена уточняется", confirm: true });
+  const it2 = seen.filter((e) => e.u === "/api/bots/commerce/items/upsert").pop();
+  check("upsert передаёт priority и priceNote", it2?.body?.priority === 50 && it2.body.priceNote === "цена уточняется");
+  await call("catalog_category_upsert", { name: "Крепеж", priority: 9, confirm: true });
+  const cat2 = seen.filter((e) => e.u === "/api/bots/commerce/categories" && e.m === "POST").pop();
+  check("категория передаёт priority", cat2?.body?.priority === 9);
 } finally {
   clearTimeout(timer);
   child.kill();
