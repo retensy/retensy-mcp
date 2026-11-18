@@ -277,6 +277,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `bot_user_get(botId, chatId)` | карточка подписчика: теги, переменные, ai_summary |
 | `bot_user_runs(botId, chatId)` | журнал запусков с шагами — проверка, что сценарий реально выполнил действия (CRM, уведомление, HTTP) |
 | `dialog_messages(botId, chatId)` / `dialog_reply(botId, chatId, text)` | переписка с подписчиком / ответ оператора (уходит реальному человеку) |
+| `quick_reply_list()` / `quick_reply_save(title, text)` / `quick_reply_delete(id)` | шаблоны ответов оператора для «Диалогов» (вставляются через «/»), ничего не отправляют |
 | `dialog_handoff(botId, chatId, active)` | передать диалог оператору (бот и ИИ молчат) / вернуть боту |
 | `bot_users_import(botId, rows)` | добавить/обновить подписчиков пачкой JSON (`rows: [{chatId, tags?, variables?, subscribedAt?, source?, status?}]`; существующие поля не перезаписываются, `status: BLOCKED/UNSUBSCRIBED` только выставляет блокировку, никогда не снимает) |
 | `bot_runs(botId` или `runId)` | журнал прогонов бота / один прогон с шагами (статус `PARTIAL` — «завершён с ошибками») |

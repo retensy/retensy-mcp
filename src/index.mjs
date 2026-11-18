@@ -1368,6 +1368,9 @@ const TOOLS = [
   { name: "bot_user_runs", description: "Журнал запусков сценариев подписчика (GET /api/bots/{botId}/users/{chatId}/runs): триггер, статус, шаги с результатом (ветка ИИ-агента, ok/ошибка каждого действия — CRM, уведомление, HTTP). Так проверяют, что сценарий реально сделал нужное. Статус прогона: OK, FAILED (прерван) или PARTIAL — «завершён с ошибками»: дошёл до конца, но хотя бы одно действие упало (у шага ok:false, error «КОД: …»). Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["botId", "chatId"] } },
   { name: "dialog_messages", description: "Переписка с подписчиком, свежие сверху (GET /api/bots/{botId}/users/{chatId}/messages, page/size). Поле sender: null — бот, OPERATOR — человек, AI — ответ модели ИИ-агента, HANDOFF — передача оператору; corrected:true — ответ ИИ исправлен оператором (правильный ответ уже в базе знаний). Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, page: { type: "number" }, size: { type: "number" } }, required: ["botId", "chatId"] } },
   { name: "dialog_reply", description: "ОТПРАВИТЬ сообщение подписчику от имени оператора (POST /api/bots/{botId}/users/{chatId}/messages) — как ответ из раздела «Диалоги». Уходит РЕАЛЬНОМУ человеку: только по явной просьбе пользователя. Бот при этом не останавливается.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, text: { type: "string" } }, required: ["botId", "chatId", "text"] } },
+  { name: "quick_reply_list", description: "Шаблоны ответов оператора (GET /api/bots/quick-replies): id, title, text. В «Диалогах» вставляются в поле ответа через «/» или кнопку «Шаблоны». Read-only.", inputSchema: { type: "object", properties: {} } },
+  { name: "quick_reply_save", description: "Создать шаблон ответа оператора (POST /api/bots/quick-replies {title ≤ 60, text ≤ 4096}). Ничего не отправляет подписчикам; до 100 шаблонов на аккаунт.", inputSchema: { type: "object", properties: { title: { type: "string" }, text: { type: "string" } }, required: ["title", "text"] } },
+  { name: "quick_reply_delete", description: "Удалить шаблон ответа оператора (DELETE /api/bots/quick-replies/{id}). id — из quick_reply_list.", inputSchema: { type: "object", properties: { id: { type: "string" } }, required: ["id"] } },
   // ---- Паритет платформы: журнал вызовов, оператор, заявки, виджет, подписчики, бот ----
   { name: "integration_calls", description: "Журнал вызовов внешних сервисов из сценариев (GET /api/bots/integrations/calls): время, подключение, действие, ok/ошибка, код, попытки, correlationId (= runId прогона). Фильтры: connectionId (из list_integrations), ok (true — только успешные, false — только упавшие), limit (1–200). Так проверяют, что CRM/таблица/HTTP реально получили данные. Read-only.", inputSchema: { type: "object", properties: { connectionId: { type: "string" }, ok: { type: "boolean" }, limit: { type: "number" } } } },
   { name: "dialog_handoff", description: "Передача диалога оператору (POST /api/bots/{botId}/users/{chatId}/handoff {active}): active:true — бот и ИИ молчат, входящие копятся в «Диалогах», отвечает человек (dialog_reply); active:false — «Вернуть боту». Текущее состояние — поле handoff в bot_user_get.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, active: { type: "boolean" } }, required: ["botId", "chatId", "active"] } },
@@ -1977,6 +1980,18 @@ async function handleCall(params) {
       if (!text) throw new Error("Передай text — текст ответа.");
       const g = await invokeGuarded("dialog_reply", { botId: a.botId, chatId: chatIdArg(a.chatId), text }, a);
       return g.pending || okResult(g.data);
+    }
+    case "quick_reply_list": return okResult(await api("/api/bots/quick-replies"));
+    case "quick_reply_save": {
+      const title = String(a.title ?? "").trim();
+      const text = String(a.text ?? "").trim();
+      if (!title || title.length > 60) throw new Error("title — 1..60 символов.");
+      if (!text || text.length > 4096) throw new Error("text — 1..4096 символов.");
+      return okResult(await api("/api/bots/quick-replies", { method: "POST", body: { title, text } }));
+    }
+    case "quick_reply_delete": {
+      await api(`/api/bots/quick-replies/${uuidArg(a.id, "id")}`, { method: "DELETE" });
+      return okResult(`Шаблон ${a.id} удалён.`);
     }
     // ---- Запись на слоты ----
     case "booking_calendar_list": return okResult(await api("/api/bots/booking/calendars"));

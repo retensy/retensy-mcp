@@ -100,6 +100,15 @@ await call("dialog_reply", { botId: "b1", chatId: CHAT, text: " Здравств
 check("dialog_reply → POST {text}", inv("dialog_reply")?.text === "Здравствуйте" && inv("dialog_reply")?.botId === "b1");
 check("dialog_reply пустой text — ошибка", isErr(await call("dialog_reply", { botId: "b1", chatId: CHAT, text: "" })));
 
+await call("quick_reply_list", {});
+check("quick_reply_list → GET", !!req("GET", "/api/bots/quick-replies"));
+await call("quick_reply_save", { title: " Цены ", text: " Прайс по ссылке " });
+check("quick_reply_save → POST {title,text} trimmed", seen.some((s) => s.method === "POST" && s.url === "/api/bots/quick-replies" && s.body?.title === "Цены" && s.body?.text === "Прайс по ссылке"));
+check("quick_reply_save пустой text — ошибка", isErr(await call("quick_reply_save", { title: "a", text: " " })));
+await call("quick_reply_delete", { id: "11111111-2222-4333-8444-555555555555" });
+check("quick_reply_delete → DELETE", !!req("DELETE", "/api/bots/quick-replies/11111111-2222-4333-8444-555555555555"));
+check("quick_reply_delete не-UUID — ошибка", isErr(await call("quick_reply_delete", { id: "../x" })));
+
 const before = seen.length;
 const badIds = await call("update_graph", { graphId: "g1", nodes: [{ id: "n1", type: "TRIGGER_TEXT", config: {} }], edges: [] });
 check("update_graph с не-UUID id — понятная ошибка до PUT", isErr(badIds) && /UUID/.test(textOf(badIds)) && seen.length === before);
