@@ -119,6 +119,10 @@ check("dialog_assign без userId — снять (null)", seen.filter((s) => s.
 await call("dialog_recent", { mine: true });
 check("dialog_recent mine → ?mine=true", seen.some((s) => s.url.startsWith("/api/bots/dialogs/recent") && s.url.includes("mine=true")));
 
+await call("broadcast_follow_up", { broadcastId: B1 });
+check("broadcast_follow_up → POST follow-up", !!req("POST", `/api/bots/broadcasts/${B1}/follow-up`));
+check("broadcast_follow_up не-UUID — ошибка", isErr(await call("broadcast_follow_up", { broadcastId: "../x" })));
+
 const before = seen.length;
 const badIds = await call("update_graph", { graphId: "g1", nodes: [{ id: "n1", type: "TRIGGER_TEXT", config: {} }], edges: [] });
 check("update_graph с не-UUID id — понятная ошибка до PUT", isErr(badIds) && /UUID/.test(textOf(badIds)) && seen.length === before);

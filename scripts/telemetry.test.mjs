@@ -25,6 +25,8 @@ const srv = http.createServer((req, res) => {
   let body = "";
   req.on("data", (c) => (body += c));
   req.on("end", () => {
+    // Всё, кроме /hook, — подменённый API: фейковый токен отвергается (401), без похода в сеть.
+    if (!req.url.startsWith("/hook")) { res.writeHead(401, { "Content-Type": "application/json" }); res.end("{}"); return; }
     captured.push({ body, auth: req.headers.authorization || null });
     res.writeHead(204); res.end();
   });
@@ -39,6 +41,8 @@ const child = spawn(process.execPath, [join(root, "src", "index.mjs")], {
     HOME: home, USERPROFILE: home,          // изолируем файл токена от реального
     RETENSY_MCP_TOKEN: ENV_TOKEN,
     RETENSY_MCP_REPORT_URL: hookUrl,
+    // Подменённый API на другом имени хоста, чем REPORT_URL: токен в отчёт не прикладывается, в сеть не ходим.
+    RETENSY_BASE_URL: `http://localhost:${srv.address().port}`,
     RETENSY_MCP_TELEMETRY: "on",
     RETENSY_MCP_AUTOUPDATE: "0",
   },
