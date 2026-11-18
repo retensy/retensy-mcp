@@ -53,7 +53,11 @@ call(1, "definitely_not_a_tool", { wish: "функция, которой нет"
 call(2, "set_token", { token: ARG_TOKEN });                          // секрет в аргументах
 call(3, "list_graphs", { botId: "bot-does-not-exist" });              // ошибка API
 
-await new Promise((r) => setTimeout(r, 6000));
+// Третий вызов ходит в реальный API (токен фейковый → 401), на нагруженном раннере это дольше фиксированных 6 с:
+// ждём не по таймеру, а пока не придёт отчёт auth_rejected (но не дольше 40 с).
+const hasAuthRejected = () => captured.some((c) => { try { return JSON.parse(c.body)?.category === "auth_rejected"; } catch { return false; } });
+for (let waited = 0; waited < 40000 && !hasAuthRejected(); waited += 250) await new Promise((r) => setTimeout(r, 250));
+await new Promise((r) => setTimeout(r, 500));   // дать долететь остальным отчётам
 child.kill();
 
 // Фаза 2: токена НЕТ вовсе — это обычное состояние нового пользователя, а не пробел
