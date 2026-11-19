@@ -457,7 +457,7 @@ function bodyReason(data) {
   return typeof e === "string" && e !== "Forbidden" && e !== "Payment Required" ? e.slice(0, 300) : "";
 }
 
-const SUBSCRIPTION_PAGE = `${BASE}/bots/subscription`;
+const SUBSCRIPTION_PAGE = `${BASE}/billing`;
 const PAYMENT_REASONS = {
   broadcast_not_available: "рассылки недоступны на текущем тарифе",
   broadcast_quota_exceeded: "исчерпана месячная квота получателей рассылок",

@@ -469,7 +469,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | нет токена / токен отозван | `/bots/mcp-tokens` — создать токен и прислать агенту |
 | Google Таблицы (`connect_integration`) | одноразовая ссылка согласия Google (OAuth) |
 | Instagram (`create_bot`, `connect_integration`) | `/bots/instagram` — подключается входом через Instagram (OAuth); нужен Instagram-аккаунт Business/Creator |
-| лимит тарифа, рассылки на бесплатном (HTTP 402) | `upgradeUrl` из ответа или `/bots/subscription` |
+| лимит тарифа, рассылки на бесплатном (HTTP 402) | `upgradeUrl` из ответа или `/billing` (раздел «Тариф и оплата»: тариф, лимиты, баланс, платежи, пакеты ИИ) |
 | свой домен сайта | DNS у регистратора: A-запись на `dnsTarget` из `site_domains` |
 
 ---
