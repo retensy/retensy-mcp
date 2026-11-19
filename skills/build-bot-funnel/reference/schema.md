@@ -582,3 +582,14 @@ node validate.mjs graph.json --platform=INSTAGRAM
 ## Готовые шаблоны (list_templates)
 
 Шаблоны лежат в бэкенде как JSON `{id, name, description, icon, niche, channels, en:{name,description}, graph:{name,nodes,edges}}` и проходят тот же `GraphValidator`, что и ваши графы. Это обычный граф формата выше, без новых типов узлов: id узлов `tpl_*`, кнопки `CALLBACK` с пустым `value` и рёбрами `btn_N`, вопросы с рёбрами `valid`/`invalid`. Платных узлов (`AI_REPLY`, `CALL_WEBHOOK`) в нише-шаблонах нет, кроме универсального `ai-agent` (у него `hasAi:true`). Ниша: beauty, medical, realty, education, ecommerce, fitness, restaurant, auto, legal, reviews, universal. Каналы: TELEGRAM, MAX, VK.
+
+
+## Telegram Bot API 10.x: опрос, Stars, платный контент, стриминг
+
+- **`SEND_POLL`** (только Telegram) — нативный опрос/квиз, ждёт ответ. `config`: `question` (≤300), `options` (2–12 строк ≤100), `quiz` (bool), `correctOption` (индекс, для квиза), `explanation` (≤200), `multiple` (не для квиза), `saveTo` (текст ответа; ещё `<saveTo>_index`, `<saveTo>_correct`). Выходы: `opt_0`…`opt_N` (по варианту), `next` (любой ответ, запасной), `error`.
+- **Кнопки**: `kind:"DISABLED"` — неактивная кнопка-подпись; `iconEmojiId` (5–25 цифр) — иконка custom emoji.
+- **`ASK_QUESTION`**: `forceReply:true` открывает поле ответа, `replyPlaceholder` (≤64).
+- **Платный контент**: `paidStars` (1–25000) у `SEND_PHOTO`/`SEND_VIDEO` и у карточки image/video — медиа откроется после оплаты звёздами.
+- **Подписка Stars**: действие `issue_stars_invoice` с `subscription:true` (+`buttonText`) — ежемесячная подписка ссылкой; срок пишется в `{{var.sub_until}}` при каждой оплате.
+- **Платный канал**: `invite_link_create` с `subscriptionStars` (1–10000) — ссылка платной подписки на канал.
+- **`AI_REPLY` `stream:true`** (простой режим, `sendToUser`, без JSON, личка Telegram) — ответ печатается по ходу генерации.

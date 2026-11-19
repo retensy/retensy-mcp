@@ -362,6 +362,21 @@ for (const n of nodes) {
       }
       break;
     }
+    case "SEND_POLL": {
+      // Зеркало GraphValidator.validateSendPoll (Java).
+      if (platform && platform !== "TELEGRAM") errors.push(`POLL_TELEGRAM_ONLY: ${who} — опрос есть только в Telegram.`);
+      const q = String(c.question || "");
+      if (blank(q)) errors.push(`POLL_NO_QUESTION: ${who} — пустой question.`);
+      else if (q.length > 300) errors.push(`POLL_QUESTION_TOO_LONG: ${who} — question до 300 символов.`);
+      const opts = Array.isArray(c.options) ? c.options : [];
+      if (opts.length < 2 || opts.length > 12 || opts.some(blank)) errors.push(`POLL_BAD_OPTIONS: ${who} — options: 2..12 непустых вариантов.`);
+      if (opts.some((o) => String(o || "").length > 100)) errors.push(`POLL_OPTION_TOO_LONG: ${who} — вариант до 100 символов.`);
+      if (c.quiz === true) {
+        const k = Number(c.correctOption);
+        if (!Number.isInteger(k) || k < 0 || k >= opts.length) errors.push(`POLL_QUIZ_NO_CORRECT: ${who} — у квиза correctOption = индекс верного варианта.`);
+      }
+      break;
+    }
     case "DELETE_MESSAGE": {
       // Зеркало GraphValidator.validateDeleteMessage (Java).
       if (!["NODE", "PREVIOUS", "USER_LAST", "NEXT"].includes(c.mode)) {
@@ -371,7 +386,7 @@ for (const n of nodes) {
       if (c.mode === "NODE") {
         const target = nodes.find((x) => x.id === c.nodeId);
         const SENDERS = ["SEND_MESSAGE", "SEND_PHOTO", "SEND_VIDEO", "SEND_DOCUMENT", "SEND_VOICE", "SEND_VIDEO_NOTE",
-          "SEND_MEDIA_GROUP", "ASK_QUESTION", "AI_REPLY", "PAYMENT_LINK", "YOOKASSA_PAYMENT", "ACTIONS"];
+          "SEND_MEDIA_GROUP", "ASK_QUESTION", "AI_REPLY", "PAYMENT_LINK", "YOOKASSA_PAYMENT", "ACTIONS", "SEND_POLL"];
         if (!target) errors.push(`DELETE_NODE_MISSING: ${who} — nodeId должен указывать на узел этого сценария.`);
         else if (!SENDERS.includes(target.type)) errors.push(`DELETE_NODE_NOT_SENDER: ${who} — узел nodeId ничего не отправляет.`);
       }
@@ -385,7 +400,7 @@ for (const n of nodes) {
       if (c.mode === "NEXT") {
         // Флаг «удалить следующее» живёт в одном прогоне: пауза (DELAY/SCHEDULE) до отправки его сжигает.
         const SENDERS_NEXT = ["SEND_MESSAGE", "SEND_PHOTO", "SEND_VIDEO", "SEND_DOCUMENT", "SEND_VOICE", "SEND_VIDEO_NOTE",
-          "SEND_MEDIA_GROUP", "ASK_QUESTION", "AI_REPLY", "PAYMENT_LINK", "YOOKASSA_PAYMENT", "ACTIONS"];
+          "SEND_MEDIA_GROUP", "ASK_QUESTION", "AI_REPLY", "PAYMENT_LINK", "YOOKASSA_PAYMENT", "ACTIONS", "SEND_POLL"];
         const out = {};
         for (const e of edges) (out[e.sourceNodeId] = out[e.sourceNodeId] || []).push(e.targetNodeId);
         const seen = new Set();
