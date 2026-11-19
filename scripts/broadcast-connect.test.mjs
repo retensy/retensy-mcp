@@ -146,7 +146,7 @@ const checks = [
   ["broadcast_test: тело и ответ", testBody?.messages?.[0]?.text === "проверка" && testBody?.chatId === null && textOf(testSend).includes('"sent": 1')],
   ["instagram-рассылка: ошибка", ig?.result?.isError === true && textOf(ig).includes("Instagram")],
   ["галерея с кнопками: ошибка до запроса", gal?.result?.isError === true && textOf(gal).includes("GALLERY")],
-  ["402: ссылка на тариф", quota?.result?.isError === true && textOf(quota).includes("HTTP 402") && textOf(quota).includes(`${BASE}/bots/subscription`) && textOf(quota).includes("квота")],
+  ["402: ссылка на тариф", quota?.result?.isError === true && textOf(quota).includes("HTTP 402") && textOf(quota).includes(`${BASE}/billing`) && textOf(quota).includes("квота")],
   ["google: не ошибка, а ссылка OAuth", google?.result?.isError !== true && textOf(google).includes(AUTH_URL) && textOf(google).includes("needsBrowser")],
   ["google: видны уже подключённые аккаунты", textOf(google).includes("owner@gmail.com")],
   ["instagram-подключение: ссылка на кабинет", igConn?.result?.isError !== true && textOf(igConn).includes(`${BASE}/bots/instagram`)],
