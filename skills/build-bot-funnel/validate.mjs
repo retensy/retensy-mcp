@@ -67,7 +67,7 @@ const COND_OPS = {
 
 // ACTIONS: допустимые kind (зеркало GraphValidator.KNOWN_ACTION_KINDS)
 const ACTION_KINDS = new Set([
-  "add_tag", "remove_tag", "set_field", "stop_bot", "delete_step_message",
+  "add_tag", "remove_tag", "set_field", "stop_bot", "delete_step_message", "react", "chat_action", "send_dice",
   "subscribe", "unsubscribe", "autoflow_add", "autoflow_remove",
   "subscriber_webhook", "external_request", "notify",
   "subscriber_email", "agent_chat", "cancel_payment_subscription", "issue_invoice", "issue_stars_invoice",
