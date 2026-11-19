@@ -369,7 +369,7 @@ for (const n of nodes) {
       if (blank(q)) errors.push(`POLL_NO_QUESTION: ${who} — пустой question.`);
       else if (q.length > 300) errors.push(`POLL_QUESTION_TOO_LONG: ${who} — question до 300 символов.`);
       const opts = Array.isArray(c.options) ? c.options : [];
-      if (opts.length < 2 || opts.length > 12 || opts.some(blank)) errors.push(`POLL_BAD_OPTIONS: ${who} — options: 2..12 непустых вариантов.`);
+      if (opts.length < 1 || opts.length > 12 || opts.some(blank)) errors.push(`POLL_BAD_OPTIONS: ${who} — options: 1..12 непустых вариантов.`);
       if (opts.some((o) => String(o || "").length > 100)) errors.push(`POLL_OPTION_TOO_LONG: ${who} — вариант до 100 символов.`);
       if (c.quiz === true) {
         const k = Number(c.correctOption);
