@@ -150,7 +150,7 @@ check("scenario_runs graphId не UUID — ошибка до запроса", is
 const noConfirm = await call("bot_delete", { botId: B });
 check("bot_delete → invoke bot_delete (подтверждение решает сервер), прямого DELETE нет", !isErr(noConfirm) && !!invoked("bot_delete", { botId: B }) && !req("DELETE", `/api/bots/${B}`));
 await call("bot_delete", { botId: B, confirmToken: "t1" });
-check("bot_delete confirmToken уходит в args", seen.some((s) => s.url === "/api/agent-tools/invoke" && s.body?.name === "bot_delete" && s.body.args.confirmToken === "t1"));
+check("bot_delete: confirmToken клиента на сервер не уходит", seen.some((s) => s.url === "/api/agent-tools/invoke" && s.body?.name === "bot_delete") && !seen.some((s) => s.body?.args?.confirmToken));
 
 child.kill(); srv.close();
 if (failed) { console.error(`parity-tools: провалов ${failed}`); process.exit(1); }

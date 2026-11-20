@@ -1,7 +1,7 @@
 /**
  * Единая политика подтверждения: опасные прямые инструменты идут через POST /api/agent-tools/invoke.
- * Без confirmToken сервер отвечает 409 {needsConfirmation, confirmToken, step.confirm.summary} — агент получает
- * «что изменится» и токен; повтор с confirmToken выполняет действие.
+ * С 21.11.2026 по MCP-токену сервер подтверждение не требует: инструменты выполняются сразу, у разрушительных есть
+ * destructiveHint и пометка «спроси пользователя». 409+confirmToken остаётся только для старых серверов (site_rollback в моке).
  */
 import http from "node:http";
 import fs from "node:fs";
@@ -25,7 +25,7 @@ const srv = http.createServer((req, res) => {
     if (req.method === "POST" && req.url === "/api/agent-tools/invoke") {
       invokes.push(body);
       if (body.name === "broadcast_send_now") return res.end(JSON.stringify({ broadcastIds: ["b1"], totalAudience: 1 })); // без токена: создаётся сразу
-      if (body.args?.confirmToken !== "tok-ok") {
+      if (body.name === "site_rollback" && body.args?.confirmToken !== "tok-ok") {
         res.statusCode = 409;
         return res.end(JSON.stringify({ needsConfirmation: true, tool: body.name, message: "Опубликовать?", confirmToken: "tok-ok",
           step: { confirm: { required: true, summary: { added: ["n2"], replaced: [], recipients: 150, irreversible: true, text: "Добавится блоков: 1." } } } }));
@@ -65,36 +65,27 @@ const timer = setTimeout(() => { console.log("  FAIL  таймаут"); process.
 try {
   await rpc("initialize", {});
   const tools = (await rpc("tools/list", {})).result.tools;
-  for (const n of ["publish_graph", "site_publish", "site_rollback", "bot_delete", "agent_publish", "booking_cancel", "broadcast_cancel"]) {
-    check(`${n}: в схеме есть confirmToken`, !!tools.find((t) => t.name === n)?.inputSchema?.properties?.confirmToken);
+  for (const n of ["publish_graph", "site_publish", "site_rollback", "bot_delete", "agent_publish", "booking_cancel", "broadcast_cancel", "delete_graph", "broadcast_send"]) {
+    const t = tools.find((x) => x.name === n);
+    check(`${n}: confirmToken в схеме нет, destructiveHint и пометка «спроси пользователя»`, !t?.inputSchema?.properties?.confirmToken && t?.annotations?.destructiveHint === true && /спроси пользователя перед вызовом/.test(t.description) && !/confirmToken/.test(t.description));
   }
 
-  check("broadcast_send: confirmToken в схеме нет", !tools.find((t) => t.name === "broadcast_send")?.inputSchema?.properties?.confirmToken);
-  check("broadcast_send: в описании нет confirmToken и 409-текстов", !/confirmToken/.test(tools.find((t) => t.name === "broadcast_send").description));
-
   const p1 = await call("publish_graph", { graphId: G });
-  check("publish_graph -> invoke graph_publish", invokes.at(-1)?.name === "graph_publish" && invokes.at(-1).args.graphId === G);
-  check("409: не ошибка, а просьба спросить пользователя", !p1.result.isError && /подтверждение/i.test(text(p1)));
-  check("409: что изменится (summary.text, получатели, необратимо)", /Добавится блоков: 1/.test(text(p1)) && /Получателей: 150/.test(text(p1)) && /необратимо/i.test(text(p1)));
-  check("409: токен в тексте", /confirmToken="tok-ok"/.test(text(p1)));
-
+  check("publish_graph -> invoke graph_publish сразу, без просьбы о токене", invokes.at(-1)?.name === "graph_publish" && invokes.at(-1).args.graphId === G && !p1.result.isError && /"ok": true/.test(text(p1)));
   const p2 = await call("publish_graph", { graphId: G, confirmToken: "tok-ok" });
-  check("повтор с confirmToken выполняется, токен ушёл в args", !p2.result.isError && invokes.at(-1).args.confirmToken === "tok-ok" && /"ok": true/.test(text(p2)));
-
-  const s1 = await call("site_publish", { siteId: "s1" });
-  check("site_publish без токена -> 409-текст", /confirmToken="tok-ok"/.test(text(s1)));
-  const s2 = await call("site_publish", { siteId: "s1", confirmToken: "tok-ok" });
-  check("site_publish с токеном -> прежний формат ответа", /"publishedRevision": 3/.test(text(s2)) && /https:\/\/x/.test(text(s2)));
+  check("старый confirmToken от клиента на сервер не уходит", !p2.result.isError && invokes.at(-1).args.confirmToken === undefined);
+  const s2 = await call("site_publish", { siteId: "s1" });
+  check("site_publish выполняется сразу, прежний формат ответа", /"publishedRevision": 3/.test(text(s2)) && /https:\/\/x/.test(text(s2)));
+  const s1 = await call("site_rollback", { siteId: "s1", revision: 1 });
+  check("legacy-сервер: 409-текст всё ещё показывается агенту", /confirmToken="tok-ok"/.test(text(s1)) && !s1.result.isError);
 
   const b1 = await call("broadcast_send", { botIds: [B], name: "N", messages: ["Привет"] });
   check("broadcast_send -> invoke broadcast_send_now", invokes.at(-1)?.name === "broadcast_send_now" && invokes.at(-1).args.name === "N" && !/confirmToken|Нужно подтверждение/.test(text(b1)) && /"totalAudience": 1/.test(text(b1)));
 
   const d1 = await call("bot_delete", { botId: B });
-  check("bot_delete -> invoke bot_delete, без прямого DELETE", invokes.at(-1)?.name === "bot_delete" && /confirmToken/.test(text(d1)) && !direct.some((d) => d.startsWith("DELETE")));
+  check("bot_delete -> invoke bot_delete, без прямого DELETE", invokes.at(-1)?.name === "bot_delete" && !/confirmToken/.test(text(d1)) && !direct.some((d) => d.startsWith("DELETE")));
   const gd = await call("delete_graph", { graphId: G });
-  check("delete_graph -> invoke graph_delete, 409-текст", invokes.at(-1)?.name === "graph_delete" && /confirmToken="tok-ok"/.test(text(gd)));
-  const gd2 = await call("delete_graph", { graphId: G, confirmToken: "tok-ok" });
-  check("delete_graph с токеном выполняется", !gd2.result.isError && /удалён/.test(text(gd2)));
+  check("delete_graph -> invoke graph_delete и выполняется", invokes.at(-1)?.name === "graph_delete" && !gd.result.isError && /удалён/.test(text(gd)));
   const af = { tagsAll: ["vip"], tagsAny: [], tagsNone: [] };
   const bf = await call("broadcast_send", { botIds: [B], name: "F", messages: ["Привет"], audienceFilter: af });
   const last = invokes.at(-1);

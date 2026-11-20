@@ -58,7 +58,7 @@ export function mergeTools(staticTools, catalogTools) {
     }
     known.add(c.name);
     const t = { name: c.name, description: c.description, inputSchema: c.inputSchema };
-    if (c.requiresConfirmation === true) t.annotations = { destructiveHint: true };
+    if (c.requiresConfirmation === true || c.irreversible === true) t.annotations = { destructiveHint: true };
     out.push(t);
   }
   return out;

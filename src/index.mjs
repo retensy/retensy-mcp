@@ -1407,8 +1407,8 @@ const TOOLS = [
   { name: "event_update", description: "Изменить событие (PUT /api/bots/tickets/events/{eventId}), переданные поля заменяют текущие. status:\"cancelled\" — отмена события.", inputSchema: { type: "object", properties: { eventId: { type: "string" }, title: { type: "string" }, description: { type: "string" }, startsAt: { type: "string", description: "ISO-8601 UTC" }, endsAt: { type: "string" }, timezone: { type: "string", description: "IANA, напр. Europe/Moscow" }, venueType: { type: "string", enum: ["offline", "online"] }, venue: { type: "string", description: "Адрес" }, onlineUrl: { type: "string" }, coverUrl: { type: "string" }, capacity: { type: "number", description: "Общая вместимость" }, status: { type: "string", enum: ["draft", "published", "cancelled"] } }, required: ["eventId"] } },
   { name: "ticket_type_upsert", description: "Создать/изменить тип билета (POST /api/bots/tickets/events/{eventId}/types): без id — новый, с id — правка. price 0 = бесплатный; limit — число билетов типа.", inputSchema: { type: "object", properties: { eventId: { type: "string" }, id: { type: "string" }, name: { type: "string" }, price: { type: "number" }, limit: { type: "number" }, salesStart: { type: "string" }, salesEnd: { type: "string" } }, required: ["eventId", "name", "price", "limit"] } },
   { name: "tickets_list", description: "Билеты/участники события (GET /api/bots/tickets/events/{eventId}/tickets): q — поиск по имени/номеру, status, page с 0, size. Read-only.", inputSchema: { type: "object", properties: { eventId: { type: "string" }, q: { type: "string" }, status: { type: "string", enum: ["pending", "paid", "valid", "used", "cancelled", "refunded"] }, page: { type: "number" }, size: { type: "number" } }, required: ["eventId"] } },
-  { name: "ticket_checkin", description: "Отметить билет использованным вручную (POST .../tickets/{ticketId}/checkin). Необратимо, нужен confirmToken. Ответ: status VALID | ALREADY_USED | CANCELLED | NOT_PAID.", inputSchema: { type: "object", properties: { eventId: { type: "string" }, ticketId: { type: "string" } }, required: ["eventId", "ticketId"] } },
-  { name: "ticket_cancel", description: "Отменить билет и освободить место (POST .../tickets/{ticketId}/cancel). refund:true — пометить возврат (деньги в ЮKassa возвращаются вручную). Необратимо, нужен confirmToken.", inputSchema: { type: "object", properties: { eventId: { type: "string" }, ticketId: { type: "string" }, refund: { type: "boolean" } }, required: ["eventId", "ticketId"] } },
+  { name: "ticket_checkin", description: "Отметить билет использованным вручную (POST .../tickets/{ticketId}/checkin). Необратимо — спроси пользователя перед вызовом. Ответ: status VALID | ALREADY_USED | CANCELLED | NOT_PAID.", inputSchema: { type: "object", properties: { eventId: { type: "string" }, ticketId: { type: "string" } }, required: ["eventId", "ticketId"] } },
+  { name: "ticket_cancel", description: "Отменить билет и освободить место (POST .../tickets/{ticketId}/cancel). refund:true — пометить возврат (деньги в ЮKassa возвращаются вручную). Необратимо — спроси пользователя перед вызовом.", inputSchema: { type: "object", properties: { eventId: { type: "string" }, ticketId: { type: "string" }, refund: { type: "boolean" } }, required: ["eventId", "ticketId"] } },
   { name: "site_templates", description: "Библиотека шаблонов блоков сайта (GET /api/bots/pages/templates): {categories: [{id, title, description?}], templates: [{id, category, title, description?, blocks: сколько блоков вставится}]}. Вставка — site_edit add_template {container, templateId, after?} (results.id — первый блок, results.ids — все); дальше блоки правятся как обычные. category — фильтр по id категории. Ответ также содержит siteTemplates — стартовые шаблоны сайта (starter, blank, mini-landing, shop-starter, services/course/event/beauty/restaurant/portfolio/realestate/fitness-starter) с описаниями: для site_create template / site_edit init.", inputSchema: { type: "object", properties: { category: { type: "string" } } } },
   // ---- Паритет платформы, часть 2: бот, база, агент, заявки, подписчики, каналы, ссылки, аналитика ----
   { name: "bot_rename", description: "Переименовать бота (PATCH /api/bots/{botId} {name}): отображаемое имя в кабинете, до 250 символов. Пустое name сбрасывает имя на @username. Имя в самом Telegram/MAX не меняется.", inputSchema: { type: "object", properties: { botId: { type: "string" }, name: { type: "string" } }, required: ["botId", "name"] } },
@@ -3235,13 +3235,12 @@ async function callCatalog(params) {
 }
 
 /**
- * Опасное действие через единый реестр: сервер сам требует подтверждение (409 + confirmToken) и пишет вызов в журнал.
+ * Опасное действие через единый реестр: сервер пишет вызов в журнал; подтверждение (409 + confirmToken) остаётся только для старых серверов и сессии кабинета.
  * { pending } — готовый MCP-результат «спроси пользователя» (с описанием изменений и токеном), { data } — выполнено.
- * Повтор: те же аргументы + confirmToken (параметр самого инструмента).
  */
 async function invokeGuarded(name, args, a) {
   const clean = Object.fromEntries(Object.entries(args).filter(([, v]) => v !== undefined));
-  if (typeof a?.confirmToken === "string" && a.confirmToken) clean.confirmToken = a.confirmToken;
+  // confirmToken больше не нужен: подтверждение у пользователя берёт агент/клиент, сервер по токену его не требует (старый параметр игнорируется)
   try {
     return { data: await api("/api/agent-tools/invoke", { method: "POST", body: { name, args: clean } }) };
   } catch (e) {
@@ -3250,14 +3249,18 @@ async function invokeGuarded(name, args, a) {
     throw e;
   }
 }
-/** Обратимые правки: сервер обычно не требует подтверждения, токен нужен лишь при явном 409. */
-const SOFT_CONFIRM_TOOLS = new Set(["site_edit", "agent_update", "kb_add_site", "chain_enable"]);
-const GUARDED_TOOLS = new Set(["publish_graph", "site_publish", "site_rollback", "agent_publish", "booking_cancel", "ticket_checkin", "ticket_cancel", "bot_delete", "broadcast_cancel",
-  "delete_graph", "agent_update", "chain_enable", "kb_add_site", "create_bot", "bot_stop", "dialog_reply", "site_edit"]);
+/**
+ * Разрушительные/денежные/публичные инструменты: сервер по токену подтверждения не просит, поэтому спрашивает агент.
+ * Помечаем destructiveHint и в описании («необратимо — спроси пользователя перед вызовом»).
+ */
+const DESTRUCTIVE_TOOLS = new Set(["publish_graph", "site_publish", "site_rollback", "agent_publish", "booking_cancel", "ticket_checkin", "ticket_cancel", "bot_delete", "broadcast_cancel",
+  "delete_graph", "create_bot", "bot_stop", "dialog_reply", "chain_enable", "kb_add_site"]);
+const DESTRUCTIVE_RE = /(_delete|_remove|_revoke|_send|_send_now|_refund|_purchase|_publish|_rollback|_disconnect|_post)$|^(delete_|unpublish_|publish_|broadcast_(send|cancel|ab_send|ab_winner|group|follow_up|recurring|undo)|order_refund|ai_pack_purchase|channel_post|vk_post|whatsapp_template_send)/;
+const IRREVERSIBLE_NOTE = "Необратимо — спроси пользователя перед вызовом.";
 for (const t of TOOLS) {
-  if (!GUARDED_TOOLS.has(t.name)) continue;
-  const soft = SOFT_CONFIRM_TOOLS.has(t.name);
-  t.inputSchema.properties = { ...(t.inputSchema.properties || {}), confirmToken: { type: "string", description: soft ? "Только если сервер вернул запрос подтверждения (409): токен одноразовый, при новом 409 используй новый токен и покажи пользователю новое описание изменений. Обычно не нужен." : "Токен подтверждения из ответа «Нужно подтверждение пользователя»: повтори вызов с теми же аргументами после явного согласия человека. Без него сервер ничего не выполнит." } };
+  if (!DESTRUCTIVE_TOOLS.has(t.name) && !DESTRUCTIVE_RE.test(t.name)) continue;
+  t.annotations = { ...(t.annotations || {}), destructiveHint: true };
+  if (!/спроси пользователя перед вызовом/.test(t.description)) t.description = `${t.description} ${IRREVERSIBLE_NOTE}`;
 }
 
 function notifyListChanged() { send({ jsonrpc: "2.0", method: "notifications/tools/list_changed" }); }

@@ -26,7 +26,7 @@ const srv = http.createServer((req, res) => {
     const body = raw ? JSON.parse(raw) : null;
     if (req.method === "POST" && req.url === "/api/agent-tools/invoke") {
       invokes.push(body);
-      if (body.args?.confirmToken !== "tok-ok") {
+      if (false) {
         res.statusCode = 409;
         return res.end(JSON.stringify({ needsConfirmation: true, tool: body.name, message: "Опубликовать?", confirmToken: "tok-ok",
           step: { confirm: { required: true, summary: { text: "Сайт станет виден посетителям." } } } }));
