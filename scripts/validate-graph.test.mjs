@@ -163,6 +163,13 @@ const aiExtract = node("AI_CLASSIFY", { mode: "extract" });
 const aiExtractRun = run([trig, aiExtract], [edge(trig, aiExtract)]);
 check("AI_CLASSIFY: extract без field/saveTo", aiExtractRun.out.includes("AI_CLASSIFY_NO_FIELD") && aiExtractRun.out.includes("AI_CLASSIFY_NO_SAVE_TO"));
 check("AI_CLASSIFY: неизвестный mode — AI_CLASSIFY_BAD_MODE", run([trig, node("AI_CLASSIFY", { mode: "x" })], [edge(trig, node("END", {}))]).out.includes("AI_CLASSIFY_BAD_MODE"));
+// AI_CLASSIFY route: метки #да #нет в logic
+const routeOk = node("AI_CLASSIFY", { mode: "route", logic: "#да если клиент согласен, #нет если отказался" });
+check("AI_CLASSIFY route: корректная логика — без AI_ROUTE_*", !run([trig, routeOk], [edge(trig, routeOk)]).out.includes("AI_ROUTE_"));
+check("AI_CLASSIFY route: без меток — AI_ROUTE_NO_LABELS", run([trig, node("AI_CLASSIFY", { mode: "route", logic: "просто текст" })], [edge(trig, node("END", {}))]).out.includes("AI_ROUTE_NO_LABELS"));
+check("AI_CLASSIFY route: повтор метки — AI_ROUTE_DUPLICATE_LABELS", run([trig, node("AI_CLASSIFY", { mode: "route", logic: "#да или #да" })], [edge(trig, node("END", {}))]).out.includes("AI_ROUTE_DUPLICATE_LABELS"));
+const bizAct = node("ACTIONS", { actions: [{ kind: "biz_read" }, { kind: "biz_stars", op: "balance", saveTo: "stars" }] });
+check("ACTIONS: biz_* известны валидатору", !run([trig, bizAct], [edge(trig, bizAct)]).out.includes("ACTION_UNKNOWN_KIND"));
 // CONDITION TAG OLDER_THAN: нужен tagDays
 const tagAge = node("CONDITION", { match: "ALL", conditions: [{ kind: "TAG", op: "OLDER_THAN", value: "lead" }] });
 check("CONDITION TAG OLDER_THAN без tagDays — CONDITION_BAD_TAG_DAYS", run([trig, tagAge], [edge(trig, tagAge)]).out.includes("CONDITION_BAD_TAG_DAYS"));

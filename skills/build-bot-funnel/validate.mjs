@@ -68,6 +68,7 @@ const COND_OPS = {
 // ACTIONS: допустимые kind (зеркало GraphValidator.KNOWN_ACTION_KINDS)
 const ACTION_KINDS = new Set([
   "add_tag", "remove_tag", "set_field", "stop_bot", "delete_step_message", "react", "chat_action", "send_dice",
+  "biz_read", "biz_delete", "biz_profile", "send_checklist", "biz_stars", "biz_gifts", "biz_story",
   "subscribe", "unsubscribe", "autoflow_add", "autoflow_remove",
   "subscriber_webhook", "external_request", "notify",
   "subscriber_email", "agent_chat", "cancel_payment_subscription", "issue_invoice", "issue_stars_invoice",
@@ -218,6 +219,8 @@ for (const n of nodes) {
       break;
     case "TRIGGER_COMMAND":
       if (blank(c.command)) errors.push(`${who}: нужен command.`);
+      if (c.scope != null && !["any", "bot", "business"].includes(c.scope)) errors.push(`${who}: scope ∈ {any,bot,business}.`);
+      if (c.accounts != null && !Array.isArray(c.accounts)) errors.push(`${who}: accounts — массив id аккаунтов из tg_business_status.`);
       break;
     case "TRIGGER_CALLBACK":
       if (blank(c.value)) errors.push(`${who}: нужен value.`);
@@ -233,7 +236,8 @@ for (const n of nodes) {
         "edited_channel_post", "chat_member", "chat_join_request", "my_chat_member",
         "message_reaction", "message_reaction_count", "chat_boost", "removed_chat_boost",
         "poll", "poll_answer", "inline_query", "chosen_inline_result", "shipping_query",
-        "pre_checkout_query", "business_message", "edited_business_message", "deleted_business_messages"]);
+        "pre_checkout_query", "business_message", "edited_business_message", "deleted_business_messages",
+        "business_owner_message", "checklist_tasks_done", "checklist_tasks_added"]);
       const DEAD = new Set(["business_connection", "chat_shared", "users_shared", "write_access_allowed",
         "purchased_paid_media"]);
       const ev = String(c.event || "");
@@ -341,8 +345,21 @@ for (const n of nodes) {
     case "AI_CLASSIFY": {
       // Зеркало GraphValidator.validateAiClassify(): ИИ-разбор текста (classify / yesno / extract).
       const mode = c.mode;
-      if (!["classify", "yesno", "extract"].includes(mode)) {
-        errors.push(`AI_CLASSIFY_BAD_MODE: ${who} — mode ∈ {classify,yesno,extract}.`);
+      if (!["classify", "yesno", "extract", "route"].includes(mode)) {
+        errors.push(`AI_CLASSIFY_BAD_MODE: ${who} — mode ∈ {classify,yesno,extract,route}.`);
+        break;
+      }
+      if (mode === "route") {
+        // ИИ-развилка: метки #да #нет в logic, выход cat_<метка> на каждую + other.
+        const logic = String(c.logic || "");
+        if (logic.length > 1000) errors.push(`AI_ROUTE_LONG_LOGIC: ${who} — logic длиннее 1000 знаков.`);
+        if (!blank(c.saveTo) && !VAR_RE.test(String(c.saveTo))) errors.push(`AI_CLASSIFY_BAD_SAVE_TO: ${who} — saveTo ∈ [a-z_][a-z0-9_]{0,63}.`);
+        const raw = [...logic.matchAll(/#([\p{L}\p{N}_]+)/gu)].map((m) => m[1].toLowerCase());
+        if (!raw.length) errors.push(`AI_ROUTE_NO_LABELS: ${who} — добавьте в logic хотя бы одну метку, например #да.`);
+        else {
+          if (new Set(raw).size < raw.length) errors.push(`AI_ROUTE_DUPLICATE_LABELS: ${who} — метки в logic должны быть уникальны.`);
+          if (new Set(raw).size > 10) errors.push(`AI_ROUTE_TOO_MANY_LABELS: ${who} — не больше 10 меток.`);
+        }
         break;
       }
       if (typeof c.instruction === "string" && c.instruction.length > 1000) errors.push(`AI_CLASSIFY_LONG_INSTRUCTION: ${who} — instruction длиннее 1000 знаков.`);

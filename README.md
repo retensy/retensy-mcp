@@ -425,7 +425,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `dialog_recent(botId?, limit?, cursor?)` | последние диалоги с подписчиками: последнее сообщение, время, непрочитано, username |
 | `graph_texts(graphId)` / `graph_text_set(graphId, nodeId, text?, buttons?)` | тексты и подписи кнопок готового сценария и их правка без смены связей |
 | `notify_link_status()` / `notify_link_start(platform)` | привязка Telegram/MAX владельца для уведомлений: статус и одноразовая ссылка |
-| `tg_business_status(botId)` | подключён ли бот к Telegram Business и какие аккаунты (подключение — в приложении Telegram) |
+| `tg_business_status(botId)` | подключён ли бот к Telegram Business, аккаунты, права, пауза, лимит (подключение - в приложении Telegram); настройка - `tg_business_update` (каталог) |
 | `managed_bot_config()` / `managed_bot_start(name?)` / `managed_bot_status(managedId)` | создание бота через Managed Bots без ручного токена |
 | `consents_history(botId, chatId)` / `consent_revoke(botId, chatId, documentKey?)` / `consents_export(botId, chatId?)` | согласия клиентов (152-ФЗ): журнал, отзыв, выгрузка CSV (персональные данные, право `destructive`) |
 | `linked_chats_list(botId)` | каналы и группы, где бот администратор (публикация — `channel_post`) |
