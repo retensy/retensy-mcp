@@ -790,6 +790,19 @@ function chatIdArg(v) {
   if (!/^-?\d{1,20}$/.test(s)) throw new Error(`chatId — число (из list_bot_users), получено: ${s || "пусто"}.`);
   return s;
 }
+/** Фильтры заявок сайта (site_leads, site_leads_export): delivery, q, assignee, from, to. */
+function leadFilterQs(a) {
+  const qs = [];
+  if (a.delivery) qs.push(`delivery=${enumArg(a.delivery, "delivery", ["failed", "sent"])}`);
+  for (const k of ["q", "assignee"]) if (typeof a[k] === "string" && a[k].trim()) qs.push(`${k}=${encodeURIComponent(a[k].trim().slice(0, 100))}`);
+  for (const k of ["from", "to"]) {
+    if (a[k] == null || a[k] === "") continue;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(a[k])) throw new Error(`${k}: дата yyyy-MM-dd.`);
+    qs.push(`${k}=${a[k]}`);
+  }
+  return qs;
+}
+
 function uuidArg(v, label) {
   const s = String(v ?? "").trim();
   if (!UUID_RE.test(s)) {
@@ -1295,7 +1308,11 @@ const TOOLS = [
   { name: "site_rollback", description: "Вернуть прошлую публикацию сайта (POST /api/bots/pages/{siteId}/publish/rollback): revision — номер из истории публикаций (site_get → versions[]). Черновик заменяется этой версией и сразу публикуется. Возвращает publishedRevision и url.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, revision: { type: "number" } }, required: ["siteId", "revision"] } },
   { name: "site_domains", description: "Свои домены сайта (/api/bots/pages/{siteId}/domains). action: list — домены, статусы и dnsTarget (IP для A-записи); add {host, withWww?} — привязать (withWww у корневого домена добавляет www-пару); check {domainId} — перепроверить DNS и сертификат; remove {domainId} — отвязать. Число доменов ограничено тарифом (HTTP 402 с upgradeUrl). Каждое действие возвращает актуальный список.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, action: { type: "string", enum: ["list", "add", "check", "remove"] }, host: { type: "string" }, withWww: { type: "boolean" }, domainId: { type: "string" } }, required: ["siteId", "action"] } },
   { name: "site_lead_settings", description: "Куда доставлять заявки из форм сайта (/api/bots/pages/{siteId}/lead-settings). Без settings — прочитать: {settings, scenarios (вебхук-сценарии), amoConnections, coreConnections: [{id, name, provider}] — подключения для доставки «Интеграция», без кредов}. С settings — сохранить ЦЕЛИКОМ (сначала прочитай и поменяй нужное): {notifyBot: в бот уведомлений из профиля, notifyEmail: письмо на почту аккаунта, webhookUrl?: POST JSON на ваш адрес, scenarioId?: вебхук-сценарий, который запускает заявка, amoConnectionId?: сделка в amoCRM, coreDelivery?: {connectionId: id из coreConnections, kind: действие сервиса из integration_catalog (actions[].kind, например amocrm_send), params?: {поле действия: шаблон}} | null}. Пустые params заполнятся из заявки (имя, телефон, почта, текст); в шаблонах — {{var.name}}, {{var.phone}}, {{var.email}}, {{var.<имя поля>}}, {{var.lead_text}} (текст заявки). Чужое подключение или неизвестный kind — 400. Запуск сценариев по заявке — триггер TRIGGER_SITE_FORM (скилл build-bot-funnel).", inputSchema: { type: "object", properties: { siteId: { type: "string" }, settings: { type: "object", properties: { notifyBot: { type: "boolean" }, notifyEmail: { type: "boolean" }, webhookUrl: { type: "string" }, scenarioId: { type: "string" }, amoConnectionId: { type: "string" }, coreDelivery: { type: ["object", "null"], properties: { connectionId: { type: "string" }, kind: { type: "string" }, params: { type: "object", additionalProperties: { type: "string" } } } } } } }, required: ["siteId"] } },
-  { name: "site_leads", description: "Заявки из форм сайта (GET /api/bots/pages/{siteId}/leads): поля, UTM, статус доставки и обработки. page (с 0), size (до 100), status — фильтр NEW|IN_PROGRESS|DONE|REJECTED. Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, page: { type: "number" }, size: { type: "number" }, status: { type: "string", enum: ["NEW", "IN_PROGRESS", "DONE", "REJECTED"] } }, required: ["siteId"] } },
+  { name: "site_leads", description: "Заявки из форм сайта и магазина (GET /api/bots/pages/{siteId}/leads): поля, UTM, статус обработки, ответственный, комментарии и доставка по каналам — deliveries[].state: sent | pending | retry (ждёт автоповтора, nextAttemptAt) | failed, detail — понятная причина ошибки. В ответе failed — сколько заявок не доставлено. Фильтры: status NEW|IN_PROGRESS|DONE|REJECTED, delivery=failed (не доставленные), q (поиск по полям и комментариям), assignee (userId или none), from/to (yyyy-MM-dd). page (с 0), size (до 100). Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, page: { type: "number" }, size: { type: "number" }, status: { type: "string", enum: ["NEW", "IN_PROGRESS", "DONE", "REJECTED"] }, delivery: { type: "string", enum: ["failed", "sent"] }, q: { type: "string" }, assignee: { type: "string" }, from: { type: "string", description: "yyyy-MM-dd" }, to: { type: "string", description: "yyyy-MM-dd" } }, required: ["siteId"] } },
+  { name: "site_lead_retry", description: "Отправить одну заявку сайта повторно (POST /api/bots/pages/{siteId}/leads/{leadId}/retry) во все каналы, куда она не дошла (state failed/retry). Доставленные каналы не трогаются; сделка amoCRM ищется по метке заявки и не дублируется, вебхук получает тот же Idempotency-Key. Сначала устрани причину из detail. Ответ — заявка с новыми статусами доставки. Только владелец сайта.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, leadId: { type: "string" } }, required: ["siteId", "leadId"] } },
+  { name: "site_leads_retry", description: "Массово отправить заявки повторно (POST /api/bots/pages/{siteId}/leads/retry): ids — до 100 id из site_leads, либо allFailed=true — все не доставленные заявки сайта (до 100 новых). Идёт в фоне; ответ {retried, skipped}. Статусы смотри через site_leads delivery=failed через минуту.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, ids: { type: "array", items: { type: "string" } }, allFailed: { type: "boolean" } }, required: ["siteId"] } },
+  { name: "site_lead_comment", description: "Комментарий команды к заявке сайта (POST /api/bots/pages/{siteId}/leads/{leadId}/comments), до 2000 знаков; клиенту не уходит. commentId + remove=true — удалить комментарий (свой; владелец сайта — любой).", inputSchema: { type: "object", properties: { siteId: { type: "string" }, leadId: { type: "string" }, text: { type: "string" }, commentId: { type: "string" }, remove: { type: "boolean" } }, required: ["siteId", "leadId"] } },
+  { name: "site_lead_assign", description: "Ответственный за заявку сайта (PUT /api/bots/pages/{siteId}/leads/{leadId}/assignee): userId из списка участников (без userId и leadId=list — вернуть список кандидатов: GET /leads/assignees), \"me\" — себя, пустая строка — снять.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, leadId: { type: "string", description: "id заявки или list — показать, кого можно назначить" }, userId: { type: "string" } }, required: ["siteId", "leadId"] } },
   { name: "article_list", description: "Список СВОИХ статей блога retensy (GET /api/articles/my): id, slug, title, viewCount, даты. id нужен для article_update, slug — публичный адрес /articles/{slug}. Read-only.", inputSchema: { type: "object", properties: {} } },
   { name: "article_get", description: "Получить статью блога по slug (GET /api/articles/by-slug/{slug}) — публичное чтение, в т.ч. чужие. Возвращает title, content (Markdown), excerpt, coverImage, viewCount.", inputSchema: { type: "object", properties: { slug: { type: "string", description: "slug статьи (часть адреса /articles/{slug})" } }, required: ["slug"] } },
   { name: "article_publish", description: "Опубликовать НОВУЮ статью блога retensy (POST /api/articles). content — Markdown (как README на GitHub: заголовки, списки, таблицы, код, картинки по URL). title необязателен: если не передать, заголовком станет первая строка вида «# Заголовок», и она убирается из текста. Обложку можно задать явно через cover (URL картинки) — иначе берётся первая картинка из текста; excerpt (SEO-описание) тоже можно задать явно, иначе генерируется из текста. Возвращает статью с id и slug + публичный URL.", inputSchema: { type: "object", properties: { title: { type: "string", description: "Заголовок (необязателен, если content начинается с «# ...»)" }, content: { type: "string", description: "Тело статьи в Markdown" }, cover: { type: "string", description: "URL обложки (coverImage/OG). Если не задан — берётся первая картинка из текста." }, excerpt: { type: "string", description: "Краткое SEO-описание (≤160 симв). Если не задан — генерируется из текста." } }, required: ["content"] } },
@@ -1429,7 +1446,7 @@ const TOOLS = [
   { name: "agent_delete", description: "УДАЛИТЬ ИИ-агента (DELETE /api/bots/agents/{agentId}). Пока агент или его база подключены к сценариям — ошибка AGENT_IN_USE со списком сценариев: сначала отключи его там. Необратимо: только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { agentId: { type: "string" }, confirm: { type: "boolean" } }, required: ["agentId", "confirm"] } },
   { name: "site_leads_mark_read", description: "Отметить все заявки сайта прочитанными (POST /api/bots/pages/{siteId}/leads/read): обнуляет счётчик unread из site_leads. Статусы обработки не меняются (это site_lead_status).", inputSchema: { type: "object", properties: { siteId: { type: "string" } }, required: ["siteId"] } },
   { name: "site_lead_delete", description: "УДАЛИТЬ заявку сайта (DELETE /api/bots/pages/{siteId}/leads/{leadId}); leadId — из site_leads. Необратимо: только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, leadId: { type: "string" }, confirm: { type: "boolean" } }, required: ["siteId", "leadId", "confirm"] } },
-  { name: "site_leads_export", description: "Все заявки сайта в CSV (GET /api/bots/pages/{siteId}/leads.csv). savePath — сохранить в локальный файл и вернуть путь (для больших выгрузок); без него CSV возвращается текстом. Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, savePath: { type: "string" } }, required: ["siteId"] } },
+  { name: "site_leads_export", description: "Заявки сайта в CSV (GET /api/bots/pages/{siteId}/leads.csv): дата, форма, статус, ответственный, доставка, поля, UTM, комментарии. Те же фильтры, что у site_leads (status, delivery, q, assignee, from, to); без них — все. savePath — сохранить в локальный файл и вернуть путь (для больших выгрузок); без него CSV возвращается текстом. Read-only.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, status: { type: "string", enum: ["NEW", "IN_PROGRESS", "DONE", "REJECTED"] }, delivery: { type: "string", enum: ["failed", "sent"] }, q: { type: "string" }, assignee: { type: "string" }, from: { type: "string" }, to: { type: "string" }, savePath: { type: "string" } }, required: ["siteId"] } },
   { name: "bot_users_export", description: "Выгрузка всех подписчиков бота (GET /api/bots/{botId}/users/export?format=csv|json): chatId, имя, метки, переменные. savePath — сохранить в локальный файл и вернуть путь; без него данные возвращаются текстом. Read-only.", inputSchema: { type: "object", properties: { botId: { type: "string" }, format: { type: "string", enum: ["csv", "json"] }, savePath: { type: "string" } }, required: ["botId"] } },
   { name: "bot_user_reset", description: "Сбросить сессию подписчика (DELETE /api/bots/{botId}/sessions/{chatId}): стираются его позиция в сценарии, метки и переменные, и он пропадает из list_bot_users; при следующем сообщении начнёт как новый. Для повторного прохождения воронки при тесте. Необратимо: только по явной просьбе, с confirm:true.", inputSchema: { type: "object", properties: { botId: { type: "string" }, chatId: { type: "string" }, confirm: { type: "boolean" } }, required: ["botId", "chatId", "confirm"] } },
   // ---- Аудитория (кросс-бот поиск/фильтр подписчиков, теги/переменные массово, экспорт) ----
@@ -1854,7 +1871,32 @@ async function handleCall(params) {
       if (a.page != null) qs.push(`page=${encodeURIComponent(a.page)}`);
       if (a.size != null) qs.push(`size=${encodeURIComponent(a.size)}`);
       if (a.status) qs.push(`status=${enumArg(a.status, "status", LEAD_STATUSES)}`);
-      return okResult(await api(`/api/bots/pages/${a.siteId}/leads${qs.length ? `?${qs.join("&")}` : ""}`));
+      qs.push(...leadFilterQs(a));
+      return okResult(await api(`/api/bots/pages/${uuidArg(a.siteId, "siteId")}/leads${qs.length ? `?${qs.join("&")}` : ""}`));
+    }
+    case "site_lead_retry":
+      return okResult(await api(`/api/bots/pages/${uuidArg(a.siteId, "siteId")}/leads/${uuidArg(a.leadId, "leadId")}/retry`, { method: "POST" }));
+    case "site_leads_retry": {
+      const body = {};
+      if (a.allFailed === true) body.allFailed = true;
+      else {
+        if (!Array.isArray(a.ids) || a.ids.length === 0) throw new Error("Передай ids (до 100 id из site_leads) или allFailed=true.");
+        if (a.ids.length > 100) throw new Error("За раз не больше 100 заявок.");
+        body.ids = a.ids.map((x) => uuidArg(x, "ids[]"));
+      }
+      return okResult(await api(`/api/bots/pages/${uuidArg(a.siteId, "siteId")}/leads/retry`, { method: "POST", body }));
+    }
+    case "site_lead_comment": {
+      const base = `/api/bots/pages/${uuidArg(a.siteId, "siteId")}/leads/${uuidArg(a.leadId, "leadId")}/comments`;
+      if (a.remove) return okResult(await api(`${base}/${uuidArg(a.commentId, "commentId")}`, { method: "DELETE" }));
+      if (typeof a.text !== "string" || !a.text.trim() || a.text.length > 2000) throw new Error("text: непустая строка до 2000 знаков.");
+      return okResult(await api(base, { method: "POST", body: { text: a.text } }));
+    }
+    case "site_lead_assign": {
+      const site = uuidArg(a.siteId, "siteId");
+      if (a.leadId === "list") return okResult(await api(`/api/bots/pages/${site}/leads/assignees`));
+      return okResult(await api(`/api/bots/pages/${site}/leads/${uuidArg(a.leadId, "leadId")}/assignee`,
+        { method: "PUT", body: { userId: typeof a.userId === "string" ? a.userId : "" } }));
     }
     case "site_rollback": {
       if (typeof a.revision !== "number") throw new Error("Передай revision — номер публикации (site_get → versions[]).");
@@ -2334,7 +2376,11 @@ async function handleCall(params) {
       await api(`/api/bots/pages/${siteId}/leads/${leadId}`, { method: "DELETE" });
       return okResult(`🗑️ Заявка ${leadId} удалена.`);
     }
-    case "site_leads_export": return exportResult(await api(`/api/bots/pages/${uuidArg(a.siteId, "siteId")}/leads.csv`), a.savePath);
+    case "site_leads_export": {
+      const qs = leadFilterQs(a);
+      if (a.status) qs.push(`status=${enumArg(a.status, "status", LEAD_STATUSES)}`);
+      return exportResult(await api(`/api/bots/pages/${uuidArg(a.siteId, "siteId")}/leads.csv${qs.length ? `?${qs.join("&")}` : ""}`), a.savePath);
+    }
     case "bot_users_export": {
       const format = String(a.format || "csv").trim().toLowerCase();
       if (format !== "csv" && format !== "json") throw new Error(`format: csv | json, получено: ${format}.`);
@@ -3254,7 +3300,9 @@ async function invokeGuarded(name, args, a) {
  * Помечаем destructiveHint и в описании («необратимо — спроси пользователя перед вызовом»).
  */
 const DESTRUCTIVE_TOOLS = new Set(["publish_graph", "site_publish", "site_rollback", "agent_publish", "booking_cancel", "ticket_checkin", "ticket_cancel", "bot_delete", "broadcast_cancel",
-  "delete_graph", "create_bot", "bot_stop", "dialog_reply", "chain_enable", "kb_add_site"]);
+  "delete_graph", "create_bot", "bot_stop", "dialog_reply", "chain_enable", "kb_add_site",
+  // повтор доставки заявок уходит во внешние CRM/вебхуки владельца
+  "site_lead_retry", "site_leads_retry"]);
 const DESTRUCTIVE_RE = /(_delete|_remove|_revoke|_send|_send_now|_refund|_purchase|_publish|_rollback|_disconnect|_post)$|^(delete_|unpublish_|publish_|broadcast_(send|cancel|ab_send|ab_winner|group|follow_up|recurring|undo)|order_refund|ai_pack_purchase|channel_post|vk_post|whatsapp_template_send)/;
 const IRREVERSIBLE_NOTE = "Необратимо — спроси пользователя перед вызовом.";
 for (const t of TOOLS) {
