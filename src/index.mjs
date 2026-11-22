@@ -82,7 +82,30 @@ function accountToken(name) {
 }
 const ACCOUNT_SCOPE_FREE = new Set(["setup", "set_token", "account_add", "account_list", "account_remove"]);
 /** Дописать необязательный выбор аккаунта в схему инструмента. */
+/** Инструменты магазина: принимают shopId (из shop_list) или siteId; без них бэк берёт текущий или единственный магазин. */
+const SHOP_TOOL = /^(catalog|shop|order|commerce|promo|delivery)_/;
+const SHOP_ID = /^[0-9a-fA-F-]{24,36}$/;
+function withShopArg(tool) {
+  if (!SHOP_TOOL.test(tool.name) || tool.name === "shop_list") return tool;
+  const schema = tool.inputSchema || { type: "object" };
+  if (schema.properties?.shopId) return tool;
+  return { ...tool, inputSchema: { ...schema, properties: { ...schema.properties,
+    shopId: { type: "string", description: "Магазин из shop_list (или id сайта магазина). Пусто — текущий или единственный." } } } };
+}
+/** Достаёт shopId/siteId из аргументов инструмента магазина; мусор отвергается до запроса. */
+export function takeShopArg(name, args) {
+  if (!SHOP_TOOL.test(name || "") || name === "shop_list") return { shop: null, args };
+  const { shopId, ...rest } = args || {};
+  let shop = shopId ?? null;
+  if (shop == null && rest.siteId != null && !name.startsWith("site_")) shop = rest.siteId;
+  if (shop == null || shop === "") return { shop: null, args: rest };
+  shop = String(shop).trim();
+  if (!SHOP_ID.test(shop)) throw new Error("Некорректный shopId: возьми id из shop_list");
+  return { shop, args: rest };
+}
+
 function withAccountArg(tool) {
+  tool = withShopArg(tool);
   if (ACCOUNT_SCOPE_FREE.has(tool.name)) return tool;
   const schema = tool.inputSchema || { type: "object" };
   return {
@@ -303,6 +326,8 @@ function authHeaders() {
   const cookie = getCookie();
   if (token) h.Authorization = `Bearer ${token}`;
   else if (cookie) h.Cookie = cookie;
+  const shop = callAuth.getStore()?.shop;
+  if (shop) h["X-Shop-Id"] = shop;
   return h;
 }
 
@@ -3338,10 +3363,14 @@ rl.on("line", async (line) => {
     } else if (method === "tools/call") {
       let result;
       try {
-        const { [ACCOUNT_ARG]: account, ...callArgs } = params?.arguments || {};
-        const callParams = { ...params, arguments: callArgs };
-        const run = () => (isAuthed() && catalog.has(callParams.name) && !LOCAL_TOOL_NAMES.has(callParams.name) ? callCatalog(callParams) : handleCall(callParams));
-        result = account ? await callAuth.run({ token: accountToken(account) }, run) : await run();
+        const { [ACCOUNT_ARG]: account, ...rawArgs } = params?.arguments || {};
+        const { shop, args: callArgs } = takeShopArg(params?.name, rawArgs);
+        const remote = isAuthed() && catalog.has(params?.name) && !LOCAL_TOOL_NAMES.has(params?.name);
+        // действие бэкенда получает shopId аргументом (его исполнитель шлёт X-Shop-Id), локальный инструмент - заголовком
+        const callParams = { ...params, arguments: remote && shop ? { ...callArgs, shopId: shop } : callArgs };
+        const run = () => (remote ? callCatalog(callParams) : handleCall(callParams));
+        const store = { token: account ? accountToken(account) : undefined, shop: remote ? undefined : shop || undefined };
+        result = store.token || store.shop ? await callAuth.run(store, run) : await run();
         if (params?.name === "set_token") refreshCatalog(); // новый токен — другой набор прав и действий
       } catch (e) {
         result = errResult(e);

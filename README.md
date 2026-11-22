@@ -365,8 +365,11 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 
 ### Магазин (каталог)
 
+Несколько магазинов: свой и те, где ты редактор сайта-магазина. Любой инструмент магазина (`catalog_*`, `shop_*`, `order_*`, `commerce_*`, `promo_*`, `delivery_*`) принимает `shopId` из `shop_list` или `siteId` сайта магазина; без них берётся текущий или единственный магазин. Редактору недоступны ключи эквайринга, реквизиты, 1С и возвраты денег.
+
 | Tool | Назначение |
 |---|---|
+| `shop_list` | мои магазины: `shopId`, название, роль (владелец/редактор), `siteId`, заказы сегодня, новые заявки, статус |
 | `catalog_item_upsert(id?, sku?, name?, price?, images?, categoryIds?, categoryNames?, slug?, seoTitle?, seoDescription?, confirm:true)` | создать/обновить товар по `id` или `sku`; `slug` — адрес страницы, `seoTitle`/`seoDescription` — свои заголовок и описание для поиска; `images` — до 10 https-ссылок на фото; `categoryNames` — находит категории по имени или создаёт их |
 | `catalog_sources()` · `catalog_source_preview(type, config, mapping?)` · `catalog_source_connect(type, config, mapping?, mode?, syncIntervalMinutes?, confirm:true)` · `catalog_source_update(id, mode?, syncIntervalMinutes?, mapping?, exportOrders?, enabled?, confirm:true)` · `catalog_source_sync(id, confirm:true)` · `catalog_source_retry_orders(id, confirm:true)` · `order_ms_export(orderId, confirm:true)` | единый механизм источников каталога: МойСклад, RetailCRM, Google Таблица (по ссылке или через подключённый Google-аккаунт), YML-фид, файл CSV/XLSX/YML по ссылке; превью первых товаров и сопоставление колонок до импорта, расписание, режим `prices` (только цены и остатки), выгрузка заказов в МойСклад (ошибка выгрузки видна в `catalog_sources` как `orderErrors`/`lastOrderError` и в `order_list` как `msError`; повтор без дублей: `catalog_source_retry_orders` для всех заказов с ошибкой, `order_ms_export` для одного). Фото МойСклад копируются в хранилище картинок (`imagesPending` - сколько ещё догружается). Токены МойСклад/RetailCRM и загрузка файла — только в кабинете (Магазин → Источники). `catalog_import_csv` принимает `mapping` для нестандартных колонок |
 | `catalog_category_list()` | категории магазина: `id`, `name`, `parentId` |
