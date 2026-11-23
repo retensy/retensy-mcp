@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 const C = "/api/bots/commerce";
+const MP = "/api/bots/marketplace";
 /** Файлы (PDF счёта, вложение заявки, документ заказа) отдаём base64 не больше этого размера. */
 export const MAX_FILE_BYTES = 2 * 1024 * 1024;
 /** Документ заказа загружаем не больше 5 МБ (лимит сервера). */
@@ -85,6 +86,18 @@ export const SHOP_B2B_TOOLS = [
       maps: { type: "array", maxItems: 100, items: { type: "object", properties: { categoryId: { type: "string" }, category: { type: "string" }, goodsType: { type: "string" }, adType: { type: "string" }, condition: { type: "string" }, extra: { type: "object", additionalProperties: { type: "string" } } }, required: ["category"] } },
       confirm: CONFIRM }, ["confirm"]),
   tool("shop_avito_status", "Статус последней автозагрузки Авито по ключам владельца (GET /avito/status, только чтение): autoloadEnabled, feeds, report {status success|success_warning|error|processing, finishedAt, total, events}. Без ключей - 400. Первую выгрузку клиент запускает в кабинете Авито сам и проверяет отчёт.", {}),
+  tool("marketplace_connections", "Подключения Wildberries магазина и настройки автоответа (GET /api/bots/marketplace/connections): id, autoEnabled, autoMinRating, stopWords, dailyLimit, autoToday, статус токена и срок его жизни. Подключается токеном WB в кабинете, раздел Интеграции.", {}),
+  tool("marketplace_inbox", "Отзывы и вопросы покупателей Wildberries (GET /api/bots/marketplace/items): status attention (по умолчанию) | queued | sent | skipped | all, type review | question, connectionId, rating 1-5, limit, offset. Ответ: items (id, type, rating, text, productName, draft, state), total, counts.",
+    { status: { type: "string" }, type: { type: "string", enum: ["review", "question"] }, connectionId: { type: "string" }, rating: { type: "integer", minimum: 1, maximum: 5 }, limit: { type: "integer", minimum: 1, maximum: 100 }, offset: { type: "integer", minimum: 0 } }),
+  tool("marketplace_item_draft", "Черновик ответа на отзыв или вопрос (POST /items/{id}/draft): ИИ по каталогу и базе знаний, ничего не отправляет, расходует лимит ИИ.", { id: { type: "string" } }, ["id"]),
+  tool("marketplace_item_reply", "Публичный ответ покупателю в Wildberries (POST /items/{id}/reply): text или сохранённый черновик. Нельзя удалить, править можно один раз; без ссылок, телефонов и контактов, 2-5000 символов. Только по явной просьбе, с confirm:true.",
+    { id: { type: "string" }, text: { type: "string" }, confirm: CONFIRM }, ["id", "confirm"]),
+  tool("marketplace_item_skip", "Убрать запись из очереди без ответа (POST /items/{id}/skip).", { id: { type: "string" } }, ["id"]),
+  tool("marketplace_inbox_approve", "Одобрить черновики пачкой (POST /items/approve): до 100 id, уходят в Wildberries по одному; без годного черновика запись пропускается с причиной. С confirm:true.",
+    { ids: { type: "array", items: { type: "string" }, maxItems: 100 }, confirm: CONFIRM }, ["ids", "confirm"]),
+  tool("marketplace_settings_update", "Настройки автоответа подключения (PUT /connections/{id}/settings, только владелец): autoEnabled, autoMinRating 4|5, stopWords, dailyLimit 1-300, draftOnNew, kbId. Автоответ выключен по умолчанию, включать только по прямой просьбе. С confirm:true.",
+    { id: { type: "string" }, autoEnabled: { type: "boolean" }, autoMinRating: { type: "integer", enum: [4, 5] }, stopWords: { type: "array", items: { type: "string" } }, dailyLimit: { type: "integer", minimum: 1, maximum: 300 }, draftOnNew: { type: "boolean" }, kbId: { type: "string" }, confirm: CONFIRM }, ["id", "confirm"]),
+  tool("marketplace_kill", "Аварийно выключить автоответ подключения (POST /connections/{id}/kill): очередь автоответов возвращается в черновики.", { id: { type: "string" } }, ["id"]),
   tool("shop_shipment_create", "Создать отправление по заказу в службе, которую выбрал покупатель (POST /orders/{orderId}/shipment). Повторно не создаёт. В тестовом режиме службы - тестовая среда. Реальная отправка: только по явной просьбе, с confirm:true.",
     { orderId: ID, confirm: CONFIRM }, ["orderId", "confirm"]),
   tool("shop_shipment_refresh", "Обновить трек-номер и статус отправления из службы (POST /orders/{orderId}/shipment/refresh). Покупатель получит уведомление о новом треке или статусе; «доставлено» переводит заказ в delivered.",
@@ -279,6 +292,26 @@ export function createShopB2b({ api, apiFile, apiUpload }) {
         needConfirm(a, "Изменение выгрузки меняет, какие товары и в каких категориях попадут на Авито");
         return api(`${C}/avito`, { method: "PUT", body: pick(a, ["address", "phone", "managerName", "maps"]) });
       case "shop_avito_status": return api(`${C}/avito/status`);
+      case "marketplace_connections": return api(`${MP}/connections`);
+      case "marketplace_inbox": {
+        const q = new URLSearchParams();
+        for (const k of ["status", "type", "connectionId", "rating", "limit", "offset"]) if (a[k] !== undefined && a[k] !== "") q.set(k, String(a[k]));
+        const qs = q.toString();
+        return api(`${MP}/items${qs ? `?${qs}` : ""}`);
+      }
+      case "marketplace_item_draft": return api(`${MP}/items/${encodeURIComponent(a.id)}/draft`, { method: "POST" });
+      case "marketplace_item_reply":
+        needConfirm(a, "Ответ в Wildberries публичный и необратимый");
+        return api(`${MP}/items/${encodeURIComponent(a.id)}/reply`, { method: "POST", body: a.text ? { text: a.text } : {} });
+      case "marketplace_item_skip": return api(`${MP}/items/${encodeURIComponent(a.id)}/skip`, { method: "POST" });
+      case "marketplace_inbox_approve":
+        needConfirm(a, "Одобрение отправляет публичные ответы покупателям");
+        if (!Array.isArray(a.ids) || !a.ids.length || a.ids.length > 100) throw new Error("ids: от 1 до 100 id записей");
+        return api(`${MP}/items/approve`, { method: "POST", body: { ids: a.ids } });
+      case "marketplace_settings_update":
+        needConfirm(a, "Автоответ публикует ответы покупателям без проверки человеком");
+        return api(`${MP}/connections/${encodeURIComponent(a.id)}/settings`, { method: "PUT", body: pick(a, ["autoEnabled", "autoMinRating", "stopWords", "dailyLimit", "draftOnNew", "kbId"]) });
+      case "marketplace_kill": return api(`${MP}/connections/${encodeURIComponent(a.id)}/kill`, { method: "POST" });
       case "shop_shipment_create":
         needConfirm(a, "Создание отправления в службе доставки");
         return api(`${order()}/shipment`, { method: "POST" });
