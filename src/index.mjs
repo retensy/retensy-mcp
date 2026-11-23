@@ -83,7 +83,7 @@ function accountToken(name) {
 const ACCOUNT_SCOPE_FREE = new Set(["setup", "set_token", "account_add", "account_list", "account_remove"]);
 /** Дописать необязательный выбор аккаунта в схему инструмента. */
 /** Инструменты магазина: принимают shopId (из shop_list) или siteId; без них бэк берёт текущий или единственный магазин. */
-const SHOP_TOOL = /^(catalog|shop|order|commerce|promo|delivery)_/;
+const SHOP_TOOL = /^((catalog|shop|order|commerce|promo|delivery)_|(clients_list|dashboard_metric_query|readiness_get)$)/;
 const SHOP_ID = /^[0-9a-fA-F-]{24,36}$/;
 /** Управление списком магазинов: без выбора магазина заголовком. */
 const SHOP_ADMIN = new Set(["shop_list", "shop_create", "shop_link_site", "shop_link_bot"]);
