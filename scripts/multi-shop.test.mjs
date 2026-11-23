@@ -14,7 +14,7 @@ const seen = [];
 const srv = http.createServer((req, res) => {
   req.resume();
   req.on("end", () => {
-    if (req.url.startsWith("/api/bots/commerce/quotes")) seen.push(req.headers["x-shop-id"] || "");
+    if (req.url.startsWith("/api/bots/commerce/quotes") || req.url.startsWith("/api/bots/marketplace/")) seen.push(req.headers["x-shop-id"] || "");
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ items: [], total: 0, page: 0, size: 50 }));
   });
@@ -47,6 +47,11 @@ try {
   check("без выбора заголовка нет (текущий магазин)", seen[2] === "");
   const bad = await call("shop_quotes_list", { shopId: "../x" });
   check("мусорный shopId отвергается без запроса", bad.err && seen.length === 3);
+  const mp = tools.filter((t) => t.name.startsWith("marketplace_"));
+  check("8 инструментов отзывов, у всех есть shopId", mp.length === 8 && mp.every((t) => t.inputSchema.properties.shopId));
+  await call("marketplace_connections", { shopId: "6acbeb5994c85dc62c68dc4f" });
+  await call("marketplace_item_skip", { id: "665f0c1e665f0c1e665f0c1e", shopId: "6acbeb5994c85dc62c68dc4f" });
+  check("shopId отзывов -> заголовок", seen[3] === "6acbeb5994c85dc62c68dc4f" && seen[4] === "6acbeb5994c85dc62c68dc4f");
 } finally {
   child.kill();
   srv.close();
