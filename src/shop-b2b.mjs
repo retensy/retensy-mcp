@@ -79,6 +79,12 @@ export const SHOP_B2B_TOOLS = [
         enabled: { type: "boolean" }, testMode: { type: "boolean" }, markupPct: { type: "number" }, markupFixed: { type: "number" }, roundTo: { type: "integer", enum: [0, 1, 5, 10, 50, 100] }, freeFrom: { type: "number" },
         autoCreate: { type: "string", enum: ["off", "paid", "confirmed"] }, fromCity: { type: "string" }, fromIndex: { type: "string" }, fromAddress: { type: "string" }, fromPoint: { type: "string" } }, required: ["provider", "connectionId"] } },
       parcelDefaults: { type: "object", properties: { weightKg: { type: "number" }, lengthCm: { type: "integer" }, widthCm: { type: "integer" }, heightCm: { type: "integer" } } }, confirm: CONFIRM }, ["confirm"]),
+  tool("shop_avito_get", "Выгрузка магазина на Авито (GET /avito): feedUrl - адрес фида для личного кабинета Авито (Автозагрузка → Ссылка на файл), hasKeys, address, phone, managerName, maps (соответствие категорий магазина категориям Авито), included - сколько товаров в фиде, skipped - товары вне фида с причиной (нет фото, нет остатка, категория не сопоставлена). Объявления создаёт и закрывает сам Авито по фиду.", {}),
+  tool("shop_avito_set", "Настройки выгрузки на Авито (PUT /avito): address, phone, managerName и maps - ПОЛНЫЙ список соответствий [{categoryId (id категории магазина или *), category (Category Авито), goodsType, adType, condition, extra: {Тег: значение, несколько через |}}]. Ключи Авито (client_id/secret) через MCP не задаются: их владелец вводит в кабинете, раздел Авито. Только владелец магазина, с confirm:true.",
+    { address: { type: "string" }, phone: { type: "string" }, managerName: { type: "string" },
+      maps: { type: "array", maxItems: 100, items: { type: "object", properties: { categoryId: { type: "string" }, category: { type: "string" }, goodsType: { type: "string" }, adType: { type: "string" }, condition: { type: "string" }, extra: { type: "object", additionalProperties: { type: "string" } } }, required: ["category"] } },
+      confirm: CONFIRM }, ["confirm"]),
+  tool("shop_avito_status", "Статус последней автозагрузки Авито по ключам владельца (GET /avito/status, только чтение): autoloadEnabled, feeds, report {status success|success_warning|error|processing, finishedAt, total, events}. Без ключей - 400. Первую выгрузку клиент запускает в кабинете Авито сам и проверяет отчёт.", {}),
   tool("shop_shipment_create", "Создать отправление по заказу в службе, которую выбрал покупатель (POST /orders/{orderId}/shipment). Повторно не создаёт. В тестовом режиме службы - тестовая среда. Реальная отправка: только по явной просьбе, с confirm:true.",
     { orderId: ID, confirm: CONFIRM }, ["orderId", "confirm"]),
   tool("shop_shipment_refresh", "Обновить трек-номер и статус отправления из службы (POST /orders/{orderId}/shipment/refresh). Покупатель получит уведомление о новом треке или статусе; «доставлено» переводит заказ в delivered.",
@@ -268,6 +274,11 @@ export function createShopB2b({ api, apiFile, apiUpload }) {
         needConfirm(a, "Изменение служб доставки меняет цену доставки в корзине");
         if (a.carriers === undefined && a.parcelDefaults === undefined) throw new Error("Передайте carriers и/или parcelDefaults");
         return api(`${C}/carriers`, { method: "PUT", body: { carriers: a.carriers ?? null, parcelDefaults: a.parcelDefaults ?? null } });
+      case "shop_avito_get": return api(`${C}/avito`);
+      case "shop_avito_set":
+        needConfirm(a, "Изменение выгрузки меняет, какие товары и в каких категориях попадут на Авито");
+        return api(`${C}/avito`, { method: "PUT", body: pick(a, ["address", "phone", "managerName", "maps"]) });
+      case "shop_avito_status": return api(`${C}/avito/status`);
       case "shop_shipment_create":
         needConfirm(a, "Создание отправления в службе доставки");
         return api(`${order()}/shipment`, { method: "POST" });

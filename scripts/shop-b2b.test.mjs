@@ -119,6 +119,14 @@ try {
   check("carriers_set: PUT /carriers", last().m === "PUT" && last().u.endsWith("/carriers") && last().body.carriers[0].provider === "cdek" && last().body.confirm === undefined);
   await call("shop_carriers_get", {});
   check("carriers_get: GET", last().m === "GET" && last().u.endsWith("/carriers"));
+  r = await call("shop_avito_set", { address: "Москва", maps: [{ category: "Бытовая электроника" }] });
+  check("avito_set: без confirm - ошибка", r.result.isError);
+  await call("shop_avito_set", { address: "Москва", maps: [{ categoryId: "*", category: "Бытовая электроника" }], confirm: true });
+  check("avito_set: PUT /avito без confirm в теле", last().m === "PUT" && last().u.endsWith("/avito") && last().body.maps[0].category === "Бытовая электроника" && last().body.confirm === undefined);
+  await call("shop_avito_get", {});
+  check("avito_get: GET", last().m === "GET" && last().u.endsWith("/avito"));
+  await call("shop_avito_status", {});
+  check("avito_status: GET /avito/status", last().m === "GET" && last().u.endsWith("/avito/status"));
   r = await call("shop_shipment_create", { orderId: "o1" });
   check("shipment_create: без confirm - ошибка", r.result.isError);
   await call("shop_shipment_create", { orderId: "o1", confirm: true });
