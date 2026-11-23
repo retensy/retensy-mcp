@@ -432,6 +432,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `dialog_recent(botId?, limit?, cursor?)` | последние диалоги с подписчиками: последнее сообщение, время, непрочитано, username |
 | `graph_texts(graphId)` / `graph_text_set(graphId, nodeId, text?, buttons?)` | тексты и подписи кнопок готового сценария и их правка без смены связей |
 | `notify_link_status()` / `notify_link_start(platform)` | привязка Telegram/MAX владельца для уведомлений: статус и одноразовая ссылка |
+| `push_status()` | push-уведомления кабинета на устройства владельца: доступны ли, сколько устройств подписано (включает владелец сам в Профиле установленного приложения, из ИИ или MCP подписать нельзя) |
 | `tg_business_status(botId)` | подключён ли бот к Telegram Business, аккаунты, права, пауза, лимит (подключение - в приложении Telegram); настройка - `tg_business_update` (каталог) |
 | `managed_bot_config()` / `managed_bot_start(name?)` / `managed_bot_status(managedId)` | создание бота через Managed Bots без ручного токена |
 | `consents_history(botId, chatId)` / `consent_revoke(botId, chatId, documentKey?)` / `consents_export(botId, chatId?)` | согласия клиентов (152-ФЗ): журнал, отзыв, выгрузка CSV (персональные данные, право `destructive`) |
