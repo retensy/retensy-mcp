@@ -66,10 +66,22 @@ export const SHOP_B2B_TOOLS = [
   tool("shop_delivery_settings_update", "Изменить доставку (PUT /delivery-config), патч; zones - ПОЛНЫЙ список (отсутствующая зона удаляется, до 50). cutoffTime HH:mm, timezone IANA, workDays 1..7 (пн=1), holidays yyyy-MM-dd, weekendRule nextWorkday|onRequest. Стоимость зоны: price + pricePerKg * вес, бесплатно от freeFrom. Только по явной просьбе, с confirm:true.",
     { cutoffTime: { type: "string" }, timezone: { type: "string" }, workDays: { type: "array", items: { type: "integer", minimum: 1, maximum: 7 } }, holidays: { type: "array", items: { type: "string" } },
       weekendRule: { type: "string", enum: ["nextWorkday", "onRequest"] }, zones: { type: "array", items: ZONE, maxItems: 50 }, confirm: CONFIRM }, ["confirm"]),
-  tool("shop_item_b2b_update", "B2B-поля товара (PUT /items/{itemId}/b2b), передавать только меняемое: unit - единица измерения (до 12 символов, пусто = «шт.»), priceMode fixed|request (по заявке), priceTiers [{minQty>=2, price}], groupPrices {groupCode: price} (только существующие группы), prices [{priceType, channel?, price}], weightKg (clearWeight:true сбросит), oversize (только по заявке), minQty (мин. партия) и qtyStep (кратность), 0 - снять. Ступени и групповые цены - только для товаров без вариантов. Меняет цены витрины: только по явной просьбе, с confirm:true.",
+  tool("shop_carriers_get", "Службы доставки магазина (GET /carriers): carriers по порядку в корзине (provider cdek|yandex_delivery|boxberry|russian_post|fivepost, connectionId, enabled, testMode, markupPct, markupFixed, roundTo, freeFrom, autoCreate off|paid|confirmed, fromCity, fromIndex, fromAddress, fromPoint), parcelDefaults (вес и габариты по умолчанию), connectable - подключения служб из интеграций. Ключей нет.", {}),
+  tool("shop_carriers_set", "Службы доставки (PUT /carriers): carriers - ПОЛНЫЙ список по порядку показа; connectionId - из connectable (ключи подключаются в кабинете → Интеграции, не через MCP). roundTo 0|1|5|10|50|100, наценка markupPct (%) и markupFixed (₽), freeFrom - бесплатно от суммы. testMode - тестовая среда службы. parcelDefaults {weightKg, lengthCm, widthCm, heightCm}. Меняет цену доставки: только по явной просьбе, с confirm:true.",
+    { carriers: { type: "array", maxItems: 10, items: { type: "object", properties: { provider: { type: "string", enum: ["cdek", "yandex_delivery", "boxberry", "russian_post", "fivepost"] }, connectionId: { type: "string" },
+        enabled: { type: "boolean" }, testMode: { type: "boolean" }, markupPct: { type: "number" }, markupFixed: { type: "number" }, roundTo: { type: "integer", enum: [0, 1, 5, 10, 50, 100] }, freeFrom: { type: "number" },
+        autoCreate: { type: "string", enum: ["off", "paid", "confirmed"] }, fromCity: { type: "string" }, fromIndex: { type: "string" }, fromAddress: { type: "string" }, fromPoint: { type: "string" } }, required: ["provider", "connectionId"] } },
+      parcelDefaults: { type: "object", properties: { weightKg: { type: "number" }, lengthCm: { type: "integer" }, widthCm: { type: "integer" }, heightCm: { type: "integer" } } }, confirm: CONFIRM }, ["confirm"]),
+  tool("shop_shipment_create", "Создать отправление по заказу в службе, которую выбрал покупатель (POST /orders/{orderId}/shipment). Повторно не создаёт. В тестовом режиме службы - тестовая среда. Реальная отправка: только по явной просьбе, с confirm:true.",
+    { orderId: ID, confirm: CONFIRM }, ["orderId", "confirm"]),
+  tool("shop_shipment_refresh", "Обновить трек-номер и статус отправления из службы (POST /orders/{orderId}/shipment/refresh). Покупатель получит уведомление о новом треке или статусе; «доставлено» переводит заказ в delivered.",
+    { orderId: ID }, ["orderId"]),
+  tool("shop_shipment_label", `Накладная/этикетка отправления (GET /orders/{orderId}/shipment/label): PDF base64 (до ${MB} МБ) или savePath; у Boxberry - ссылка; у СДЭК первый вызов запускает печать (pending), повторить через несколько секунд.`,
+    { orderId: ID, savePath: { type: "string" } }, ["orderId"]),
+  tool("shop_item_b2b_update", "B2B-поля товара (PUT /items/{itemId}/b2b), передавать только меняемое: unit - единица измерения (до 12 символов, пусто = «шт.»), priceMode fixed|request (по заявке), priceTiers [{minQty>=2, price}], groupPrices {groupCode: price} (только существующие группы), prices [{priceType, channel?, price}], weightKg (clearWeight:true сбросит), габариты lengthCm/widthCm/heightCm в см для служб доставки (clearDims:true сбросит), oversize (только по заявке), minQty (мин. партия) и qtyStep (кратность), 0 - снять. Ступени и групповые цены - только для товаров без вариантов. Меняет цены витрины: только по явной просьбе, с confirm:true.",
     { itemId: { type: "string" }, priceMode: { type: "string", enum: ["fixed", "request"] }, priceTiers: { type: "array", items: { type: "object", properties: { minQty: { type: "integer", minimum: 2 }, price: { type: "number" } }, required: ["minQty", "price"] } },
       groupPrices: { type: "object", additionalProperties: { type: "number" } }, prices: { type: "array", items: { type: "object", properties: { priceType: { type: "string" }, channel: { type: "string" }, price: { type: "number" } }, required: ["priceType", "price"] } },
-      weightKg: { type: "number", minimum: 0 }, clearWeight: { type: "boolean" }, oversize: { type: "boolean" }, minQty: { type: "integer", minimum: 0, description: "Минимальная партия, шт. (0 - без ограничения)" }, qtyStep: { type: "integer", minimum: 0, description: "Кратность (0 - без ограничения)" }, unit: { type: "string", maxLength: 12, description: "Единица измерения, до 12 символов (пусто - «шт.»)" }, confirm: CONFIRM }, ["itemId", "confirm"]),
+      weightKg: { type: "number", minimum: 0 }, clearWeight: { type: "boolean" }, lengthCm: { type: "integer", minimum: 1, maximum: 300 }, widthCm: { type: "integer", minimum: 1, maximum: 300 }, heightCm: { type: "integer", minimum: 1, maximum: 300 }, clearDims: { type: "boolean" }, oversize: { type: "boolean" }, minQty: { type: "integer", minimum: 0, description: "Минимальная партия, шт. (0 - без ограничения)" }, qtyStep: { type: "integer", minimum: 0, description: "Кратность (0 - без ограничения)" }, unit: { type: "string", maxLength: 12, description: "Единица измерения, до 12 символов (пусто - «шт.»)" }, confirm: CONFIRM }, ["itemId", "confirm"]),
   tool("shop_b2b_settings_get", "B2B-настройки магазина (GET /b2b-settings): типы цен, priceSelection, срок КП, автостатус, правило выходных.", {}),
   tool("shop_b2b_settings_update", "Изменить B2B-настройки (PUT /b2b-settings), патч: priceTypes - ПОЛНЫЙ список [{code,name,visibleToAll}] (retail всегда есть); priceSelection lowest|priority; quoteValidDays 0-90 (0 - без срока); autoStatusOnPaid (например processing) / clearAutoStatus:true; minOrderSum (мин. сумма заказа, 0 - убрать); weekendRule nextWorkday|onRequest. Только по явной просьбе, с confirm:true.",
     { priceTypes: { type: "array", items: PRICE_TYPE }, priceSelection: { type: "string", enum: ["lowest", "priority"] }, quoteValidDays: { type: "integer", minimum: 0, maximum: 90 },
@@ -233,9 +245,23 @@ export function createShopB2b({ api, apiFile, apiUpload }) {
       case "shop_delivery_settings_update":
         needConfirm(a, "Изменение доставки меняет стоимость и даты в оформлении");
         return api(`${C}/delivery-config`, { method: "PUT", body: pick(a, ["cutoffTime", "timezone", "workDays", "holidays", "weekendRule", "zones"]) });
+      case "shop_carriers_get": return api(`${C}/carriers`);
+      case "shop_carriers_set":
+        needConfirm(a, "Изменение служб доставки меняет цену доставки в корзине");
+        if (a.carriers === undefined && a.parcelDefaults === undefined) throw new Error("Передайте carriers и/или parcelDefaults");
+        return api(`${C}/carriers`, { method: "PUT", body: { carriers: a.carriers ?? null, parcelDefaults: a.parcelDefaults ?? null } });
+      case "shop_shipment_create":
+        needConfirm(a, "Создание отправления в службе доставки");
+        return api(`${order()}/shipment`, { method: "POST" });
+      case "shop_shipment_refresh": return api(`${order()}/shipment/refresh`, { method: "POST" });
+      case "shop_shipment_label": {
+        const f = await apiFile(`${order()}/shipment/label`);
+        if (String(f.type || "").includes("json")) return JSON.parse(Buffer.from(f.buf).toString("utf8"));
+        return fileResult(f.buf, { name: f.name || `label-${a.orderId}.pdf`, type: f.type || "application/pdf" }, a.savePath);
+      }
       case "shop_item_b2b_update":
         needConfirm(a, "Изменение цен товара меняет витрину");
-        return api(`${C}/items/${segment(a.itemId, "itemId")}/b2b`, { method: "PUT", body: pick(a, ["unit", "priceMode", "priceTiers", "groupPrices", "prices", "weightKg", "clearWeight", "oversize", "minQty", "qtyStep"]) });
+        return api(`${C}/items/${segment(a.itemId, "itemId")}/b2b`, { method: "PUT", body: pick(a, ["unit", "priceMode", "priceTiers", "groupPrices", "prices", "weightKg", "clearWeight", "lengthCm", "widthCm", "heightCm", "clearDims", "oversize", "minQty", "qtyStep"]) });
       case "shop_b2b_settings_get": return api(`${C}/b2b-settings`);
       case "shop_b2b_settings_update":
         needConfirm(a, "Изменение B2B-настроек влияет на цены и статусы заказов");

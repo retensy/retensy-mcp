@@ -57,7 +57,7 @@ try {
   await rpc("initialize", {});
   const tools = (await rpc("tools/list", {})).result.tools;
   const shop = tools.filter((t) => t.name.startsWith("shop_"));
-  const b2bNames = ["shop_quotes_list", "shop_quote_answer", "shop_order_status_set", "shop_invoice_issue", "shop_invoice_mark_paid", "shop_invoice_pdf", "shop_quote_file_get", "shop_order_document_upload", "shop_order_document_get", "shop_order_document_delete", "shop_seller_get", "shop_seller_checklist", "shop_seller_requisites_update", "shop_buyer_groups_get", "shop_buyer_group_upsert", "shop_buyer_group_delete", "shop_buyer_group_assign", "shop_delivery_settings_get", "shop_delivery_settings_update", "shop_item_b2b_update", "shop_b2b_settings_get", "shop_b2b_settings_update", "shop_leads_list", "shop_lead_to_order", "shop_wholesale_approve", "shop_quote_pdf"];
+  const b2bNames = ["shop_quotes_list", "shop_quote_answer", "shop_order_status_set", "shop_invoice_issue", "shop_invoice_mark_paid", "shop_invoice_pdf", "shop_quote_file_get", "shop_order_document_upload", "shop_order_document_get", "shop_order_document_delete", "shop_seller_get", "shop_seller_checklist", "shop_seller_requisites_update", "shop_buyer_groups_get", "shop_buyer_group_upsert", "shop_buyer_group_delete", "shop_buyer_group_assign", "shop_delivery_settings_get", "shop_delivery_settings_update", "shop_carriers_get", "shop_carriers_set", "shop_shipment_create", "shop_shipment_refresh", "shop_shipment_label", "shop_item_b2b_update", "shop_b2b_settings_get", "shop_b2b_settings_update", "shop_leads_list", "shop_lead_to_order", "shop_wholesale_approve", "shop_quote_pdf"];
   check("26 shop-инструментов B2B", b2bNames.every((n) => shop.some((t) => t.name === n)));
   check("у мутаций есть confirm", ["shop_quote_answer", "shop_order_status_set", "shop_invoice_mark_paid", "shop_buyer_group_upsert", "shop_delivery_settings_update", "shop_seller_requisites_update", "shop_item_b2b_update", "shop_b2b_settings_update"].every((n) => !!tools.find((t) => t.name === n)?.inputSchema?.properties?.confirm));
 
@@ -113,6 +113,18 @@ try {
   check("group_assign: пустой groupCode снимает", last().body.chatId === 123 && last().body.groupCode === "");
   await call("shop_delivery_settings_update", { cutoffTime: "16:00", zones: [{ id: "msk", name: "Москва", type: "courier", price: 300 }], confirm: true });
   check("delivery_update: PUT", last().m === "PUT" && last().u.endsWith("/delivery-config") && last().body.zones.length === 1 && last().body.confirm === undefined);
+  r = await call("shop_carriers_set", { carriers: [{ provider: "cdek", connectionId: "c1", roundTo: 10 }] });
+  check("carriers_set: без confirm - ошибка", r.result.isError);
+  await call("shop_carriers_set", { carriers: [{ provider: "cdek", connectionId: "c1", roundTo: 10, testMode: true }], confirm: true });
+  check("carriers_set: PUT /carriers", last().m === "PUT" && last().u.endsWith("/carriers") && last().body.carriers[0].provider === "cdek" && last().body.confirm === undefined);
+  await call("shop_carriers_get", {});
+  check("carriers_get: GET", last().m === "GET" && last().u.endsWith("/carriers"));
+  r = await call("shop_shipment_create", { orderId: "o1" });
+  check("shipment_create: без confirm - ошибка", r.result.isError);
+  await call("shop_shipment_create", { orderId: "o1", confirm: true });
+  check("shipment_create: POST", last().m === "POST" && last().u.endsWith("/orders/o1/shipment"));
+  await call("shop_shipment_refresh", { orderId: "o1" });
+  check("shipment_refresh: POST", last().m === "POST" && last().u.endsWith("/orders/o1/shipment/refresh"));
   await call("shop_seller_requisites_update", { name: "ООО", vatMode: "vat20", confirm: true });
   check("seller_update: PUT патч", last().m === "PUT" && last().u.endsWith("/seller") && last().body.vatMode === "vat20" && last().body.inn === undefined);
   await call("shop_item_b2b_update", { itemId: "i1", priceTiers: [{ minQty: 10, price: 90 }], oversize: true, confirm: true });
