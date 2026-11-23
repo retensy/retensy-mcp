@@ -26,6 +26,13 @@ const PRICE_TYPE = { type: "object", properties: { code: { type: "string" }, nam
 const tool = (name, description, properties = {}, required = []) => ({ name, description, inputSchema: { type: "object", properties, ...(required.length ? { required } : {}) } });
 
 export const SHOP_B2B_TOOLS = [
+  tool("shop_list", "Мои магазины (GET /api/bots/commerce/shops): shopId, название, роль (OWNER/EDITOR), siteId, заказы сегодня, статус; current — магазин по умолчанию; bots — боты и из какого магазина каждый продаёт. У владельца может быть несколько независимых магазинов (свои товары, оплата, доставка, заказы). shopId передавай в любой инструмент магазина.", {}),
+  tool("shop_create", "Создать новый отдельный магазин (POST /api/bots/commerce/shops), например цветочный рядом с магазином инструментов. Начинается пустым: эквайринг, службы доставки и источники каталога не выбраны (подключения аккаунта выбираются в настройках этого магазина). createSite:true — сразу сайт-конструктор под него. Ответ: shopId (дальше передавай во все инструменты магазина), siteId. Только по явной просьбе, с confirm:true.",
+    { title: { type: "string", maxLength: 80 }, createSite: { type: "boolean" }, confirm: CONFIRM }, ["title"]),
+  tool("shop_link_site", "Сайт владельца начинает показывать магазин targetShopId (PUT /shops/{id}/site): каталог, корзина, оплата сайта переключаются на этот магазин. Только по явной просьбе, с confirm:true.",
+    { targetShopId: { type: "string" }, siteId: { type: "string" }, confirm: CONFIRM }, ["targetShopId", "siteId"]),
+  tool("shop_link_bot", "Бот владельца продаёт из магазина targetShopId (PUT /shops/{id}/bot); основной магазин — по умолчанию. Только по явной просьбе, с confirm:true.",
+    { targetShopId: { type: "string" }, botId: { type: "string" }, confirm: CONFIRM }, ["targetShopId", "botId"]),
   tool("shop_quotes_list", "Заявки на расчёт (GET /api/bots/commerce/quotes). status: quote_requested | quoted | paid | canceled. Ответ: items, total, page, size.",
     { status: { type: "string", enum: ["quote_requested", "quoted", "paid", "canceled"] }, page: { type: "integer", minimum: 0 }, size: { type: "integer", minimum: 1, maximum: 200 } }),
   tool("shop_quote_answer", "Ответить на заявку ценой (POST /orders/{orderId}/quote-answer): lines — цена за штуку по номеру позиции (index с 0), позиции без цены обязаны получить цену; deliveryCost по умолчанию 0; invoice:true — сразу выставить счёт (нужны реквизиты продавца и покупателя, покупателя можно передать в company). Покупателю УХОДИТ сообщение (сумма, ссылка на оплату, счёт): необратимо. Можно ответить повторно, пока не оплачено. Только по явной просьбе, с confirm:true.",
@@ -148,6 +155,17 @@ export function createShopB2b({ api, apiFile, apiUpload }) {
     if (!SHOP_B2B_NAMES.has(name)) return undefined;
     const order = () => `${C}/orders/${segment(a.orderId, "orderId")}`;
     switch (name) {
+      case "shop_list": return api(`${C}/shops`);
+      case "shop_create":
+        needConfirm(a, "Создаётся новый магазин");
+        if (!String(a.title ?? "").trim()) throw new Error("title: название магазина обязательно");
+        return api(`${C}/shops`, { method: "POST", body: { title: String(a.title).trim(), createSite: a.createSite === true } });
+      case "shop_link_site":
+        needConfirm(a, "Витрина сайта переключится на другой магазин");
+        return api(`${C}/shops/${segment(a.targetShopId, "targetShopId")}/site`, { method: "PUT", body: { siteId: String(a.siteId) } });
+      case "shop_link_bot":
+        needConfirm(a, "Бот начнёт продавать из другого магазина");
+        return api(`${C}/shops/${segment(a.targetShopId, "targetShopId")}/bot`, { method: "PUT", body: { botId: String(a.botId) } });
       case "shop_quotes_list": {
         const q = new URLSearchParams();
         for (const k of ["status", "page", "size"]) if (a[k] !== undefined && a[k] !== "") q.set(k, String(a[k]));

@@ -85,8 +85,10 @@ const ACCOUNT_SCOPE_FREE = new Set(["setup", "set_token", "account_add", "accoun
 /** Инструменты магазина: принимают shopId (из shop_list) или siteId; без них бэк берёт текущий или единственный магазин. */
 const SHOP_TOOL = /^(catalog|shop|order|commerce|promo|delivery)_/;
 const SHOP_ID = /^[0-9a-fA-F-]{24,36}$/;
+/** Управление списком магазинов: без выбора магазина заголовком. */
+const SHOP_ADMIN = new Set(["shop_list", "shop_create", "shop_link_site", "shop_link_bot"]);
 function withShopArg(tool) {
-  if (!SHOP_TOOL.test(tool.name) || tool.name === "shop_list") return tool;
+  if (!SHOP_TOOL.test(tool.name) || SHOP_ADMIN.has(tool.name)) return tool;
   const schema = tool.inputSchema || { type: "object" };
   if (schema.properties?.shopId) return tool;
   return { ...tool, inputSchema: { ...schema, properties: { ...schema.properties,
@@ -94,7 +96,7 @@ function withShopArg(tool) {
 }
 /** Достаёт shopId/siteId из аргументов инструмента магазина; мусор отвергается до запроса. */
 export function takeShopArg(name, args) {
-  if (!SHOP_TOOL.test(name || "") || name === "shop_list") return { shop: null, args };
+  if (!SHOP_TOOL.test(name || "") || SHOP_ADMIN.has(name)) return { shop: null, args };
   const { shopId, ...rest } = args || {};
   let shop = shopId ?? null;
   if (shop == null && rest.siteId != null && !name.startsWith("site_")) shop = rest.siteId;

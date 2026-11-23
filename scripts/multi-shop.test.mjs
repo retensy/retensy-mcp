@@ -36,6 +36,8 @@ try {
   await rpc("initialize", {});
   const { tools } = await rpc("tools/list", {});
   check("инструмент магазина принимает shopId", !!tools.find((t) => t.name === "shop_quotes_list").inputSchema.properties.shopId);
+  check("shop_create без shopId-заголовка", !!tools.find((t) => t.name === "shop_create") && !tools.find((t) => t.name === "shop_create").inputSchema.properties.shopId);
+  check("shop_list есть", !!tools.find((t) => t.name === "shop_list"));
   check("list_bots без shopId", !tools.find((t) => t.name === "list_bots").inputSchema.properties.shopId);
   await call("shop_quotes_list", { shopId: "6acbeb5994c85dc62c68dc4f" });
   await call("shop_quotes_list", { siteId: "0f8fad5b-d9cb-469f-a165-70867728950e" });
