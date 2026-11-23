@@ -7,6 +7,7 @@ import path from "node:path";
 
 const C = "/api/bots/commerce";
 const MP = "/api/bots/marketplace";
+const SUP = "/api/bots/support";
 /** Файлы (PDF счёта, вложение заявки, документ заказа) отдаём base64 не больше этого размера. */
 export const MAX_FILE_BYTES = 2 * 1024 * 1024;
 /** Документ заказа загружаем не больше 5 МБ (лимит сервера). */
@@ -98,6 +99,9 @@ export const SHOP_B2B_TOOLS = [
   tool("marketplace_settings_update", "Настройки автоответа подключения (PUT /connections/{id}/settings, только владелец): autoEnabled, autoMinRating 4|5, stopWords, dailyLimit 1-300, draftOnNew, kbId. Автоответ выключен по умолчанию, включать только по прямой просьбе. С confirm:true.",
     { id: { type: "string" }, autoEnabled: { type: "boolean" }, autoMinRating: { type: "integer", enum: [4, 5] }, stopWords: { type: "array", items: { type: "string" } }, dailyLimit: { type: "integer", minimum: 1, maximum: 300 }, draftOnNew: { type: "boolean" }, kbId: { type: "string" }, confirm: CONFIRM }, ["id", "confirm"]),
   tool("marketplace_kill", "Аварийно выключить автоответ подключения (POST /connections/{id}/kill): очередь автоответов возвращается в черновики.", { id: { type: "string" } }, ["id"]),
+  tool("support_status", "Моё обращение в поддержку Retensy (GET /api/bots/support/state): status (AI - отвечает ИИ-помощник, WAITING_MANAGER - ждёт менеджера, MANAGER, CLOSED), unread, последние сообщения (author USER|AI|MANAGER|SYSTEM, text, suggestions - подсказки следующих вопросов, offerHuman - ответа в справке нет). Нет обращений - popularQuestions.", {}),
+  tool("support_ask", "Написать в поддержку Retensy (POST /api/bots/support/messages): сначала отвечает ИИ-помощник по справке всего сервиса (только по ней: ответ, подсказки, ссылки на разделы кабинета; offerHuman=true - ответа нет, можно позвать человека). Для вопросов «как это работает» сначала product_help; сюда - когда пользователь просит написать в поддержку.", { text: { type: "string", description: "Текст вопроса, без токенов и паролей" } }, ["text"]),
+  tool("support_call_human", "Передать обращение в поддержку живому менеджеру (POST /api/bots/support/escalate): метка «позвали человека» и уведомление команде, менеджер ответит в чат поддержки кабинета. Только когда пользователь сам просит человека или оператора.", {}),
   tool("shop_shipment_create", "Создать отправление по заказу в службе, которую выбрал покупатель (POST /orders/{orderId}/shipment). Повторно не создаёт. В тестовом режиме службы - тестовая среда. Реальная отправка: только по явной просьбе, с confirm:true.",
     { orderId: ID, confirm: CONFIRM }, ["orderId", "confirm"]),
   tool("shop_shipment_refresh", "Обновить трек-номер и статус отправления из службы (POST /orders/{orderId}/shipment/refresh). Покупатель получит уведомление о новом треке или статусе; «доставлено» переводит заказ в delivered.",
@@ -312,6 +316,11 @@ export function createShopB2b({ api, apiFile, apiUpload }) {
         needConfirm(a, "Автоответ публикует ответы покупателям без проверки человеком");
         return api(`${MP}/connections/${encodeURIComponent(a.id)}/settings`, { method: "PUT", body: pick(a, ["autoEnabled", "autoMinRating", "stopWords", "dailyLimit", "draftOnNew", "kbId"]) });
       case "marketplace_kill": return api(`${MP}/connections/${encodeURIComponent(a.id)}/kill`, { method: "POST" });
+      case "support_status": return api(`${SUP}/state`);
+      case "support_ask":
+        if (!String(a.text ?? "").trim()) throw new Error("text: текст вопроса обязателен");
+        return api(`${SUP}/messages`, { method: "POST", body: { text: String(a.text) } });
+      case "support_call_human": return api(`${SUP}/escalate`, { method: "POST" });
       case "shop_shipment_create":
         needConfirm(a, "Создание отправления в службе доставки");
         return api(`${order()}/shipment`, { method: "POST" });
