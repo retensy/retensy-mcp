@@ -28,6 +28,7 @@ const PRICE_TYPE = { type: "object", properties: { code: { type: "string" }, nam
 const tool = (name, description, properties = {}, required = []) => ({ name, description, inputSchema: { type: "object", properties, ...(required.length ? { required } : {}) } });
 
 export const SHOP_B2B_TOOLS = [
+  tool("commerce_limits", "Лимиты тарифа и сколько занято (GET /api/bots/commerce/limits, только чтение): shopsUsed/maxShops (магазины), catalogItemsUsed/maxCatalogItems (товары во ВСЕХ магазинах аккаунта вместе), leadsUsed/maxLeads (заявки CRM, лимит МЯГКИЙ: заявки принимаются всегда, владельцу уходит уведомление), leadRetentionDays (срок хранения заявок, дней), leadsExpiringSoon и leadsNextExpiryAt (сколько заявок удалится в ближайшие 14 дней). -1 — без лимита, null — не задано. Сверх лимита новое не создаётся (shop_create, catalog_item_upsert, импорт CSV/XLSX/URL/1С — HTTP 402; заявки не отклоняются с upgradeUrl; импорт добавляет что влезло и пишет сколько пропущено), существующее НЕ удаляется. Заявки старше срока хранения чистятся ежедневно (кроме «в работе» и с активным заказом/оплатой): до этого предложите пользователю выгрузку site_leads_export.", {}),
   tool("shop_list", "Мои магазины (GET /api/bots/commerce/shops): shopId, название, роль (OWNER/EDITOR), siteId, заказы сегодня, статус; current — магазин по умолчанию; bots — боты и из какого магазина каждый продаёт. У владельца может быть несколько независимых магазинов (свои товары, оплата, доставка, заказы). shopId передавай в любой инструмент магазина.", {}),
   tool("shop_create", "Создать новый отдельный магазин (POST /api/bots/commerce/shops), например цветочный рядом с магазином инструментов. Начинается пустым: эквайринг, службы доставки и источники каталога не выбраны (подключения аккаунта выбираются в настройках этого магазина). createSite:true — сразу сайт-конструктор под него. Ответ: shopId (дальше передавай во все инструменты магазина), siteId. Только по явной просьбе, с confirm:true.",
     { title: { type: "string", maxLength: 80 }, createSite: { type: "boolean" }, confirm: CONFIRM }, ["title"]),
@@ -296,6 +297,7 @@ export function createShopB2b({ api, apiFile, apiUpload }) {
         needConfirm(a, "Изменение выгрузки меняет, какие товары и в каких категориях попадут на Авито");
         return api(`${C}/avito`, { method: "PUT", body: pick(a, ["address", "phone", "managerName", "maps"]) });
       case "shop_avito_status": return api(`${C}/avito/status`);
+      case "commerce_limits": return api(`${C}/limits`);
       case "marketplace_connections": return api(`${MP}/connections`);
       case "marketplace_inbox": {
         const q = new URLSearchParams();
