@@ -61,6 +61,7 @@ const call = (id, name, args) => {
 const r1 = await call(1, "site_edit", { siteId: "s1", init: "mini-landing" });
 const r2 = await call(2, "site_edit", { siteId: "s2", ops: [{ op: "add_page", title: "Ещё" }], init: "mini-landing" });
 const r3 = await call(3, "site_edit", { siteId: "s3" });
+const rb = await call(31, "site_edit", { siteId: "sb", init: "barber-starter" });
 const n3 = seen.length;
 const r4 = await call(4, "site_create", { title: "Лендинг", template: "mini-landing" });
 const r5 = await call(5, "site_create", { title: "Сайт" });
@@ -83,6 +84,7 @@ const ops = (url) => seen.find((s) => s.url === url)?.body;
 const NOOP = JSON.stringify([{ op: "set_settings", settings: {} }]);
 const after4 = seen.slice(n3);
 const checks = [
+  ["init barber-starter принят", rb?.result?.isError !== true && ops("/api/bots/pages/sb/document/ops")?.init === "barber-starter"],
   ["init без ops: успех", r1 && r1.result?.isError !== true],
   ["init без ops: init=mini-landing", ops("/api/bots/pages/s1/document/ops")?.init === "mini-landing"],
   ["init без ops: непустой no-op ops", JSON.stringify(ops("/api/bots/pages/s1/document/ops")?.ops) === NOOP],
