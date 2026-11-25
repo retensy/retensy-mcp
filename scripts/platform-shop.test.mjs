@@ -76,6 +76,10 @@ try {
   await call("catalog_item_upsert", { name: "Саморез", price: 3, priority: 50, priceNote: "цена уточняется", confirm: true });
   const it2 = seen.filter((e) => e.u === "/api/bots/commerce/items/upsert").pop();
   check("upsert передаёт priority и priceNote", it2?.body?.priority === 50 && it2.body.priceNote === "цена уточняется");
+  check("catalog_item_upsert: availability enum", ip.availability?.enum?.join() === "in_stock,on_order");
+  await call("catalog_item_upsert", { name: "Станок", price: 9, availability: "on_order", confirm: true });
+  const it3 = seen.filter((e) => e.u === "/api/bots/commerce/items/upsert").pop();
+  check("upsert передаёт availability", it3?.body?.availability === "on_order");
   await call("catalog_category_upsert", { name: "Крепеж", priority: 9, confirm: true });
   const cat2 = seen.filter((e) => e.u === "/api/bots/commerce/categories" && e.m === "POST").pop();
   check("категория передаёт priority", cat2?.body?.priority === 9);
