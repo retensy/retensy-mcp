@@ -188,6 +188,8 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `list_bots` | список ботов (`pausedReason: TOKEN_CONFLICT` / `pausedChannels` — бот или канал на паузе из-за вебхука другого сервиса на том же токене; `conflictWarning: TOKEN_CONFLICT_POLLING` — токен опрашивает кто-то ещё, бот работает, но теряет сообщения) |
 | `create_bot(platform, token?, name?)` | подключить бота Telegram/MAX по токену; `WEB` — чат-виджет для сайта без токена → botId, key, snippet (Instagram → ссылка на кабинет `/bots/instagram`, вход через Instagram) |
 | `web_widget_snippet(botId)` | код вставки чат-виджета на сайт |
+| `ai_widget_get(siteId)` / `ai_widget_enable(siteId, enabled, agentId?, template?, shopAnswers?, position?, accentColor?, greeting?)` | чат с ИИ-агентом на сайте Retensy одним действием; shopAnswers — ответы по живому каталогу и корзина; потом `site_publish` |
+| `ai_widget_external(enabled, agentId?, template?, shopAnswers?, …)` | то же для внешнего сайта: возвращает snippet для вставки |
 | `bot_stop(botId)` / `bot_resume(botId)` | остановить / запустить бота |
 | `list_graphs(botId)` | графы (сценарии) бота |
 | `list_channels(botId)` | каналы/группы, подключённые к боту (chatId для условия SUBSCRIBED) |
