@@ -32,7 +32,7 @@ export const SHOP_B2B_TOOLS = [
   tool("shop_list", "Мои магазины (GET /api/bots/commerce/shops): shopId, название, роль (OWNER/EDITOR), siteId, заказы сегодня, статус; current — магазин по умолчанию; bots — боты и из какого магазина каждый продаёт. У владельца может быть несколько независимых магазинов (свои товары, оплата, доставка, заказы). shopId передавай в любой инструмент магазина.", {}),
   tool("shop_create", "Создать новый отдельный магазин (POST /api/bots/commerce/shops), например цветочный рядом с магазином инструментов. Начинается пустым: эквайринг, службы доставки и источники каталога не выбраны (подключения аккаунта выбираются в настройках этого магазина). createSite:true — сразу сайт-конструктор под него. Ответ: shopId (дальше передавай во все инструменты магазина), siteId. Только по явной просьбе, с confirm:true.",
     { title: { type: "string", maxLength: 80 }, createSite: { type: "boolean" }, confirm: CONFIRM }, ["title"]),
-  tool("shop_link_site", "Сайт владельца начинает показывать магазин targetShopId (PUT /shops/{id}/site): каталог, корзина, оплата сайта переключаются на этот магазин. Только по явной просьбе, с confirm:true.",
+  tool("shop_link_site", "Сайт владельца начинает показывать магазин targetShopId (PUT /shops/{id}/site): каталог, корзина, оплата сайта переключаются на этот магазин. Каталог переезжает на этот сайт: на нём «Показывать каталог магазина» включается, на других сайтах этого магазина выключается (страницы /p/ и /c/ там 404 и уходят из sitemap). Тот же магазин можно привязать повторно, чтобы перенести каталог на другой сайт. Вручную по одному сайту - site_edit catalogEnabled. Только по явной просьбе, с confirm:true.",
     { targetShopId: { type: "string" }, siteId: { type: "string" }, confirm: CONFIRM }, ["targetShopId", "siteId"]),
   tool("shop_link_bot", "Бот владельца продаёт из магазина targetShopId (PUT /shops/{id}/bot); основной магазин — по умолчанию. Только по явной просьбе, с confirm:true.",
     { targetShopId: { type: "string" }, botId: { type: "string" }, confirm: CONFIRM }, ["targetShopId", "botId"]),
@@ -185,7 +185,7 @@ export function createShopB2b({ api, apiFile, apiUpload }) {
         if (!String(a.title ?? "").trim()) throw new Error("title: название магазина обязательно");
         return api(`${C}/shops`, { method: "POST", body: { title: String(a.title).trim(), createSite: a.createSite === true } });
       case "shop_link_site":
-        needConfirm(a, "Витрина сайта переключится на другой магазин");
+        needConfirm(a, "Витрина сайта переключится на этот магазин, каталог на других сайтах магазина скроется");
         return api(`${C}/shops/${segment(a.targetShopId, "targetShopId")}/site`, { method: "PUT", body: { siteId: String(a.siteId) } });
       case "shop_link_bot":
         needConfirm(a, "Бот начнёт продавать из другого магазина");

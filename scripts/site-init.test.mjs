@@ -31,7 +31,8 @@ const srv = http.createServer((req, res) => {
       return;
     }
     res.writeHead(200, { "Content-Type": "application/json" });
-    if (req.method === "POST" && req.url === "/api/bots/pages") res.end(JSON.stringify({ id: "s-new", title: "Лендинг" }));
+    if (req.method === "PATCH") res.end(JSON.stringify({ id: "x", catalogEnabled: body?.catalogEnabled }));
+    else if (req.method === "POST" && req.url === "/api/bots/pages") res.end(JSON.stringify({ id: "s-new", title: "Лендинг" }));
     else res.end(JSON.stringify({ revision: 1, results: [{ op: "set_settings" }] }));
   });
 });
@@ -75,6 +76,10 @@ const n9 = seen.length;
 const r10 = await call(10, "site_schema", {});
 const r11 = await call(11, "site_schema", { full: true });
 const r12 = await call(12, "site_templates", {});
+const CS = "16a655d6-a81f-4fd9-8263-3915936f8363";
+const r13 = await call(13, "site_edit", { siteId: CS, catalogEnabled: false });
+const r14 = await call(14, "site_edit", { siteId: CS, catalogEnabled: true, ops: [{ op: "add_page", title: "Каталог" }] });
+const r15 = await call(15, "site_edit", { siteId: CS, catalogEnabled: "no" });
 child.kill();
 srv.close();
 try { fs.rmSync(home, { recursive: true, force: true }); } catch { /* windows lock */ }
@@ -103,6 +108,10 @@ const checks = [
   ["site_edit без reset: поля reset нет в body", ops("/api/bots/pages/s1/document/ops") && !("reset" in ops("/api/bots/pages/s1/document/ops"))],
   ["site_schema по умолчанию: без full", seen.some((s) => s.url === "/api/bots/pages/schema")],
   ["site_schema full:true: ?full=true", seen.some((s) => s.url === "/api/bots/pages/schema?full=true")],
+  ["site_edit catalogEnabled без ops: только PATCH сайта", r13?.result?.isError !== true && /"catalogEnabled": ?false/.test(text(r13))
+    && seen.filter((x) => x.url === `/api/bots/pages/${CS}` && x.method === "PATCH").length === 2 && !seen.some((x) => x.url === `/api/bots/pages/${CS}/document/ops` && x.body?.ops?.[0]?.op === "set_settings")],
+  ["site_edit catalogEnabled + ops: PATCH и ops", seen.some((x) => x.method === "PATCH" && x.body?.catalogEnabled === true) && ops(`/api/bots/pages/${CS}/document/ops`)?.ops?.[0]?.op === "add_page" && /"catalogEnabled": ?true/.test(text(r14))],
+  ["site_edit catalogEnabled не boolean: ошибка", r15?.result?.isError === true],
   ["site_templates: siteTemplates в ответе", r12 && r12.result?.isError !== true && text(r12).includes("siteTemplates")],
 ];
 let failed = 0;
