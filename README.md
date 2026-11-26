@@ -56,7 +56,6 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 - 📅 **Запись на слоты**: `booking_calendar_*` (буферы до/после брони, горизонт записи, типы встреч своей длительности, форма клиента, публичная страница `/book/<slug>`), `booking_confirm`/`booking_reject` — ручное подтверждение брони (`confirmationMode:"MANUAL"`).
 - 📰 **Публикации и VK**: `publications_usage` — месячная квота (общая для Telegram/MAX/Instagram/VK), `vk_status`/`vk_connect`/`vk_disconnect`/`vk_post` — подключение VK-сообщества токеном и публикация на стену.
 - 🔗 **Ссылка вместо отказа**: что нельзя сделать через API (вход через Google/Instagram, оплата тарифа, вход в аккаунт) — инструмент возвращает прямую ссылку и одну строку, что сделать.
-- 📝 **Статьи блога** (тот же токен `zmcp_…`): `article_publish`, `article_update`, `article_list`, `article_get` — публикация статей в Markdown (как README на GitHub) в раздел **/articles**.
 - 🧠 **ИИ-агенты и база знаний**: `agent_list`/`agent_get`/`agent_create`/`agent_update`/`agent_publish`/`agent_health`/`agent_test_chat`/`agent_unanswered`/`agent_tests_run`/`agent_tests_list`, `agent_tool_calls`, `kb_docs`/`kb_add_qa`/`kb_add_text`/`kb_add_site`/`kb_reindex` — настройка ИИ-агента и его базы знаний (раздел «ИИ-агенты»).
 - 📎 **Медиа**: `upload_file` грузит фото/видео/документы в библиотеку **/bots/files** (до 50 МБ) и возвращает публичный URL — его вставляешь в медиа-карточку сценария.
 - 🌐 **Сайты из блоков** (раздел «Страницы»): создание, правка операциями (блоки, Zero-блок со свободной вёрсткой, код блока, папки страниц, дизайны, шаблоны из библиотеки), публикация и откат, свои домены, заявки из форм и куда их доставлять — инструменты `site_*` + скилл `build-site`.
@@ -136,7 +135,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 |---|---|---|
 | `read` | любое чтение: списки, карточки, аналитика, превью, поиск, `dry_run`. **Включает персональные данные**: подписчики, переписка в диалогах, заявки с сайтов и их файлы | `list_bots`, `get_graph`, `site_leads`, `dialog_messages`, `broadcast_preview` |
 | `write:bots` | создание и изменение ботов, сценариев, цепочек, интеграций, ИИ-агентов, базы знаний, черновиков рассылок. Правка опубликованного сценария сразу меняет ответы бота подписчикам; можно сменить ключи и вебхуки интеграций; `agent_test_chat` и `agent_tests_run` тратят ИИ-бюджет, `integration_test` ходит во внешний сервис | `create_graph`, `publish_graph`, `chain_update`, `connect_integration`, `agent_test_chat` |
-| `write:sites` | сайты, лиды, VK-лендинги, статьи | `site_create`, `site_edit`, `site_publish`, `vk_landing_update`, `article_publish` |
+| `write:sites` | сайты, лиды, VK-лендинги | `site_create`, `site_edit`, `site_publish`, `vk_landing_update`, `article_publish` |
 | `crm` | теги/переменные подписчиков, импорт, передача диалога оператору, записи. `booking_confirm`/`booking_reject` отправляют клиенту сообщение | `audience_tag_edit`, `bot_users_import`, `dialog_handoff`, `booking_create` |
 | `broadcast` | всё, что доходит до живых людей без участия человека: рассылки, ответы, посты, а также **включённая цепочка без согласования постов** (approvalMode `NONE`/`AI_ONLY`) и **публикация/правка/активация сценария с `TRIGGER_SCHEDULE`** | `broadcast_send`, `dialog_reply`, `channel_post`, `vk_post`, `chain_approve`, `chain_enable` (без согласования) |
 | `billing` | деньги и ключи, которые тратят бюджет | `ai_pack_purchase`, `agent_api_key_create` |
@@ -254,10 +253,6 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `broadcast_drafts(action, …)` | черновики: list / get / create / update / delete |
 | `broadcast_duplicate(broadcastId` или `draftId)` | копия рассылки или черновика — новый черновик «… (копия)» |
 | `broadcast_group(action, …)` | мульти-бот группа с дедупом/распределённым запуском: `preview` (read-only оценка) / `list` / `get` / `pause` / `resume` / `cancel` (каскадом на уже запущенные боты) |
-| `article_list()` | свои статьи блога (id, slug, title, просмотры) |
-| `article_get(slug)` | статья по slug (Markdown content, excerpt, обложка) |
-| `article_publish(content, title?, cover?, excerpt?)` | новая статья (Markdown; title из `# ...`, если не задан; обложка из `cover`-URL или 1-й картинки → OG; `excerpt` явно или авто) → id, slug, URL |
-| `article_update(id, content, title?)` | обновить свою статью по id |
 | `agent_list()` | список ИИ-агентов (id, имя, статус) |
 | `agent_get(agentId)` | настройки агента: язык, тон, длина/формат ответа, инструкции, темы, `kbId` базы знаний, статус |
 | `agent_create(name?, description?)` | создать агента; вместе с ним создаётся база знаний (`kbId` в ответе) |

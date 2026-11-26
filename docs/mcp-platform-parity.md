@@ -65,7 +65,6 @@ PAT, инструмента нет; **PAT** — путь закрыт для т�
 | Каналы/группы бота, посты | `GET /api/bots/{botId}/linked-chats` (BotLinkedChatController:37), `POST /linked-chats/{chatId}/post` | `list_channels`, `channel_post` | есть: добавить/убрать группу — нет в платформе (бот попадает в список сам, когда его добавляют админом в Telegram) |
 | Стартовые ссылки | `GET/POST /api/bots/{botId}/links` (BotStartLinkController:40/46), `DELETE /api/bots/links/{id}` (:59) | `list_links`, `link_create`, `link_delete` (новые; удаление — `confirm:true`) | есть (переименование — нет в платформе) |
 | Файлы (медиа) | `/api/bots/media` | `upload_file`, `list_files`, `delete_file` | есть |
-| Статьи блога | `/api/articles/**` | `article_list`, `article_get`, `article_publish`, `article_update` | есть |
 | Бронирование: календари, слоты, брони, отмена | `/api/bots/booking/calendars[/{id}[/slots\|/bookings[/{bookingId}/cancel]]]` (BookingController) | `booking_calendar_list`, `booking_calendar_get`, `booking_calendar_create`, `booking_calendar_update`, `booking_calendar_delete`, `booking_slots`, `booking_list`, `booking_create`, `booking_cancel` | есть |
 | Платежи: приём оплат в сценарии | узлы графа + подключения касс (`connect_integration`), входящие — `/api/yookassa/owner/{id}` | графовые инструменты, `connect_integration` | есть (через граф) |
 | Платежи: тариф и баланс конструктора | BotBuilderSubscriptionController (`/api/bots/plans`, `/subscription`, `/billing/topup`) | — (402 отдаёт ссылку на страницу тарифа) | нет, и не нужно: оплата — только в кабинете |

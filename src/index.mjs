@@ -1340,10 +1340,6 @@ const TOOLS = [
   { name: "site_leads_retry", description: "Массово отправить заявки повторно (POST /api/bots/pages/{siteId}/leads/retry): ids — до 100 id из site_leads, либо allFailed=true — все не доставленные заявки сайта (до 100 новых). Идёт в фоне; ответ {retried, skipped}. Статусы смотри через site_leads delivery=failed через минуту.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, ids: { type: "array", items: { type: "string" } }, allFailed: { type: "boolean" } }, required: ["siteId"] } },
   { name: "site_lead_comment", description: "Комментарий команды к заявке сайта (POST /api/bots/pages/{siteId}/leads/{leadId}/comments), до 2000 знаков; клиенту не уходит. commentId + remove=true — удалить комментарий (свой; владелец сайта — любой).", inputSchema: { type: "object", properties: { siteId: { type: "string" }, leadId: { type: "string" }, text: { type: "string" }, commentId: { type: "string" }, remove: { type: "boolean" } }, required: ["siteId", "leadId"] } },
   { name: "site_lead_assign", description: "Ответственный за заявку сайта (PUT /api/bots/pages/{siteId}/leads/{leadId}/assignee): userId из списка участников (без userId и leadId=list — вернуть список кандидатов: GET /leads/assignees), \"me\" — себя, пустая строка — снять.", inputSchema: { type: "object", properties: { siteId: { type: "string" }, leadId: { type: "string", description: "id заявки или list — показать, кого можно назначить" }, userId: { type: "string" } }, required: ["siteId", "leadId"] } },
-  { name: "article_list", description: "Список СВОИХ статей блога retensy (GET /api/articles/my): id, slug, title, viewCount, даты. id нужен для article_update, slug — публичный адрес /articles/{slug}. Read-only.", inputSchema: { type: "object", properties: {} } },
-  { name: "article_get", description: "Получить статью блога по slug (GET /api/articles/by-slug/{slug}) — публичное чтение, в т.ч. чужие. Возвращает title, content (Markdown), excerpt, coverImage, viewCount.", inputSchema: { type: "object", properties: { slug: { type: "string", description: "slug статьи (часть адреса /articles/{slug})" } }, required: ["slug"] } },
-  { name: "article_publish", description: "Опубликовать НОВУЮ статью блога retensy (POST /api/articles). content — Markdown (как README на GitHub: заголовки, списки, таблицы, код, картинки по URL). title необязателен: если не передать, заголовком станет первая строка вида «# Заголовок», и она убирается из текста. Обложку можно задать явно через cover (URL картинки) — иначе берётся первая картинка из текста; excerpt (SEO-описание) тоже можно задать явно, иначе генерируется из текста. Возвращает статью с id и slug + публичный URL.", inputSchema: { type: "object", properties: { title: { type: "string", description: "Заголовок (необязателен, если content начинается с «# ...»)" }, content: { type: "string", description: "Тело статьи в Markdown" }, cover: { type: "string", description: "URL обложки (coverImage/OG). Если не задан — берётся первая картинка из текста." }, excerpt: { type: "string", description: "Краткое SEO-описание (≤160 симв). Если не задан — генерируется из текста." } }, required: ["content"] } },
-  { name: "article_update", description: "Обновить СВОЮ статью по id (PUT /api/articles/{id}; id бери из article_list). content — Markdown; title необязателен (как в article_publish, иначе берётся из «# ...»). Только владелец — чужую вернёт 403.", inputSchema: { type: "object", properties: { id: { type: "string", description: "id статьи из article_list" }, title: { type: "string" }, content: { type: "string", description: "Новое тело в Markdown" } }, required: ["id", "content"] } },
   // ---- ИИ-агенты и база знаний ----
   { name: "agent_list", description: "Список ИИ-агентов пользователя (GET /api/bots/agents): карточки — id, имя, статус. Read-only.", inputSchema: { type: "object", properties: {} } },
   { name: "agent_get", description: "ИИ-агент по id (GET /api/bots/agents/{agentId}): настройки (имя, язык, тон, длина/формат ответа, инструкции, запретные/передаточные темы, kbId базы знаний, статус). Чужой агент — 404. Read-only.", inputSchema: { type: "object", properties: { agentId: { type: "string" } }, required: ["agentId"] } },
@@ -1961,19 +1957,6 @@ async function handleCall(params) {
       const p_ = `/api/bots/pages/${a.siteId}/lead-settings`;
       if (a.settings == null) return okResult(withoutSecrets(await api(p_)));
       return okResult(withoutSecrets(await api(p_, { method: "PUT", body: a.settings })));
-    }
-    case "article_list": return okResult(await api("/api/articles/my"));
-    case "article_get": return okResult(await api(`/api/articles/by-slug/${encodeURIComponent(a.slug)}`));
-    case "article_publish": {
-      if (!a.content || !String(a.content).trim()) throw new Error("Передай content (Markdown). Заголовок можно не передавать, если текст начинается с «# ...».");
-      const created = await api("/api/articles", { method: "POST", body: { title: a.title, content: a.content, coverImage: a.cover, excerpt: a.excerpt } });
-      return okResult({ ...created, publicUrl: created?.slug ? `${BASE}/articles/${created.slug}` : null });
-    }
-    case "article_update": {
-      if (!a.id) throw new Error("Передай id статьи (см. article_list).");
-      if (!a.content || !String(a.content).trim()) throw new Error("Передай content (Markdown).");
-      const updated = await api(`/api/articles/${a.id}`, { method: "PUT", body: { title: a.title, content: a.content } });
-      return okResult({ ...updated, publicUrl: updated?.slug ? `${BASE}/articles/${updated.slug}` : null });
     }
     case "agent_list": return okResult(await api("/api/bots/agents"));
     case "agent_get": return okResult(await api(`/api/bots/agents/${a.agentId}`));
