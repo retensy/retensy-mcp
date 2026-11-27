@@ -171,6 +171,21 @@ const ld = await call("site_lead_delete", { siteId: S, leadId: L, confirm: true 
 check("site_lead_delete confirm → DELETE (204)", !!req("DELETE", `/api/bots/pages/${S}/leads/${L}`) && !isErr(ld));
 const ld404 = await call("site_lead_delete", { siteId: S, leadId: MISSING, confirm: true });
 check("site_lead_delete 404 → ошибка", isErr(ld404) && /HTTP 404/.test(textOf(ld404)));
+check("site_leads_bulk_delete без confirm — ошибка",
+  isErr(await call("site_leads_bulk_delete", { siteId: S, ids: [L] })) && !req("POST", `/api/bots/pages/${S}/leads/bulk-delete`));
+check("site_leads_bulk_delete без ids и all — ошибка",
+  isErr(await call("site_leads_bulk_delete", { siteId: S, confirm: true })));
+const bd = await call("site_leads_bulk_delete", { siteId: S, all: true, statuses: ["DONE"], confirm: true });
+const bdReq = req("POST", `/api/bots/pages/${S}/leads/bulk-delete`);
+check("site_leads_bulk_delete all+statuses → POST bulk-delete", !!bdReq && !isErr(bd) && bdReq.body?.all === true && bdReq.body?.statuses?.[0] === "DONE");
+check("site_lead_retention_set: срок вне списка — ошибка", isErr(await call("site_lead_retention_set", { siteId: S, retentionMonths: 5, confirm: true })));
+check("site_lead_retention_set: включение без confirm — ошибка", isErr(await call("site_lead_retention_set", { siteId: S, retentionMonths: 6 })));
+const rs = await call("site_lead_retention_set", { siteId: S, retentionMonths: 6, confirm: true });
+const rsReq = req("PUT", `/api/bots/pages/${S}/lead-retention`);
+check("site_lead_retention_set → PUT lead-retention", !!rsReq && !isErr(rs) && rsReq.body?.retentionMonths === 6);
+const mir = await call("site_domains", { siteId: S, action: "mirror", host: "old-name.ru", withWww: true });
+const mirReq = req("POST", `/api/bots/pages/${S}/domains/mirror`);
+check("site_domains mirror → POST domains/mirror", !!mirReq && !isErr(mir) && mirReq.body?.host === "old-name.ru" && mirReq.body?.withWww === true);
 const csv = await call("site_leads_export", { siteId: S });
 check("site_leads_export → CSV текстом", textOf(csv) === CSV);
 const csvPath = join(home, "out", "leads.csv");

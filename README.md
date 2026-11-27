@@ -234,7 +234,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `site_publish(siteId, force?)` | опубликовать черновик → `url`, `check` (предупреждения). Сначала проверка: при `errors` ответ 422 и публикации нет; `force:true` публикует всё равно, только владелец и только по его прямой просьбе |
 | `site_rollback(siteId, revision)` | вернуть прошлую публикацию |
 | `site_upload_asset(siteId, path\|url)` | картинка/видео в сайт → `assets/…` |
-| `site_domains(siteId, action, host?, withWww?, domainId?)` | свои домены: list / add / check / remove (число — по тарифу) |
+| `site_domains(siteId, action, host?, withWww?, domainId?)` | свои домены: list / add / mirror (301 на основной домен, с путём и query) / check / remove (число — по тарифу) |
 | `site_leads(siteId, page?, size?)` | заявки из форм (поля, UTM, статус доставки) |
 | `site_lead_settings(siteId, settings?)` | куда доставлять заявки: бот уведомлений, почта, вебхук, вебхук-сценарий, amoCRM, «Интеграция» (`coreDelivery {connectionId, kind, params}` из `coreConnections`) |
 | `broadcast_list(botId?, group?, page?, size?)` | рассылки + счётчики разделов (черновики/запланированные/отправленные/повторы) |
@@ -300,7 +300,7 @@ MCP-сервер (+ скилл для Claude Code) для **сборки и пу
 | `unsubscribe_reasons(botId, days?)` | Причины отписки: блокировки, кнопки, темы свободных ответов (ИИ раз в неделю) |
 | `kb_delete(kbId, confirm:true)` | удалить базу знаний целиком (база агента — только вместе с агентом) |
 | `agent_unpublish(agentId)` / `agent_delete(agentId, confirm:true)` | снять агента с публикации / удалить (409 `AGENT_IN_USE`, пока подключён к сценариям) |
-| `site_leads_mark_read(siteId)` / `site_lead_delete(siteId, leadId, confirm:true)` / `site_leads_export(siteId, savePath?)` | заявки сайта: всё прочитано / удалить заявку / CSV |
+| `site_leads_mark_read(siteId)` / `site_lead_delete(siteId, leadId, confirm:true)` / `site_leads_bulk_delete(siteId, ids? | all+statuses?, confirm:true)` / `site_lead_retention_set(siteId, retentionMonths 0|3|6|12|24, confirm:true)` / `site_leads_export(siteId, savePath?)` | заявки сайта: всё прочитано / удалить заявку / CSV |
 | `bot_users_export(botId, format?, savePath?)` | выгрузка подписчиков `csv`\|`json` (с `savePath` — в файл) |
 | `bot_user_reset(botId, chatId, confirm:true)` | сбросить сессию подписчика: позиция, метки, переменные (для повторного теста воронки) |
 | `booking_calendar_list()` / `booking_calendar_get(calendarId)` | календари записи (id → `calendarId` действий сценария `booking_*`) |
