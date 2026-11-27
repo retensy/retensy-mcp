@@ -599,6 +599,10 @@ async function uploadSiteAsset(siteId, { filePath, url, quality }) {
     if (scopeError(res.status, data)) throw scopeError(res.status, data);
     if (res.status === 401 || res.status === 403) throw new Error(`Доступ отклонён (HTTP ${res.status}). Токен невалиден/отозван — создай новый на ${TOKENS_PAGE}.`);
     if (res.status === 402) throw new Error(`Лимит хранилища тарифа исчерпан (HTTP 402). Подними тариф: 🔗 ${SUBSCRIPTION_PAGE}`);
+    const msg = data && typeof data === "object" ? String(data.error || "") : "";
+    if (res.status === 400 && /файлов/.test(msg)) {
+      throw new Error(`${msg} (HTTP 400). Посмотри файлы сайта: site_assets_list (used=false - не используются), удали ненужные через site_assets_delete_unused только с согласия пользователя и загрузи снова.`);
+    }
     throw httpError("POST", `/api/bots/pages/${siteId}/upload`, res.status, data);
   }
   return { asset: `assets/${safe}`, sizeBytes: bytes.length };
