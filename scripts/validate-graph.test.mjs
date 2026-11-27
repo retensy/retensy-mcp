@@ -232,6 +232,21 @@ check("SEND_MESSAGE widget: мало вариантов", sendBad({ widget: { op
 check("SEND_MESSAGE widget: без awaitReply", sendBad({ widget: { options: ["Да", "Нет"] } }).includes("WIDGET_NO_SAVE_TO"));
 check("SEND_MESSAGE widget: корректный", !/WIDGET_/.test(sendBad({ widget: { options: ["Да", "Нет"] }, awaitReply: true, saveTo: "a" })));
 
+// --- Instagram: RANDOM_TEXT как ответ на комментарий, RANDOM ветки ---
+{
+  const t = node("TRIGGER_IG_COMMENT", { isRoot: true, keywords: "атом" });
+  const rt = node("RANDOM_TEXT", { texts: ["Отправил информацию в директ", "Написал вам в личку"], igReplyChannel: "comment" });
+  const rnd = node("RANDOM", { branches: [{ handle: "a", weight: 70 }, { handle: "b", weight: 30 }] });
+  const ea = node("END", {}), eb = node("END", {});
+  const r = run([t, rt, rnd, ea, eb], [edge(t, rt), edge(rt, rnd), edge(rnd, ea, "a"), edge(rnd, eb, "b")], "INSTAGRAM");
+  check("IG: RANDOM/RANDOM_TEXT разрешены", !r.out.includes("IG_NODE_UNSUPPORTED"));
+  check("IG: RANDOM_TEXT в комментарий от триггера-комментария ок", !r.out.includes("IG_COMMENT_REPLY_NO_COMMENT_TRIGGER"));
+  const d = node("TRIGGER_IG_DM", { isRoot: true });
+  const rt2 = node("RANDOM_TEXT", { texts: ["a", "b"], igReplyChannel: "comment" });
+  const r2 = run([d, rt2], [edge(d, rt2)], "INSTAGRAM");
+  check("IG: RANDOM_TEXT в комментарий без триггера-комментария — ошибка", r2.out.includes("IG_COMMENT_REPLY_NO_COMMENT_TRIGGER"));
+}
+
 fs.rmSync(dir, { recursive: true, force: true });
 if (failed) { console.error(`validate-graph: провалов ${failed}`); process.exit(1); }
 console.log("validate-graph OK");

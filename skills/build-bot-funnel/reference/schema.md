@@ -211,7 +211,9 @@ IG-боты не поддерживают команды (`/start`). Вход �
   до 65 536 знаков), дальше его вставляют в любой `SEND_MESSAGE`. `noRepeat:true` - не повторять тексты у подписчика,
   пока не выданы все, потом круг заново. В текстах работают `{{from.first_name}}` и `{{var.x}}`. Потолки: до 500 текстов,
   до 65 536 знаков каждый, вместе до 1 500 000 (сценарий в целом ≤ 4 МБ). Выходы: `next`, `error` (пустой список, отказ
-  отправки, переменная не сохранилась). Не для Instagram (`IG_NODE_UNSUPPORTED`). Коды валидатора: `RANDOM_TEXT_NO_TEXTS`,
+  отправки, переменная не сохранилась). В Instagram работает, в том числе как публичный ответ на комментарий
+  (`igReplyChannel:"comment"|"dm"` как у `SEND_MESSAGE`): 2-3 варианта ответа спасают от спам-фильтра, один текст
+  не уходит двум комментаторам подряд. Коды валидатора: `RANDOM_TEXT_NO_TEXTS`,
   `RANDOM_TEXT_TOO_MANY`, `RANDOM_TEXT_TOO_LONG`, `RANDOM_TEXT_TOTAL_TOO_LONG`, `RANDOM_TEXT_BAD_SAVE_TO`.
 - `ASK_QUESTION` — вопрос со сбором ответа. `{ "promptText":"...","saveTo":"name","inputKind":"TEXT"|"PHOTO"|"DOCUMENT"|"CONTACT"|"LOCATION","validator":"ANY"|"PHONE"|"EMAIL"|"REGEX","regex":"...","retryText":"...","maxAttempts":3 }`. `inputKind` (по умолчанию `TEXT`) — что ждём в ответ (`CONTACT` → телефон: в Telegram показывается кнопка «Поделиться номером», в MAX/Instagram кнопки нет — номер вводится вручную и принимается как телефон на всех платформах; `LOCATION` → `lat,lon`, `PHOTO`/`DOCUMENT` → file_id). Выходы `valid` / `invalid`.
 - `END` — `{}` (конец ветки). **Не добавляй `END`**: ветка и так завершается на узле без исходящих рёбер; явный «конец сценария» бесполезен и убран из палитры редактора. Тип оставлен лишь для совместимости со старыми графами.
@@ -517,6 +519,7 @@ Instagram; прежний раздел «Инструменты роста» / `
 | `TRIGGER_IG_COMMENT`, `TRIGGER_IG_DM`, `TRIGGER_IG_STORY_REPLY`, `TRIGGER_IG_STORY_MENTION` | ✅ (триггеры входа) |
 | `SEND_MESSAGE`, `SEND_PHOTO` | ✅ |
 | `BRANCH`, `CONDITION`, `SWITCH`, `STOP_AND_ERROR` | ✅ |
+| `RANDOM`, `RANDOM_TEXT` | ✅ (случайные ветки по весам / ответ из нескольких вариантов) |
 | `SET_VARIABLE`, `ADD_TAG`, `REMOVE_TAG`, `FORMULA` | ✅ |
 | `ASK_QUESTION` | ✅ (с ограничениями — см. ниже) |
 | `DELAY` | ✅ (не более 24ч — см. ниже) |

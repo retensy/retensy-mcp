@@ -810,7 +810,7 @@ for (const n of nodes) if (!color[n.id]) dfs(n.id);
 // IG_ALLOWED_NODES: TRIGGER_IG_COMMENT, TRIGGER_IG_DM, TRIGGER_IG_STORY_REPLY,
 //   TRIGGER_IG_STORY_MENTION, SEND_MESSAGE, SEND_PHOTO, BRANCH, CONDITION,
 //   SET_VARIABLE, ADD_TAG, REMOVE_TAG, FORMULA, ASK_QUESTION, DELAY, END,
-//   SWITCH, STOP_AND_ERROR.
+//   SWITCH, STOP_AND_ERROR, RANDOM, RANDOM_TEXT.
 // IG_ALLOWED_INPUT_KINDS: TEXT, EMAIL, PHONE, NUMBER, CONTACT (CONTACT деградирует в ручной ввод номера — кнопки в IG нет).
 // IG_MAX_DELAY_SECONDS: 86400 (24 часа).
 // ============================================================
@@ -824,6 +824,7 @@ if (platform === "INSTAGRAM") {
     "ADD_TAG", "REMOVE_TAG", "FORMULA",
     "ASK_QUESTION", "DELAY", "END",
     "SWITCH", "STOP_AND_ERROR",
+    "RANDOM", "RANDOM_TEXT",
   ]);
   const IG_ALLOWED_INPUT_KINDS = new Set(["TEXT", "EMAIL", "PHONE", "NUMBER", "CONTACT"]);
   const IG_MAX_DELAY_SEC = 86400; // 24h messaging window
@@ -882,7 +883,7 @@ if (platform === "INSTAGRAM") {
     }
 
     // 4) «Ответ в комментарии» только в сценарии с триггером-комментарием
-    if ((type === "SEND_MESSAGE" || type === "SEND_PHOTO")
+    if ((type === "SEND_MESSAGE" || type === "SEND_PHOTO" || type === "RANDOM_TEXT")
         && String(c.igReplyChannel) === "comment" && !reachFromComment.has(n.id)) {
       errors.push(`IG_COMMENT_REPLY_NO_COMMENT_TRIGGER: ${who} — «Ответ в комментарии» доступен только если шаг запускается триггером «Комментарий»; выбери «Личное сообщение» (igReplyChannel:"dm") или подключи шаг к TRIGGER_IG_COMMENT`);
     }
